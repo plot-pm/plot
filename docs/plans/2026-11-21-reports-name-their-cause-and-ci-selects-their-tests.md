@@ -118,7 +118,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Jenkins sha read
 
-- `bug/the-jenkins-sha-refusal-names-its-cause` — `jen()`'s timeout as an `error:` line, one stderr file per path, a refusal naming the bound or each path's error, and the `host.test.mjs` cases for the bound, SSO order, proxied 302, HTML answers, ledger rows and an early `apiMissing` branch <!-- builds: the Jenkins sha refusal's cause line -->
+- `bug/the-jenkins-sha-refusal-names-its-cause` — `jen()`'s timeout as an `error:` line, one stderr file per path, a refusal naming the bound or each path's error, and the `host.test.mjs` cases for the bound, SSO order, proxied 302, HTML answers, ledger rows and an early `apiMissing` branch <!-- builds: the Jenkins sha refusal's cause line --> → #3684
 
 ### Desk dirt
 
