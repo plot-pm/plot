@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-20, Jan Wloka, `bug/bitbucket-predicts-800-an-hour`
 - **Started:** 2026-11-21, Jan Wloka, `bug/fleetd-counts-in-the-bb-ledger`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-host-reads-bb-rate-limit`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
