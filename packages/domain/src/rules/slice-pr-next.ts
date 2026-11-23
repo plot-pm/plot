@@ -34,6 +34,12 @@ export const MERGEABLE_CONFLICTING = MergeabilitySchema.enum.conflicting;
  * budgets, counted apart. `conflictTried` is true where a conflict attempt on
  * the row's current head and the read base tip exists. `pushedHead` is true
  * where the record proves the fixer pushed the row's current head.
+ *
+ * `rerun` is where the re-run of the row's current head stands, from
+ * `rerunOnHead`: `none` for no re-run recorded, `running` for one asked and
+ * not yet seen, `done` for one seen or answered `failed` or `unaskable`, and
+ * `unseen` for one asked longer than `Checks wait` ago and never seen. Absent
+ * where the caller read no clock; {@link ciRerunArm} then answers `none`.
  */
 export type FixerReading =
   | { read: 'unread' }
@@ -45,6 +51,7 @@ export type FixerReading =
       conflictExhausted: boolean;
       conflictTried: boolean;
       pushedHead: boolean;
+      rerun?: 'none' | 'running' | 'done' | 'unseen';
     };
 
 /** The tip of a PR's base branch as the fixer tick read it after a fetch. */
@@ -159,6 +166,7 @@ export type HoldReason =
   | 'ci-red-attempts-spent'
   | 'conflict-attempted'
   | 'conflict-attempts-spent'
+  | 'rerun-running'
   | 'default-branch-red'
   | 'base-branch-red'
   | 'default-branch-stale'
@@ -188,6 +196,7 @@ export type SlicePrStep =
   | { step: 'merge'; head: string }
   | { step: 'hold'; reason: HoldReason }
   | { step: 'fixer'; head: string; evidence: 'high' | 'ci-red' | 'conflict' }
+  | { step: 'rerun'; head: string }
   | { step: 'ticket'; head: string };
 
 const none = (why: string): SlicePrStep => ({ step: 'none', why });
@@ -343,6 +352,38 @@ export const ciRedArm = (readings: ArmReadings): SlicePrStep => {
   if (fixer.ciExhausted) return hold('ci-red-attempts-spent');
   if (!deskGone(readings, fixer)) return none('desk-alive');
   return { step: 'fixer', head: row.headSha, evidence: 'ci-red' };
+};
+
+/**
+ * CI red on the current head re-runs the failed jobs once per head before
+ * {@link ciRedArm} starts a fixer on it.
+ *
+ * Answers, in order: an `unread` hold while the fixer record is unread;
+ * `none('rerun-unread')` where the reading carries no `rerun`;
+ * `none('no-ci-red')` where the row is not `failing` on its head;
+ * `none('rerun-done')` and `none('rerun-unseen')` for those `rerun` readings;
+ * `hold('rerun-running')` for a re-run asked and not yet seen, because a
+ * `failing` row read then predates the re-run; `none('ci-red-attempts-spent')`
+ * where the CI-red budget is spent, which {@link ciRedArm} then holds;
+ * `none('desk-alive')` where the desk is not gone; otherwise a `rerun` step.
+ *
+ * @param readings - the PR's readings.
+ * @returns an `unread` or `rerun-running` hold, a `rerun` step, or `none`.
+ */
+export const ciRerunArm = (readings: ArmReadings): SlicePrStep => {
+  const { row, fixer } = readings;
+  if (fixer === undefined) return none('fixer-not-built');
+  if (fixer.read === 'unread') return hold('unread');
+  if (fixer.rerun === undefined) return none('rerun-unread');
+  if (row === null || row.headSha === undefined || row.ciChecks !== 'failing' || row.checksSha !== row.headSha) {
+    return none('no-ci-red');
+  }
+  if (fixer.rerun === 'done') return none('rerun-done');
+  if (fixer.rerun === 'unseen') return none('rerun-unseen');
+  if (fixer.rerun === 'running') return hold('rerun-running');
+  if (fixer.ciExhausted) return none('ci-red-attempts-spent');
+  if (!deskGone(readings, fixer)) return none('desk-alive');
+  return { step: 'rerun', head: row.headSha };
 };
 
 /**
@@ -555,10 +596,11 @@ export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
  * Asks `fleetScope` in place of {@link guardArm}: a PR out of scope answers
  * `none` with the scope's reason, and `person-pushed-recently` carries the
  * time left as `leftMs`. A PR in scope then walks {@link reviewRunArm},
- * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm} and
- * {@link ciRedArm}, and the first answer that is not `none` wins; with none,
- * `ciRedArm`'s `none` is returned. `conflictArm` runs before `ciRedArm`
- * because the host runs no pull-request checks on a conflicting merge ref.
+ * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm},
+ * {@link ciRerunArm} and {@link ciRedArm}, and the first answer that is not
+ * `none` wins; with none, `ciRedArm`'s `none` is returned. `conflictArm` runs
+ * before `ciRerunArm` and `ciRedArm` because the host runs no pull-request
+ * checks on a conflicting merge ref.
  * For `owner: 'none'` the arms read the desk as `{ dead: true }`; for
  * `owner: 'desk'` they read `readings.desk`.
  *
@@ -586,7 +628,7 @@ export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
     desk: scope.owner === 'none' ? { dead: true } : readings.desk,
   };
   let last: SlicePrStep = none('no-arm-answered');
-  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, conflictArm, ciRedArm]) {
+  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, conflictArm, ciRerunArm, ciRedArm]) {
     last = arm(walked);
     if (!isNone(last)) return last;
   }

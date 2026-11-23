@@ -5,9 +5,9 @@ import type { Sprint } from '../src/entities/sprint.js';
 import { defaultBranchRed } from '../src/rules/default-branch.js';
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
-import type { FixerAttemptsRecord } from '../src/entities/fixer-attempts.js';
+import type { FixerAttemptsRecord, FixerRerun } from '../src/entities/fixer-attempts.js';
 import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
-import { ciRedArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, ciRerunArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -492,6 +492,93 @@ describe('the conflict arm', () => {
     it('holds a third as spent', () => {
       expect(step(record(TIP, OTHER_TIP), THIRD_TIP)).toEqual({ step: 'hold', reason: 'conflict-attempts-spent' });
     });
+  });
+});
+
+describe('the CI re-run arm', () => {
+  const WAIT = 3_600_000;
+  const clock = { now: NOW, checksWaitMs: WAIT };
+  const NEW = 'f'.repeat(40);
+  const dead = { dead: true } as const;
+  const red = (over: Partial<PrIndexRow> = {}) =>
+    row({ base: 'main', ciChecks: 'failing', checksSha: HEAD, headSince: new Date(NOW - 7_200_000).toISOString(), ...over });
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const rerun = (over: Partial<FixerRerun> = {}): FixerRerun => ({ headSha: HEAD, at: iso(NOW - 60_000), answer: 'asked', ...over });
+  const record = (reruns: FixerRerun[], ciAttempts = 0): FixerAttemptsRecord => ({
+    v: 1,
+    pr: 7,
+    attempts: Array.from({ length: ciAttempts }, (_, i) => ({ headSha: OLD, finding: { kind: 'ci', runId: `r${i}` } }) as const),
+    reruns,
+  });
+  const walk = (r: FixerAttemptsRecord | 'none', over: Partial<SlicePrNextReadings> = {}) => {
+    const prRow = over.row ?? red();
+    const { scope: _s, ...rest } = readings({ row: prRow, fixer: fixerReadingOf(r, prRow?.headSha ?? '', '', clock), desk: dead, defaultBranchName: 'main', ...over });
+    return fixerPrNext({ ...rest, owner: 'none' });
+  };
+
+  it('answers rerun on the first red of a head', () => {
+    expect(walk('none')).toEqual({ step: 'rerun', head: HEAD });
+  });
+
+  it('holds rerun-running while the row still reads failing after an asked re-run, and starts no fixer', () => {
+    expect(walk(record([rerun()]))).toEqual({ step: 'hold', reason: 'rerun-running' });
+  });
+
+  it('starts the fixer on a failing row after a cleared reading', () => {
+    expect(walk(record([rerun({ cleared: iso(NOW - 30_000) })]))).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+  });
+
+  it('starts the fixer where the re-run answered failed or unaskable', () => {
+    for (const answer of ['failed', 'unaskable'] as const) {
+      expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf(record([rerun({ answer })]), HEAD, '', clock), desk: dead }))).toEqual({
+        step: 'none',
+        why: 'rerun-done',
+      });
+      expect(walk(record([rerun({ answer })]))).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+    }
+  });
+
+  it('answers rerun-unseen once Checks wait passed with no cleared reading', () => {
+    const late = record([rerun({ at: iso(NOW - WAIT - 1) })]);
+    expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf(late, HEAD, '', clock), desk: dead }))).toEqual({ step: 'none', why: 'rerun-unseen' });
+    expect(walk(late)).toEqual({ step: 'fixer', head: HEAD, evidence: 'ci-red' });
+  });
+
+  it('answers rerun again on a new head', () => {
+    expect(walk(record([rerun({ cleared: iso(NOW - 30_000) })]), { row: red({ headSha: NEW, checksSha: NEW }) })).toEqual({ step: 'rerun', head: NEW });
+  });
+
+  it('answers none from the arm where the CI-red budget is spent, and the walk holds it', () => {
+    expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf(record([], 2), HEAD, '', clock), desk: dead }))).toEqual({
+      step: 'none',
+      why: 'ci-red-attempts-spent',
+    });
+    expect(walk(record([], 2))).toEqual({ step: 'hold', reason: 'ci-red-attempts-spent' });
+  });
+
+  it('answers none on a live desk', () => {
+    expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf('none', HEAD, '', clock), desk: { dead: false, why: 'live' } }))).toEqual({
+      step: 'none',
+      why: 'desk-alive',
+    });
+  });
+
+  it('answers the conflict arm first on a conflicting row', () => {
+    const TIP = 'c'.repeat(40);
+    const prRow = red({ mergeable: 'conflicting' });
+    const { scope: _s, ...rest } = readings({ row: prRow, fixer: fixerReadingOf('none', HEAD, TIP, clock), desk: dead, baseTip: { read: 'tip', sha: TIP }, defaultBranchName: 'main' });
+    expect(fixerPrNext({ ...rest, owner: 'none' })).toEqual({ step: 'fixer', head: HEAD, evidence: 'conflict' });
+  });
+
+  it('answers none on a row that is not failing on its head, and on a reading with no clock', () => {
+    expect(ciRerunArm(readings({ row: red({ ciChecks: 'pending' }), fixer: fixerReadingOf('none', HEAD, '', clock), desk: dead }))).toEqual({ step: 'none', why: 'no-ci-red' });
+    expect(ciRerunArm(readings({ row: red({ checksSha: OLD }), fixer: fixerReadingOf('none', HEAD, '', clock), desk: dead }))).toEqual({ step: 'none', why: 'no-ci-red' });
+    expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf('none', HEAD), desk: dead }))).toEqual({ step: 'none', why: 'rerun-unread' });
+  });
+
+  it('answers none with no fixer reading built, and holds while the fixer record is unread', () => {
+    expect(ciRerunArm(readings({ row: red(), desk: dead }))).toEqual({ step: 'none', why: 'fixer-not-built' });
+    expect(ciRerunArm(readings({ row: red(), fixer: { read: 'unread' }, desk: dead }))).toEqual({ step: 'hold', reason: 'unread' });
   });
 });
 
