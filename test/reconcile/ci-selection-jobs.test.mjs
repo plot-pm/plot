@@ -51,11 +51,11 @@ const stepScript = (job, marker) => {
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'plot-ci-selection-'));
 
 /**
- * Runs the map step with the given event, ask-step outcome and files.
+ * Runs the map step with the given event, ask-step outcome, push base and files.
  *
- * @returns the outputs it wrote, as an object.
+ * @returns the outputs it wrote, as an object, and the step summary.
  */
-const map = ({ event = 'pull_request', asked = 'success', changed = '', selection = null }) => {
+const mapRun = ({ event = 'pull_request', asked = 'success', changed = '', selection = null, pushBase = '', pushEvery = '' }) => {
   const dir = tmp();
   try {
     fs.writeFileSync(path.join(dir, 'changed.txt'), changed);
@@ -67,20 +67,27 @@ const map = ({ event = 'pull_request', asked = 'success', changed = '', selectio
       GITHUB_STEP_SUMMARY: path.join(dir, 'summary'),
       EVENT: event,
       ASKED: asked,
+      PUSH_BASE: pushBase,
+      PUSH_EVERY: pushEvery,
     };
     const res = spawnSync('bash', ['-c', stepScript('select', /id: map/)], { cwd: ROOT, env, encoding: 'utf8' });
     assert.equal(res.status, 0, res.stdout + res.stderr);
-    return Object.fromEntries(
+    const out = Object.fromEntries(
       fs
         .readFileSync(env.GITHUB_OUTPUT, 'utf8')
         .split('\n')
         .filter((l) => l !== '')
         .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
     );
+    const summary = fs.existsSync(env.GITHUB_STEP_SUMMARY) ? fs.readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8') : '';
+    return { out, summary };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 };
+
+/** Runs the map step and answers its outputs. */
+const map = (inputs) => mapRun(inputs).out;
 
 const JOBS = ['corpus', 'contracts', 'board', 'delivery', 'domain', 'fleet', 'e2e', 'macos', 'census'];
 
@@ -89,10 +96,10 @@ const answer = (over) =>
 
 const always = { suite: '.', command: './scripts/check-script-names.sh', tests: [], always: true };
 
-test('a push, a dispatch and a failed ask select every job', () => {
+test('a dispatch and a failed ask select every job', () => {
   for (const [event, asked] of [
-    ['push', 'skipped'],
     ['workflow_dispatch', 'skipped'],
+    ['push', 'failure'],
     ['pull_request', 'failure'],
     ['pull_request', 'skipped'],
   ]) {
@@ -100,6 +107,113 @@ test('a push, a dispatch and a failed ask select every job', () => {
     for (const job of JOBS) assert.equal(out[job], 'true', `${event}/${asked}: ${job}`);
     assert.equal(out.contracts_tests, '', `${event}/${asked}: the whole contract suite runs`);
     assert.equal(out.corpus_tests, '', `${event}/${asked}: the whole corpus tier runs`);
+  }
+});
+
+const PUSH_BASE = 'b'.repeat(40);
+
+test('a push whose answer carries planDataOnly: true maps as a pull request does', () => {
+  const out = map({
+    event: 'push',
+    pushBase: PUSH_BASE,
+    changed: 'docs/plans/x.md\n.plot/briefs/b.md\n',
+    selection: answer({ suites: ['.', 'corpus'], checks: [always], corpus: true, planDataOnly: true }),
+  });
+  assert.equal(out.corpus, 'true');
+  for (const job of ['contracts', 'board', 'domain', 'fleet', 'e2e', 'macos', 'census']) assert.equal(out[job], 'false', job);
+});
+
+test('a push whose answer carries planDataOnly: false or no field selects every job', () => {
+  for (const over of [{ planDataOnly: false }, {}]) {
+    const { out, summary } = mapRun({
+      event: 'push',
+      pushBase: PUSH_BASE,
+      changed: 'docs/plans/x.md\n',
+      selection: answer({ suites: ['.', 'corpus'], checks: [always], corpus: true, ...over }),
+    });
+    for (const job of JOBS) assert.equal(out[job], 'true', `${JSON.stringify(over)}: ${job}`);
+    assert.equal(out.corpus_tests, '');
+    assert.match(summary, /more than plan data/);
+  }
+});
+
+test('a push with an every= base answer selects every job and names the reason in the summary', () => {
+  for (const reason of ['api-failed', 'no-green-run', 'not-on-line']) {
+    const { out, summary } = mapRun({
+      event: 'push',
+      asked: 'skipped',
+      pushEvery: reason,
+      selection: answer({ corpus: true, planDataOnly: true }),
+    });
+    for (const job of JOBS) assert.equal(out[job], 'true', `${reason}: ${job}`);
+    assert.match(summary, new RegExp(`Every job runs: .*${reason}`));
+  }
+  const { out } = mapRun({ event: 'push', asked: 'skipped' });
+  for (const job of JOBS) assert.equal(out[job], 'true', `no base answer: ${job}`);
+});
+
+test('a push of .plot/hold with planDataOnly: true selects every job', () => {
+  const out = map({
+    event: 'push',
+    pushBase: PUSH_BASE,
+    changed: '.plot/hold\n',
+    selection: answer({ checks: [always], untested: ['.plot/hold'], planDataOnly: true }),
+  });
+  for (const job of JOBS) assert.equal(out[job], 'true', job);
+});
+
+test('on push, select runs its install, build, base and ask steps', () => {
+  for (const marker of [/name: Install/, /id: build/]) {
+    assert.match(stepText('select', marker), /^ {8}if: \$\{\{ \(?github\.event_name == 'pull_request' \|\| github\.event_name == 'push'/m, `${marker}`);
+  }
+  assert.match(stepText('select', /id: base/), /^ {8}if: \$\{\{ github\.event_name == 'push' && steps\.build\.outcome == 'success' \}\}$/m);
+  assert.match(
+    stepText('select', /id: ask/),
+    /^ {8}if: \$\{\{ \(github\.event_name == 'pull_request' \|\| \(github\.event_name == 'push' && steps\.base\.outputs\.base != ''\)\) && steps\.build\.outcome == 'success' \}\}$/m,
+  );
+});
+
+test('the push diff reads its base from plot-local-checks.mjs --push-base', () => {
+  const base = stepScript('select', /id: base/);
+  assert.match(base, /plot-local-checks\.mjs --push-base "\$green" "\$RUNNER_TEMP\/first-parent\.txt"/);
+  assert.match(base, /git rev-list --first-parent -n 50 HEAD/);
+  assert.match(base, /actions\/workflows\/ci\.yml\/runs\?branch=main&event=push&status=success&per_page=1/);
+  assert.match(stepText('select', /id: ask/), /PUSH_BASE: \$\{\{ steps\.base\.outputs\.base \}\}/);
+  assert.match(stepScript('select', /id: ask/), /git diff --name-only --no-renames "\$PUSH_BASE" HEAD/);
+  assert.match(jobBlock('select'), /^ {6}push_base: \$\{\{ steps\.base\.outputs\.base \}\}$/m);
+});
+
+test('a failed green-run call leaves no answer file, and the rule reads that as api-failed', () => {
+  const dir = tmp();
+  try {
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(path.join(bin, 'gh'), '#!/bin/sh\necho partial\nexit 1\n', { mode: 0o755 });
+    // The stand-in rule answers by whether the answer file exists.
+    fs.writeFileSync(path.join(bin, 'node'), '#!/bin/sh\nif [ -e "$3" ]; then echo base=x; else echo every=api-failed; fi\n', { mode: 0o755 });
+    const env = { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_OUTPUT: path.join(dir, 'out'), GITHUB_REPOSITORY: 'o/r' };
+    const res = spawnSync('bash', ['-c', stepScript('select', /id: base/)], { cwd: ROOT, env, encoding: 'utf8' });
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.equal(fs.readFileSync(env.GITHUB_OUTPUT, 'utf8'), 'every=api-failed\n');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the push checkout carries fetch-depth: 51', () => {
+  assert.match(
+    stepText('select', /actions\/checkout@/),
+    /^ {10}fetch-depth: \$\{\{ github\.event_name == 'push' && 51 \|\| 2 \}\}$/m,
+  );
+});
+
+test('gates measures both push-mode steps from push_base where it is set', () => {
+  for (const [marker, tool] of [
+    [/name: The shell does not grow$/m, 'check-shell-lines.sh'],
+    [/name: The shell that decides does not grow$/m, 'check-decision-count.sh'],
+  ]) {
+    const script = stepScript('gates', marker);
+    assert.ok(script.includes(`./scripts/${tool} push "\${{ needs.select.outputs.push_base || github.event.before }}"`), tool);
   }
 });
 
