@@ -172,6 +172,14 @@ describe('approve — the refusals, each without a repository', () => {
     const out = approve(ready({ pr: { number: 0, state: 'NONE', draft: false, branch: 'idea/a-plan' } }), on());
     expect(refused(out) && out.reason).toBe('pr-absent');
   });
+
+  it('refuses pr-merge-unnamed ahead of pr-absent where a merge added the plan and the host named no PR', () => {
+    const out = approve(ready({
+      pr: { number: 0, state: 'NONE', draft: false, branch: 'idea/a-plan', unnamedMerge: { sha: '1d814d0a1', via: 'commit' } },
+    }), on());
+    expect(refused(out) && out.reason).toBe('pr-merge-unnamed');
+    expect(refused(out) && out.detail).toContain('1d814d0a1');
+  });
 });
 
 describe('approve — a decision names every write', () => {
