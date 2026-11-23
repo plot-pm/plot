@@ -16,6 +16,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
 - **Started:** 2026-11-22, Jan Wloka, `feature/delivery-work-items-grid`
 - **Started:** 2026-11-22, Jan Wloka, `feature/release-delivery-plan-rows-unfold`
+- **Started:** 2026-11-23, Jan Wloka, `feature/fleet-switches-in-fleet-section`
 
 ## Changelog
 
