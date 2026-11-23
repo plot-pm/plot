@@ -759,10 +759,28 @@ test('land: with no key, a conflict with origin/main refuses, names the file and
   assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/main').trim(), before, 'origin/main did not move');
 });
 
+test('land: with no key, HEAD on another branch or detached refuses with exit 1 and main is unchanged', () => {
+  const { origin, repo } = stateSandbox('');
+  git(repo, 'checkout', '-q', '-B', 'sprint/a-sprint', 'origin/main');
+  commitFile(repo, 'record.txt', 'record\n', 'sprint: commit a-sprint');
+  const before = git(repo, 'ls-remote', origin, 'refs/heads/main').trim();
+
+  const onBranch = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(onBranch.code, 1, onBranch.out);
+  assert.match(onBranch.out, /HEAD is on sprint\/a-sprint, not main\. Nothing was pushed\./);
+  git(repo, 'checkout', '-q', '--detach');
+  const detached = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(detached.code, 1, detached.out);
+  assert.match(detached.out, /HEAD is on a detached HEAD, not main\. Nothing was pushed\./);
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/main').trim(), before, 'origin/main did not move');
+});
+
 test('land: with no key on a github origin, a declared Writer app key takes the App path and no ambient push follows', () => {
   const { dir, work, bare } = githubRepo(null);
   // insteadOf, not only pushInsteadOf: --land fetches the default branch first.
   git(work, 'config', `url.${bare}.insteadOf`, 'https://github.com/example/repo.git');
+  git(work, 'checkout', '-q', 'main');
+  git(work, 'commit', '-q', '--allow-empty', '-m', 'record');
   const keyPath = throwawayKey(dir);
   writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
   const before = mainLog(bare);

@@ -18,7 +18,8 @@ import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type L
  *
  * plot-state-cut.mjs --land [<default-branch>]
  * # exit 0 — HEAD, with the target's tip merged in, landed on the state ref or the default branch
- * # exit 1 — the merge conflicted or the push was rejected; the reason is on stderr
+ * # exit 1 — the merge conflicted, the push was rejected, or, with no `State branch` key,
+ * #          HEAD is not on the default branch (a detached HEAD included); the reason is on stderr
  * # exit 3, 4 — the Writer app refused before pushing; the reason is on stderr
  * # exit 6 — another default-branch writer held the push lock for the whole wait; nothing was pushed
  * ```
@@ -28,7 +29,8 @@ import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type L
  * `State branch` key it fetches the state ref and the default branch, merges
  * both into HEAD so the push is a fast-forward of the state ref, and pushes at
  * the state ref. With no key it fetches the default branch, merges it into
- * HEAD, and pushes at the default branch. Both pushes go through
+ * HEAD, and pushes at the default branch; it refuses and pushes nothing where
+ * HEAD's branch is not the default branch. Both pushes go through
  * `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app`
  * on a GitHub origin where one is declared.
  *
@@ -65,6 +67,14 @@ const land = async (
     const head = named ? null : await ctx.trees.originHead(cwd);
     const main = named || (head?.ok && head.value.trim() !== '' ? head.value.trim() : 'main');
     const target = await stateTargetOf(ctx, main);
+    if (target === null) {
+      const branch = await ctx.trees.currentBranch(cwd);
+      if (!branch.ok || branch.value.trim() !== main) {
+        const on = branch.ok ? (branch.value.trim() === '' ? 'a detached HEAD' : branch.value.trim()) : 'an unreadable branch';
+        warn(`plot-state-cut: --land lands a default-branch checkout; HEAD is on ${on}, not ${main}. Nothing was pushed.\n`);
+        return 1;
+      }
+    }
     const defaultRef = target?.defaultRef ?? `refs/remotes/origin/${main}`;
     const pushAt = target?.pushRef ?? main;
     const state = target === null ? null : await ctx.trees.fetchRef(cwd, target.pushRef, target.trackRef);

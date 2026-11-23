@@ -318,7 +318,7 @@ git commit -m "release: v<version>-rc.<n> checklist"
 node ../plot/scripts/board/plot-state-cut.mjs --land
 ```
 
-`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. A non-zero exit means nothing landed, and the reason is on stderr.
+`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. This commit is made on a default-branch checkout; `--land` refuses with exit 1 where HEAD is on any other branch. A non-zero exit means nothing landed, and the reason is on stderr.
 
 **Summary (RC):**
 - RC tag: `v<version>-rc.<n>`
