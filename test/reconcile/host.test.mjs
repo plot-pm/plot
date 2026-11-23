@@ -7000,18 +7000,172 @@ test('host: limit exits 3 where the host could not be asked at all', () => {
   assert.equal(res.stdout.trim(), '', 'a failed call must not print a reading');
 });
 
-test('host: limit answers bitbucket from experience, tagged predicted', () => {
-  // `bb` shows the script no `X-RateLimit-*`. A PREDICTION IS NOT A FAILURE —
-  // the adapter is telling the truth about what it knows, and a caller reads
-  // the basis to decide how much to trust it.
+// `bb rate-limit --json`, as `bb` 1.15.0 prints it. The recordings live with
+// the domain's corpus; these tests read them rather than restate them.
+const bbOutputs = JSON.parse(readFileSync(path.join(here, '../../packages/domain/corpus/fixtures/bb-ledger/bb-outputs.json'), 'utf8'));
+const bbCase = (name) => bbOutputs.cases.find((one) => one.name === name);
+
+// A stub `bb` that answers `--version` with `version` and every other call from
+// `answers`, one per call in order, the last one repeated. Each answer is
+// `{ stdout, stderr, status }`. Every call but `--version` is appended to
+// `calls.log`, one line per call.
+const makeScriptedBbStub = (answers, { version = bbOutputs.bb } = {}) => {
   const stubs = makeStubs();
-  writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** bitbucket\n');
-  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
-  assert.equal(out.connector, 'bitbucket');
-  assert.equal(out.basis, 'predicted');
-  assert.equal(out.limit, 800, 'with no Host rate limit key the prediction is 800');
-  assert.equal(out.remaining, null, 'a connector reporting no limit reports no spend either');
-  assert.equal(argvOf(stubs.bbArgv), null, 'bb has nothing to answer — do not ask it');
+  answers.forEach((one, i) => {
+    writeFileSync(path.join(stubs.dir, `bb.${i}.out`), one.stdout ?? '');
+    writeFileSync(path.join(stubs.dir, `bb.${i}.err`), one.stderr ?? '');
+  });
+  const last = answers.length - 1;
+  writeFileSync(path.join(stubs.dir, 'bb'), `#!/usr/bin/env bash
+if [ "$1" = --version ]; then printf '%s\\n' '${version.replace(/'/g, `'\\''`)}'; exit 0; fi
+log="${stubs.dir}/calls.log"
+n=$(wc -l 2>/dev/null <"$log" | tr -d ' '); n=\${n:-0}
+printf '%s\\n' "$*" >>"$log"
+[ "$n" -gt ${last} ] && n=${last}
+statuses=(${answers.map((one) => one.status ?? 0).join(' ')})
+cat "${stubs.dir}/bb.$n.out"; cat "${stubs.dir}/bb.$n.err" >&2
+exit "\${statuses[$n]}"
+`);
+  chmodSync(path.join(stubs.dir, 'bb'), 0o755);
+  return stubs;
+};
+
+const bbCallsOf = (stubs) => {
+  const log = path.join(stubs.dir, 'calls.log');
+  return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+};
+
+const budgetRowsOf = (stubs) => {
+  const file = path.join(budgetEnvFor(stubs).PLOT_BUDGET_HOME, 'budget.tsv');
+  return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
+};
+
+test('host: limit reads bb rate-limit on bitbucket, and keeps the declared limit beside it', () => {
+  // `bb` 1.15.0 counts its own requests, so the limit line carries its fields
+  // and the adapter reads them through `bbLimitReading`. The shell computes
+  // nothing: `limit` is the declared limit, or null where none is declared.
+  for (const name of ['rate-limit-idle', 'rate-limit-ceiling', 'rate-limit-paused', 'rate-limit-unknown', 'rate-limit-off']) {
+    const recorded = bbCase(name);
+    const stubs = makeScriptedBbStub([recorded]);
+    writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** bitbucket\n');
+    const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
+    const fields = JSON.parse(recorded.stdout);
+    assert.deepEqual(
+      { requests: out.requests, ceiling: out.ceiling, paused_until: out.paused_until, wait_seconds: out.wait_seconds },
+      fields,
+      `${name}: the line carries bb's four fields as bb printed them`,
+    );
+    assert.equal(out.connector, 'bitbucket');
+    assert.equal(out.basis, 'predicted');
+    assert.equal(out.limit, null, `${name}: with no Host rate limit key the line declares no limit`);
+    assert.deepEqual(bbCallsOf(stubs), ['rate-limit --json'], `${name}: bb is asked for its own count`);
+  }
+});
+
+test('host: limit on bitbucket prints the declared prediction where bb has no rate-limit command', () => {
+  // `bb` 1.13.0 prints `unknown command` and exits 1; a non-JSON answer and a
+  // JSON answer without `wait_seconds` read the same way.
+  for (const answer of [
+    { stdout: '', stderr: 'error: unknown command "rate-limit" for "bb"', status: 1 },
+    { stdout: 'rate limit: fine\n', status: 0 },
+    { stdout: '{"requests":2,"ceiling":800}\n', status: 0 },
+  ]) {
+    const stubs = makeScriptedBbStub([answer], { version: 'bb 1.13.0' });
+    writeFileSync(path.join(stubs.dir, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** bitbucket\n');
+    const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_REPO_ROOT: stubs.dir }, stubs }).trim());
+    assert.deepEqual(out, { connector: 'bitbucket', bucket: 'api', limit: 800, remaining: null, reset: null, basis: 'predicted' });
+  }
+});
+
+test('host: the limit op and a bitbucket pr-list record no budget row beyond their API calls', () => {
+  // `command bb --version` and `command bb rate-limit` bypass the `bb()`
+  // wrapper, so neither spends from the budget record.
+  const limit = makeScriptedBbStub([bbCase('rate-limit-idle')]);
+  run(['limit'], { env: { PLOT_HOST: 'bitbucket', PLOT_BUDGET_OFF: '' }, stubs: limit });
+  assert.deepEqual(budgetRowsOf(limit), [], 'the limit op spends nothing');
+
+  const list = makeScriptedBbStub([{ stdout: '{"values":[]}', status: 0 }]);
+  run(['pr-list', '--state', 'open'], { env: { PLOT_HOST: 'bitbucket', PLOT_BUDGET_OFF: '' }, stubs: list });
+  assert.ok(bbCallsOf(list).length > 0, 'the listing asked bb');
+  assert.equal(budgetRowsOf(list).length, bbCallsOf(list).length, 'one row per API call, none for the identity check');
+});
+
+// The four refusals `bb` 1.15.0 prints, each with exit 75.
+const BB_REFUSALS = ['refused-ceiling', 'refused-paused', 'refused-429', 'refused-429-later-page'];
+
+test('host: a bitbucket op that bb refuses with exit 75 exits 5, on each recorded refusal', () => {
+  const ops = [
+    ['pr-state', '5'],
+    ['pr-state', 'feature/x'],
+    ['pr-merged-heads', 'feature/x'],
+    ['pr-review', '5'],
+    ['pr-list', '--state', 'all'],
+  ];
+  for (const name of BB_REFUSALS) {
+    const refusal = bbCase(name);
+    assert.equal(refusal.status, 75, `${name} is recorded with exit 75`);
+    for (const op of ops) {
+      const stubs = makeScriptedBbStub([refusal]);
+      const res = runAllowFail(op, { env: { PLOT_HOST: 'bitbucket' }, stubs });
+      assert.equal(res.code, 5, `${name} on ${op.join(' ')} reads as throttled: ${res.stderr}`);
+    }
+  }
+});
+
+test('host: a bitbucket refusal on a later page exits 5', () => {
+  // The first page answers and names a `next`; bb refuses the second.
+  const page = { stdout: JSON.stringify({ values: [], next: 'https://api.bitbucket.org/2.0/repositories/w/r/commit/abc/statuses?page=2' }), status: 0 };
+  const stubs = makeScriptedBbStub([{ stdout: JSON.stringify({ source: { commit: { hash: 'abc' } } }), status: 0 }, page, bbCase('refused-429-later-page')]);
+  const res = runAllowFail(['pr-review', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.ok(bbCallsOf(stubs).length >= 3, 'the refusal came after the first page');
+  assert.equal(res.code, 5, res.stderr);
+});
+
+test('host: a github op whose stderr says rate limit keeps exit 3', () => {
+  // Only `bb()` writes the exit-code file, so no stderr word turns a GitHub
+  // failure into exit 5. `pr-merged-heads` ends in `die3` on a failed read.
+  const stubs = makeStubs({ ghFail: 'gh: API rate limit exceeded for user' });
+  const res = runAllowFail(['pr-merged-heads', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 3, res.stderr);
+  assert.match(res.stderr, /rate limit/);
+});
+
+test('host: a bb 75 followed by a successful bb call still fails with exit 3', () => {
+  // Each `bb()` call overwrites the exit-code file, so a 75 an earlier call
+  // tolerated does not make a later, unrelated failure read as throttled.
+  // No op tolerates a 75 and then fails, so this sources the script and calls
+  // its functions in that order.
+  const stubs = makeScriptedBbStub([bbCase('refused-paused'), { stdout: '{}', status: 0 }]);
+  const res = spawnSync('bash', ['-c', `. "${adapter}" backend >/dev/null; bb api a; bb api b >/dev/null; die3 "an unrelated failure"`], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...budgetEnvFor(stubs), PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(bbCallsOf(stubs).length, 2, 'both bb calls ran');
+  assert.equal(res.status, 3, res.stderr);
+
+  const throttled = makeScriptedBbStub([bbCase('refused-paused')]);
+  const last = spawnSync('bash', ['-c', `. "${adapter}" backend >/dev/null; bb api a; die3 "refused"`], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${throttled.dir}:${process.env.PATH}`, ...budgetEnvFor(throttled), PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(last.status, 5, 'the same harness exits 5 where the last bb call was the 75');
+});
+
+test('host: a bitbucket op refuses the craftamap bb by its version line, and names the install', () => {
+  const stubs = makeScriptedBbStub([{ stdout: '[]', status: 0 }], { version: 'bb version 0.6.0 (a1b2c3d)' });
+  const res = runAllowFail(['pr-state', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(res.code, 3);
+  assert.match(res.stderr, /bb is not Quatico's bb \(bb version 0\.6\.0 \(a1b2c3d\)\) — install it with brew install quatico-solutions\/tap\/quatico-bb/);
+  assert.deepEqual(bbCallsOf(stubs), [], 'nothing is asked of a bb that is not Quatico\'s');
+});
+
+test('host: an older Quatico bb passes the identity check', () => {
+  // 1.12.1 predates `rate-limit` and the `quatico-bb` banner. The check refuses
+  // the craftamap shape, not an old version.
+  const stubs = makeScriptedBbStub([{ stdout: JSON.stringify({ id: 5, state: 'OPEN', source: { branch: { name: 'feature/x' }, commit: { hash: 'abc' } }, destination: { branch: { name: 'main' } } }), status: 0 }], { version: 'bb 1.12.1' });
+  const res = runAllowFail(['pr-state', '5'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.doesNotMatch(res.stderr, /not Quatico's bb/);
+  assert.ok(bbCallsOf(stubs).length > 0, 'the op asked bb');
 });
 
 test('host: limit and the budget record answer the Host rate limit key for bitbucket', () => {
@@ -7659,9 +7813,9 @@ test('host: Bitbucket pr-list walking 3 pages writes one bitbucket line per bb()
   // per page through the `bb()` wrapper, so a 3-page walk already records
   // three lines — one per page, never folded into a derived-pages line the
   // way the GitHub arms now are. Pinned here so a future change to the
-  // shared helper cannot silently fold these into one line. The walk ends on a
-  // page that names no further page, so it reads no `bb --version` and the
-  // record holds the three page lines and nothing else.
+  // shared helper cannot silently fold these into one line. The identity
+  // check reads `bb --version` through `command bb`, which records no line, so
+  // the record holds the three page lines and nothing else.
   const pages = [
     Array.from({ length: 50 }, (_, i) => restPr(900 - i, `feature/pr-${900 - i}`, 'OPEN')),
     Array.from({ length: 50 }, (_, i) => restPr(850 - i, `feature/pr-${850 - i}`, 'OPEN')),
