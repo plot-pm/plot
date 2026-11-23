@@ -1,0 +1,1 @@
+../2026-11-23-github-refuses-a-merge-into-a-red-main.md
