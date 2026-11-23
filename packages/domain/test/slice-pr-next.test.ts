@@ -575,6 +575,11 @@ describe('the CI re-run arm', () => {
     expect(ciRerunArm(readings({ row: red({ checksSha: OLD }), fixer: fixerReadingOf('none', HEAD, '', clock), desk: dead }))).toEqual({ step: 'none', why: 'no-ci-red' });
     expect(ciRerunArm(readings({ row: red(), fixer: fixerReadingOf('none', HEAD), desk: dead }))).toEqual({ step: 'none', why: 'rerun-unread' });
   });
+
+  it('answers none with no fixer reading built, and holds while the fixer record is unread', () => {
+    expect(ciRerunArm(readings({ row: red(), desk: dead }))).toEqual({ step: 'none', why: 'fixer-not-built' });
+    expect(ciRerunArm(readings({ row: red(), fixer: { read: 'unread' }, desk: dead }))).toEqual({ step: 'hold', reason: 'unread' });
+  });
 });
 
 describe('the merge arm', () => {

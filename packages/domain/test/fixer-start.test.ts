@@ -42,6 +42,19 @@ describe('fixerPrompt', () => {
     expect(text).not.toContain('review findings');
   });
 
+  it('names the answer of the head\'s re-run of the failed jobs', () => {
+    const asked = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'asked' } }));
+    expect(asked).toContain('re-ran the failed jobs once');
+    expect(asked).toContain('Do not name a re-run as the next step.');
+    const refused = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'failed' } }));
+    expect(refused).toContain('the CI system refused it');
+    const unaskable = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun: 'unaskable' } }));
+    expect(unaskable).toContain('the CI system cannot re-run them from fleetd');
+    for (const rerun of [undefined, 'none'] as const) {
+      expect(textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: ['test'], rerun } }))).not.toContain('re-run');
+    }
+  });
+
   it('says the index named no failing check where none is named', () => {
     const text = textOf(fixerPrompt({ ...base, evidence: { kind: 'ci-red', failingChecks: [] } }));
     expect(text).toContain('the index named no failing check');
