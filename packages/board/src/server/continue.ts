@@ -4,13 +4,9 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import { BOARD_ANSWER_AUTHOR, type FleetReading } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
-import type { DeskMonitors } from '@plot-pm/domain';
+import type { ContinueRefusal, DeskMonitors } from '@plot-pm/domain';
 import { continueBranch } from '@plot-pm/fleet/shared/continue-command';
-import {
-  ANSWER_MAX,
-  BODY_LIMIT,
-  type ContinueRefusal,
-} from '@plot-pm/fleet/shared/continuation';
+import { ANSWER_MAX, BODY_LIMIT } from '@plot-pm/fleet/shared/continuation';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and

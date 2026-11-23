@@ -8,7 +8,8 @@ import type { DeskMonitors } from '@plot-pm/domain';
 import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { optionalProof, type PasskeyDeps } from './passkey.js';
 import { restartBranch, type RestartReaders } from '@plot-pm/fleet/shared/restart-command';
-import { BODY_LIMIT, type ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
+import { BODY_LIMIT } from '@plot-pm/fleet/shared/continuation';
+import type { ContinueRefusal } from '@plot-pm/domain';
 
 /** What the board listens on; the same shape `handleContinue` takes. */
 export interface RestartOptions extends BuildBoardOptions {

@@ -110,3 +110,65 @@ export const dispatchReadingForPulses = (
   const detail = `the fleet scan has not reached plan ${slug} yet; ask again after the scan finishes`;
   return branch === undefined ? { kind: 'pulse-partial', detail } : { kind: 'branch-refused', reason: 'pulse-partial', branch, detail };
 };
+
+/** The desk a branch holds, as the pulse names it. */
+export interface PulseBranch {
+  worktree: string;
+  plan: string;
+  wave: string;
+  worker: string;
+  pid: string;
+}
+
+/** What {@link lookupBranch} finds. */
+export type BranchLookup =
+  /** There is no fleet reading to look the branch up in. */
+  | { kind: 'no-pulse' }
+  /** The fleet reading does not list the branch. */
+  | { kind: 'unknown-branch' }
+  /** The fleet reading lists the branch. */
+  | { kind: 'found'; desk: PulseBranch };
+
+/**
+ * Finds a branch in a fleet reading and says why it found none.
+ *
+ * A lookup and not a check: the branch names a record the scan already
+ * produced, so no caller text becomes a path.
+ *
+ * @param pulse - a fleet reading, or `null` where there is none.
+ * @param branch - the branch name.
+ * @returns `no-pulse` for a `null` reading, `unknown-branch` where the reading does not list the branch, else the desk it names.
+ */
+export const lookupBranch = (pulse: FleetReading | null, branch: string): BranchLookup => {
+  if (!pulse) return { kind: 'no-pulse' };
+  for (const plan of pulse.plans) {
+    for (const wave of plan.slices) {
+      for (const b of wave.branches) {
+        if (b.branch !== branch) continue;
+        return {
+          kind: 'found',
+          desk: {
+            worktree: b.local_worktree ?? '',
+            plan: plan.file ?? '',
+            wave: wave.name ?? '',
+            worker: b.worker ?? 'elsewhere',
+            pid: b.worker_pid ?? '',
+          },
+        };
+      }
+    }
+  }
+  return { kind: 'unknown-branch' };
+};
+
+/**
+ * Finds a branch in a fleet reading.
+ *
+ * @param pulse - a fleet reading, or `null` where there is none.
+ * @param branch - the branch name.
+ * @returns the desk the reading names for it, or `null` where the reading is absent or does not list it.
+ */
+export const branchFromPulse = (pulse: FleetReading | null, branch: string): PulseBranch | null => {
+  const lookup = lookupBranch(pulse, branch);
+  return lookup.kind === 'found' ? lookup.desk : null;
+};

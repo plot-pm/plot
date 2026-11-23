@@ -67,7 +67,7 @@ export type AgentPanelMiss =
   /** No current fleet reading exists to look the branch up in. */
   | 'no-pulse';
 
-import { branchFromPulse } from '@plot-pm/fleet/shared/continue-command';
+import { branchFromPulse } from '@plot-pm/domain';
 export { branchFromPulse };
 
 /**

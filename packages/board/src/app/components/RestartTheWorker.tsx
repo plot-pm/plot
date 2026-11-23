@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
+import type { ContinueRefusal } from '@plot-pm/domain';
 import { refusalWord } from './ContinueWithAnAnswer.js';
 
 /** The button's label. */

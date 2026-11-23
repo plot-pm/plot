@@ -30,9 +30,8 @@ import {
   CONTINUATION_NAME,
   continueOnDesk,
   stopAndAwaitExit,
-  type ContinueRefusal,
 } from '@plot-pm/fleet/shared/continuation';
-import { isAnswered, type FleetReading } from '@plot-pm/domain';
+import { isAnswered, type ContinueRefusal, type FleetReading } from '@plot-pm/domain';
 import { rmTree } from '../helpers.mjs';
 import { record, signalOwn } from '../../../../test/reconcile/own-process.mjs';
 import {

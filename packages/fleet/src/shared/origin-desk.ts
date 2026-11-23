@@ -27,7 +27,8 @@ import { answered, failed, type Caller, type PortResult } from '@plot-pm/domain'
 import { readConfig } from './config-reader.js';
 import { pidAliveEverywhere } from './desk-loop.js';
 import { resolveManifestDir } from './registry.js';
-import type { ContinuationOptions, ContinueRefusal } from './continuation.js';
+import type { ContinueRefusal } from '@plot-pm/domain';
+import type { ContinuationOptions } from './continuation.js';
 
 /**
  * Cutting a desk for a claimed branch whose work exists only on origin — the
