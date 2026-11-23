@@ -171,7 +171,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### One state home
 
-- `bug/every-state-reader-asks-one-state-home` — the bridge, the heartbeat, `recordBridge`, `approve.ts`, `design.ts`, `verify.ts` and `review.ts` on `stateHomeOf`, `mainRootOf` deleted, and the unread-home cells <!-- builds: stateHomeAtSync, the synchronous state-home adapter -->
+- `bug/every-state-reader-asks-one-state-home` — the bridge, the heartbeat, `recordBridge`, `approve.ts`, `design.ts`, `verify.ts` and `review.ts` on `stateHomeOf`, `mainRootOf` deleted, and the unread-home cells <!-- builds: stateHomeAtSync, the synchronous state-home adapter --> → #3672
 
 ### Partial-pulse readers
 
