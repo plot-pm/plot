@@ -265,6 +265,13 @@ describe('walkValueOf', () => {
     expect('listing' in walkValueOf(estate, rest, deskStage, conflicts, header).branches).toBe(false);
   });
 
+  it('carries the cause of a throttled host into the walk and the pulse', () => {
+    const walk = walkValueOf(estate, { ...branchStage, hostReach: 'throttled', hostCause: 'paused' }, deskStage, conflicts, header);
+    expect(walk.branches.hostCause).toBe('paused');
+    const pulse = fleetViewFrom(snapshotOf(walk), 0, HOST_BRANCH_URL_SCHEMES).pulse;
+    expect(pulse?.summary).toMatchObject({ host: 'throttled', hostCause: 'paused' });
+  });
+
   it('leaves each desk file and worker reading to their own keys', () => {
     expect(walkValueOf(estate, branchStage, deskStage, conflicts, header).desks.desks[0]).toEqual({
       branch: 'feature/x',

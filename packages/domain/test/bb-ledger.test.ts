@@ -18,6 +18,7 @@ import {
   bbPrunes,
   bbRefusalWaitSeconds,
   bbRequestLine,
+  bbRetryAfter,
   bbShownWait,
   bbStatePath,
   bbThrottleCause,
@@ -102,6 +103,10 @@ describe('the count', () => {
     expect(bbBudgetCount(NOW, 2, ['', cur])).toEqual({ requests: 3, freeAt: NOW - 20 + 3600 });
     expect(bbBudgetCount(NOW, 4, ['', cur])).toEqual({ requests: 3, freeAt: null });
   });
+
+  it('counts a last line that ends without a newline', () => {
+    expect(bbBudgetCount(NOW, null, [`${NOW - 20}\n`, `${NOW - 10}`])).toEqual({ requests: 2, freeAt: null });
+  });
 });
 
 describe('the pause', () => {
@@ -113,6 +118,8 @@ describe('the pause', () => {
     expect(bbPauseParse('0001788000123 0300\n')).toEqual({ end: NOW, length: 300 });
     expect(bbPauseParse('1234567890123 300\n')).toBeNull();
     expect(bbPauseParse(null)).toBeNull();
+    expect(bbPauseParse('000 300\n')).toEqual({ end: 0, length: 300 });
+    expect(bbPauseParse(`${NOW} 000\n`)).toBeNull();
   });
 
   it('counts a pause with more than its length plus 5 s left as stale', () => {
@@ -123,10 +130,19 @@ describe('the pause', () => {
     expect(bbPauseLeft({ end: NOW, length: 300 }, NOW)).toBeNull();
   });
 
+  it('reads Retry-After as bb_pause_after_429 does', () => {
+    expect(bbRetryAfter('120')).toBe(120);
+    expect(bbRetryAfter('000')).toBe(0);
+    expect(bbRetryAfter('0001234567890')).toBe(999_999_999);
+    expect(bbRetryAfter('12s')).toBeNull();
+    expect(bbRetryAfter(null)).toBeNull();
+  });
+
   it('starts at 300 s, doubles within the hour after a pause, and holds at least Retry-After', () => {
     expect(bbPauseAfter429(null, null, NOW)).toEqual({ end: NOW + 300, length: 300 });
     expect(bbPauseAfter429(null, '30', NOW)).toEqual({ end: NOW + 300, length: 300 });
     expect(bbPauseAfter429(null, '900', NOW)).toEqual({ end: NOW + 900, length: 900 });
+    expect(bbPauseAfter429(null, '000', NOW)).toEqual({ end: NOW + 300, length: 300 });
     expect(bbPauseAfter429({ end: NOW - 10, length: 300 }, null, NOW)).toEqual({ end: NOW + 600, length: 600 });
     expect(bbPauseAfter429({ end: NOW - 10, length: 2400 }, null, NOW)).toEqual({ end: NOW + 3600, length: 3600 });
     expect(bbPauseAfter429({ end: NOW - 3600, length: 2400 }, null, NOW)).toEqual({ end: NOW + 300, length: 300 });
@@ -213,6 +229,10 @@ describe('the limit reading', () => {
     });
     expect(bbLimitReading({ requests: null, ceiling: null, pausedUntil: null, waitSeconds: 0 }, 2000, NOW_MS, 'bitbucket')).toMatchObject({
       limit: 2000,
+      remaining: null,
+    });
+    expect(bbLimitReading({ requests: null, ceiling: null, pausedUntil: null, waitSeconds: 0 }, null, NOW_MS, 'bitbucket')).toMatchObject({
+      limit: 800,
       remaining: null,
     });
   });
