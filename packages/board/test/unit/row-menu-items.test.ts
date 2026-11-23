@@ -4,6 +4,7 @@ import { CardSchema, IssueRowSchema, type DispatchInfo } from '../../src/contrac
 import {
   rowMenuOf,
   type BranchMenuFacts,
+  type FleetAgentMenuFacts,
   type PlanMenuFacts,
   type RowMenuItem,
   type RowMenuView,
@@ -304,5 +305,62 @@ describe('the ⋯ of an opened Release plan line', () => {
 
   it('lists no item on a merged slice, so its trigger is absent', () => {
     expect(rowMenuOf({ ...line, state: 'delivered', start: false })).toEqual({ kind: 'items', items: [], trigger: 'none' });
+  });
+});
+
+describe('a Fleet agent row', () => {
+  const working: FleetAgentMenuFacts = {
+    kind: 'fleet-agent', state: 'waiting', broken: false, branch: 'feature/one', session: 'abc123def456ghi',
+    openUrl: 'https://host/pull/7', openLabel: 'Review', planFile: 'docs/plans/menus.md', canOpenPlan: true, canReveal: true,
+    continueWith: ON, restartWith: ON, drop: ON,
+  };
+  const broken: FleetAgentMenuFacts = { ...working, state: 'failed', broken: true };
+
+  it('lists Restart and Drop agent on a broken agent, and Drop agent asks for confirmation', () => {
+    const view = rowMenuOf(broken);
+    expect(actions(view)).toEqual(['restart', 'drop-agent']);
+    expect(find(view, 'restart')).toMatchObject({ enabled: true, reason: null, confirm: null });
+    expect(find(view, 'drop-agent')).toMatchObject({ enabled: true, reason: null, confirm: 'Drop abc123def456…?' });
+  });
+
+  it('lists Drop agent disabled where the agent has no manifest, and where the board refuses the drop', () => {
+    expect(find(rowMenuOf({ ...broken, session: '' }), 'drop-agent'))
+      .toMatchObject({ enabled: false, reason: 'the agent has no manifest to drop', confirm: null });
+    expect(find(rowMenuOf({ ...broken, drop: OFF }), 'drop-agent')).toMatchObject({ enabled: false, reason: 'the board runs read-only' });
+  });
+
+  it('lists Restart disabled on a broken agent that holds no branch', () => {
+    expect(find(rowMenuOf({ ...broken, branch: '' }), 'restart')).toMatchObject({ enabled: false, reason: 'the agent holds no branch' });
+  });
+
+  it('lists the six agent items on any other agent with a branch', () => {
+    expect(actions(rowMenuOf(working))).toEqual(['worker-log', 'open', 'continue', 'restart', 'open-plan', 'reveal-branch']);
+    expect(itemsOf(rowMenuOf(working)).every((i) => i.confirm === null)).toBe(true);
+  });
+
+  it('lists Continue enabled only while the agent asks a question', () => {
+    expect(find(rowMenuOf(working), 'continue')).toMatchObject({ enabled: true, reason: null });
+    expect(find(rowMenuOf({ ...working, state: 'running' }), 'continue')).toMatchObject({ enabled: false, reason: 'the agent asks no question' });
+    expect(find(rowMenuOf({ ...working, continueWith: OFF }), 'continue')).toMatchObject({ enabled: false, reason: 'the board runs read-only' });
+  });
+
+  it('lists Restart disabled while the worker runs, and enabled where restartOffered holds', () => {
+    expect(find(rowMenuOf({ ...working, state: 'running' }), 'restart')).toMatchObject({ enabled: false, reason: 'the worker still runs' });
+    expect(find(rowMenuOf({ ...working, state: 'finished' }), 'restart')).toMatchObject({ enabled: false, reason: 'a worker in state finished is not restarted' });
+    expect(find(rowMenuOf({ ...working, state: 'ended' }), 'restart')).toMatchObject({ enabled: true, reason: null });
+    expect(find(rowMenuOf({ ...working, state: 'ended', restartWith: undefined }), 'restart'))
+      .toMatchObject({ enabled: false, reason: 'this board has not said whether it can restart a worker' });
+  });
+
+  it('lists Open, Open plan and Reveal branch disabled with their reasons', () => {
+    const view = rowMenuOf({ ...working, openUrl: '', planFile: '', canReveal: false });
+    expect(find(view, 'open')).toMatchObject({ enabled: false, reason: 'no address' });
+    expect(find(view, 'open-plan')).toMatchObject({ enabled: false, reason: 'the agent acts on no plan' });
+    expect(find(view, 'reveal-branch')).toMatchObject({ enabled: false, reason: 'this view reveals no branch' });
+    expect(find(rowMenuOf({ ...working, canOpenPlan: false }), 'open-plan')).toMatchObject({ enabled: false, reason: 'this view opens no plan' });
+  });
+
+  it('lists no item on an agent that is not broken and holds no branch, so its trigger is absent', () => {
+    expect(rowMenuOf({ ...working, branch: '' })).toEqual({ kind: 'items', items: [], trigger: 'none' });
   });
 });

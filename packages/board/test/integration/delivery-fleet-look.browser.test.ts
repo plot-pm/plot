@@ -210,7 +210,7 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
     }
   });
 
-  it('wraps the Fleet header switches at 320 px with no horizontal scroll', async () => {
+  it('wraps the Fleet switch row at 320 px with no horizontal scroll', async () => {
     const page = await cat.open('every-delivery-section', {
       tab: 'agents',
       over: { fleet: fleetWithBars() },
@@ -218,8 +218,9 @@ describe('the Fleet section in the mockup look (real browser renders the shipped
       colorScheme: 'dark',
     });
     try {
-      const column = page.locator('[data-fleet-control-column]');
+      const column = page.locator('[data-section="fleet"] [data-fleet-switch-row][data-fleet-control-column]');
       await column.waitFor({ timeout: 10_000 });
+      expect(await column.evaluate((el) => el.closest('h2'))).toBeNull();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
       const tops = await column.evaluate((el) => [...el.children].map((c) => Math.round(c.getBoundingClientRect().top)));
       expect(new Set(tops).size).toBeGreaterThan(1);
