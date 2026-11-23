@@ -1,0 +1,38 @@
+# The entries that git may track at the repository root. One name per line.
+# Blank lines and lines that start with `#` are ignored. A line is a name,
+# never a pattern.
+#
+# `scripts/check-repo-root.sh` fails when git tracks a root entry that is not
+# listed here. To add a top-level entry, add its line in the same pull request
+# and give the reason in the pull request. To keep a tool's output out of the
+# root, add it to `.gitignore` instead.
+.changeset
+.claude
+.claude-plugin
+.dev
+.gitattributes
+.github
+.gitignore
+.npmrc
+.nvmrc
+.plot
+AGENTS.md
+CHANGELOG.md
+CLAUDE.md
+LICENSE
+README.md
+RELEASING.md
+assets
+commands
+docs
+evals
+hooks
+mods
+package.json
+packages
+pnpm-lock.yaml
+pnpm-workspace.yaml
+scripts
+sessionlogs
+skills
+test
