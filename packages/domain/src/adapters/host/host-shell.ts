@@ -29,6 +29,7 @@ import {
   EXIT_SECONDARY,
   EXIT_UNASKABLE,
 } from '../host-exit.js';
+import { bbLimitReading } from '../../rules/bb-ledger.js';
 import { asksOtherHost, crossRepoAnswer } from '../../rules/cross-repo-probe.js';
 import {
   asJson,
@@ -74,6 +75,11 @@ interface RawLimit {
   remaining?: number | null;
   reset?: number | null;
   basis?: string;
+  /** `bb rate-limit --json`'s fields, present only where `bb` answered it. */
+  requests?: number | null;
+  ceiling?: number | null;
+  paused_until?: number | null;
+  wait_seconds?: number | null;
 }
 
 const PR_STATES: readonly string[] = ['OPEN', 'MERGED', 'CLOSED'];
@@ -157,10 +163,24 @@ const numberOr = (value: number | null | undefined): number | null =>
  * said: the two would otherwise be able to disagree, and a number tagged
  * *unknown* is the collapse this slice exists to refuse.
  *
+ * A line carrying `bb rate-limit --json`'s fields (a numeric `wait_seconds`)
+ * is read by `bbLimitReading`, with the line's `limit` as the declared limit.
+ *
  * @param raw - the script's JSON object.
+ * @param now - the adapter's clock, epoch milliseconds.
  * @returns the reading, with `resetAt` in epoch MILLISECONDS.
  */
-const limitOf = (raw: RawLimit): LimitReading => {
+const limitOf = (raw: RawLimit, now: number): LimitReading => {
+  const waitSeconds = numberOr(raw.wait_seconds);
+  if (waitSeconds !== null) {
+    const fields = {
+      requests: numberOr(raw.requests),
+      ceiling: numberOr(raw.ceiling),
+      pausedUntil: numberOr(raw.paused_until),
+      waitSeconds,
+    };
+    return bbLimitReading(fields, numberOr(raw.limit), now, raw.connector ?? '');
+  }
   const parsed = LimitBasisSchema.safeParse(raw.basis);
   const basis: LimitBasis = parsed.success ? parsed.data : 'unknown';
   const reset = numberOr(raw.reset);
@@ -312,9 +332,14 @@ export const prListingOfRun = (query: PrListingQuery, run: ScriptRun): PrListing
  *
  * @param context - where the scripts and the repository are.
  * @param answers - the held backend answer; this process's own by default.
+ * @param now - the clock a Bitbucket limit reading is taken at, epoch milliseconds; `Date.now` by default.
  * @returns a `Host` backed by the shell adapter.
  */
-export const hostShell = (context: ShellContext, answers: FixedAnswers = processAnswers): Host => {
+export const hostShell = (
+  context: ShellContext,
+  answers: FixedAnswers = processAnswers,
+  now: () => number = Date.now,
+): Host => {
   const host = scriptPath(context, 'plot-host.sh');
   const inRepo = { cwd: context.repoRoot };
   /** Starts `plot-host.sh` with `PLOT_REPO_ROOT` and `PLOT_GIT_COMMON_DIR` set from the held answers. */
@@ -589,7 +614,7 @@ export const hostShell = (context: ShellContext, answers: FixedAnswers = process
       // reported another service's headroom beside its own left a caller
       // pacing GitHub calls against a Jenkins estimate it never measured.
       const git = await runScripted('bash', [host, 'limit'], inRepo);
-      const readings = record(git, (stdout) => asJsonLines<RawLimit>(stdout).map(limitOf));
+      const readings = record(git, (stdout) => asJsonLines<RawLimit>(stdout).map((raw) => limitOf(raw, now())));
       if (!readings.ok) return readings;
       const all = readings.value.map(withCorrections);
       lastRead = all;

@@ -636,8 +636,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The host CLI's stderr for one call, read back after the call. One file per
 # process, created here in the parent because the calls redirect into it from
 # inside command substitutions, where an assignment would not reach the caller.
-HOST_ERR=""
-plot_tmpfile HOST_ERR host-err || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+# `BB_RC` holds the exit code of the last `bb()` call, for the same reason.
+HOST_ERR=""; BB_RC=""
+plot_tmpfile HOST_ERR host-err && plot_tmpfile BB_RC host-bb-rc || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
 
 die() { echo "plot-host: $*" >&2; exit 1; }
 
@@ -682,7 +683,10 @@ gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
-die3() { echo "plot-host: $*" >&2; exit 3; }
+# Exit 5 instead where the last `bb()` call exited 75: `bb` refused it on its
+# hourly ceiling, a pause, or a 429, so the op is throttled. Only `bb()` writes
+# `BB_RC`, so a GitHub, Jira or Jenkins op keeps exit 3 whatever its stderr says.
+die3() { echo "plot-host: $*" >&2; [ "$(cat "$BB_RC" 2>/dev/null)" = 75 ] && exit 5; exit 3; }
 
 # THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
 # read it, so what `green` means cannot differ between a listing and a merge.
@@ -3078,20 +3082,30 @@ BB_LIST_PAGELEN=50
 # space-separated. `adapters/host/listing-paging.ts` holds the same table.
 BB_LIST_PAGE_VERSIONS="1.9.0"
 
-# The version the `bb` on PATH prints, read at most once per process into
-# `BB_VERSION`; `bb_list_page_length` is its one reader. Empty where `bb
-# --version` prints no version.
+# WHICH `bb` ANSWERS, read once per Bitbucket run by `bb_identity_check` before
+# the op starts. `command bb --version` runs outside the `bb()` wrapper: it
+# sends no request, so it takes no host slot and records no budget row.
+#
+# The check refuses craftamap/bb, which has no `--json` and prints a git sha in
+# parentheses (`bb version 0.6.0 (abc1234)`). It does not demand the word
+# `quatico-bb`: Quatico's `bb` prints only `bb X.Y.Z` up to 1.12.1 and adds
+# `(quatico-bb — …)` from 1.13.0, and both take `--json`. A `bb` that prints
+# nothing passes, and its first real call fails with its own words.
+#
+# `BB_VERSION` is the version the line names, empty where it names none;
+# `bb_list_page_length` is its one reader.
 BB_VERSION=""
-BB_VERSION_READ=""
-bb_read_version() {
-  [ -n "$BB_VERSION_READ" ] && return 0
-  BB_VERSION_READ=1
-  BB_VERSION="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+bb_identity_check() {
+  local line; line="$(command bb --version 2>/dev/null | bb_strip_ansi | head -1)"
+  BB_VERSION="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$line" | head -1)"
+  grep -qE '\([0-9a-f]+\)' <<<"$line" && die3 "bb is not Quatico's bb ($line) — install it with brew install quatico-solutions/tap/quatico-bb"
+  return 0
 }
 
 # The page length the answering `bb` lists by, or nothing where its version is
-# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION`, which the caller reads first
-# with `bb_read_version`.
+# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION`, so it costs no `bb` call.
+# Quatico's `bb` 1.9.0 prints `bb version 1.9.0`, which names 1.9.0, so its
+# row still matches.
 bb_list_page_length() {
   [ -n "$BB_VERSION" ] || return 0
   case " $BB_LIST_PAGE_VERSIONS " in
@@ -3155,7 +3169,7 @@ pr_list_report_truncation() {
     # A walk whose last page named no further page is complete; one that
     # stopped with a further page named or rows trimmed is not; an unread
     # envelope is complete only below a measured page length.
-    [ -n "$next" ] || { bb_read_version; len="$(bb_list_page_length)"; }
+    [ -n "$next" ] || len="$(bb_list_page_length)"
     if [ "$next" = "0" ] || { [ -n "$len" ] && [ "$count" -lt "$len" ] 2>/dev/null; }; then pr_list_report_complete "$be" "$limit" "$state" "$count"; return 0; fi
   fi
   # Named per state so a caller can resolve exactly the states that were
@@ -3717,6 +3731,7 @@ bb() {
   host_slot_take bitbucket bitbucket
   command bb "$@"
   local rc=$?
+  printf '%s\n' "$rc" >"$BB_RC"
   host_slot_give
   budget_record_call bitbucket bitbucket
   return $rc
@@ -3776,6 +3791,7 @@ be="$(backend)" || exit $?
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
+[ "$be" = "bitbucket" ] && bb_identity_check
 # THE HOST CLI FOR OPS WHOSE TWO ARMS DIFFER ONLY IN ITS NAME.
 cli=gh; [ "$be" = "github" ] || cli=bb
 
@@ -5544,14 +5560,26 @@ case "$op" in
       fi
     elif [ "$be" = "bitbucket" ]; then
       # `bb` shows this script no response headers, so the number is this
-      # adapter's prediction — the `Host rate limit` key, else 800 requests an
-      # hour, the ceiling `bb` keeps — and it is tagged `predicted` because it is one.
+      # adapter's prediction, tagged `predicted` because it is one.
       #
-      # A PREDICTION IS NOT A LIE AND NOT A FAILURE. It is answered: the adapter
-      # is telling the truth about what it knows. A caller reads the basis and
-      # decides how much to trust it; a `throttled` observed during the session
-      # is what corrects it.
-      echo "{\"connector\":\"bitbucket\",\"bucket\":\"api\",\"limit\":$(budget_reading bitbucket | cut -f1),\"remaining\":null,\"reset\":null,\"basis\":\"predicted\"}"
+      # `bb rate-limit --json` (bb 1.15.0) reports its own ledger: `requests` in
+      # the last hour, its `ceiling`, `paused_until` and `wait_seconds`. It sends
+      # no request and takes no host slot, so it runs as `command bb` and
+      # records no budget row. It exits 0, or 75 where a request would be
+      # refused now. Its fields are printed beside the declared `Host rate
+      # limit` (null where none is declared), and `bbLimitReading` in
+      # `rules/bb-ledger.ts` turns them into a reading: this script computes
+      # nothing from them.
+      #
+      # ANY OTHER ANSWER PRINTS THE PREDICTION ALONE, with `remaining` null: the
+      # `Host rate limit` key, else 800 requests an hour, the ceiling `bb`
+      # keeps. A `bb` older than 1.15.0 answers `unknown command: rate-limit`
+      # and exit 1, and an answer that cannot be read is not "no limit".
+      if _rl="$(command bb rate-limit --json 2>/dev/null || [ $? = 75 ])" && _rl="$(jq -ce 'objects | select(.wait_seconds | type == "number") | {requests, ceiling, paused_until, wait_seconds}' <<<"$_rl" 2>/dev/null)"; then
+        jq -c --arg d "$(bash "$here/plot-config.sh" get "Host rate limit" "" 2>/dev/null | grep -xE '[1-9][0-9]*')" '{connector: "bitbucket", bucket: "api", limit: ($d | tonumber? // null), remaining: null, reset: null, basis: "predicted"} + .' <<<"$_rl"
+      else
+        echo "{\"connector\":\"bitbucket\",\"bucket\":\"api\",\"limit\":$(budget_reading bitbucket | cut -f1),\"remaining\":null,\"reset\":null,\"basis\":\"predicted\"}"
+      fi
     fi
     ;;
 
