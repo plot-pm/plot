@@ -102,7 +102,7 @@ Measured 2026-11-21 between 06:00 and 11:00 UTC on `plot-pm/plot`:
 
 ### Bookkeeping Push Selection
 
-- `infra/a-bookkeeping-push-runs-only-the-gates` — `pushSelectionBase` and its `--push-base` mode, the push arm of `select`, `ciSelection.planDataOnly` over `syncPathSet`, the push guard in the `select` shell step, `push_base` for the gate ranges, the `ci.yml` comment, and the tests <!-- builds: pushSelectionBase, ciSelection.planDataOnly, the push selection from the last green main head --> <!-- waits: infra/main-ci-cancels-an-older-head -->
+- `infra/a-bookkeeping-push-runs-only-the-gates` — `pushSelectionBase` and its `--push-base` mode, the push arm of `select`, `ciSelection.planDataOnly` over `syncPathSet`, the push guard in the `select` shell step, `push_base` for the gate ranges, the `ci.yml` comment, and the tests <!-- builds: pushSelectionBase, ciSelection.planDataOnly, the push selection from the last green main head --> <!-- waits: infra/main-ci-cancels-an-older-head --> → #3683
 
 ## Notes
 
