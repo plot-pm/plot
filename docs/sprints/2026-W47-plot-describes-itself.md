@@ -6,7 +6,7 @@
 
 - **State:** Planning
 - **Start:** 2026-11-21
-- **End:** 2026-11-27
+- **End:** 2026-12-04
 - **Owner:** eins78
 <!-- Optional. The version this sprint is working toward, named before it is
      cut. With it, /plot-release refuses to cut past an unfinished Must Have
@@ -65,7 +65,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 
 ## Notes
 
-- This sprint runs on a second operator's fleet.
+- This sprint runs on Jan's fleet alone: one supervisor per repository, because two supervisors would both dispatch, review and merge its slices. The second operator runs the guide's first autonomous run (`a-guide-leads-from-install-to-the-first-autonomous-run`) in a separate repository, not on this sprint's slices.
 - Verification of delivered plans (`/plot-deliver --verify`) runs on each plan of the sprint as a trial.
 - The sprint's close judges whether verification stays on.
 - Start this sprint only when no other sprint is active: the fleet reads no scope while `docs/sprints/active/` holds more than one sprint.
