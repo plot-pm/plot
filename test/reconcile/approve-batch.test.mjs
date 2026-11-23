@@ -112,6 +112,11 @@ if (argv[0] === 'pr' && argv[1] === 'view') {
   execFileSync('git', ['-C', state.mergeClone, 'push', '-q', 'origin', '--delete', ref.replace(/^.*refs\\/heads\\//, '')]);
 } else if (argv[0] === 'repo' && argv[1] === 'view') {
   process.stdout.write('main');
+} else if (argv[0] === 'auth') {
+  // No login, as real gh answers one: plot-approve then reads through this
+  // stub's shell transport and never sends the stub's output as a token.
+  process.stderr.write('You are not logged into any GitHub hosts.');
+  process.exit(1);
 } else {
   process.stdout.write('{}');
 }
