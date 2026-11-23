@@ -59,9 +59,19 @@
 #                             NARROW BY DESIGN. The other three readers excuse the
 #                             prefix `(^|/)\.plot-worker\.`; this one lists names,
 #                             because it sits in front of `git worktree remove
-#                             --force` and deletes whatever it excuses. Not listed:
-#                             `.plot-worker.limited`, `.plot-worker.continue.lock`
-#                             (a continuation may still run) and `.plot-worker.log.1`.
+#                             --force` and deletes whatever it excuses.
+#   ?? .plot-worker.limited, ?? .plot-worker.log.1, ?? .plot-worker.continue.lock
+#                             the usage-limit marker, a rotated log and the
+#                             continue lock, matched the same way. The excuse
+#                             for `.log.1` is defensive: no code on `main`
+#                             writes that file. The continue lock is excused
+#                             here only; the reaper refuses a desk whose lock is
+#                             held (`continue-lock-held`, `rules/reapable.ts`).
+#                             The lock's own leftovers — `<lock>.guard`,
+#                             `<lock>.<pid>.tmp`, `<guard>.<pid>.stale` — still
+#                             count: they exist only while a take runs or after
+#                             a take crashed, and a crashed take is a case for
+#                             a person. Names only, never the prefix.
 #   each generated bundle     `main` rebuilds and pushes every one of them
 #                             (`bug/main-builds-its-bundles`, #1249), so a desk
 #                             that locally rebuilt one to test holds nothing an
@@ -135,7 +145,7 @@ exclude_bundle_paths() { # $1=worktree, stdin=porcelain lines
 desk_dirt() {
   git -C "$1" status --porcelain 2>/dev/null \
     | grep -v 'tiny-garden/\.plot/state' \
-    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl' '?? .plot-worker.pass') \
+    | grep -vxFf <(printf '%s\n' '?? PLOT-CORRECTION.md' '?? .plot-worker.continue.md' '?? .plot-worker.pid.startedAt' '?? .plot-worker.pid' '?? .plot-worker.wrapper.pid' '?? .plot-worker.exit' '?? .plot-worker.log' '?? .plot-worker.freewait' '?? .plot-worker.ending.json' '?? .plot-worker.envelope.json' '?? .plot-worker.monitor.worker.jsonl' '?? .plot-worker.monitor.agent.jsonl' '?? .plot-worker.monitor.build.jsonl' '?? .plot-worker.pass' '?? .plot-worker.limited' '?? .plot-worker.log.1' '?? .plot-worker.continue.lock') \
     | exclude_bundle_paths "$1" \
     || true
 }
