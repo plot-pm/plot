@@ -1,7 +1,6 @@
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { NO_STATE_BRANCH } from '@plot-pm/domain/rules/write-target';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -18,16 +17,20 @@ import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type L
  * # exit 2 — arguments missing
  *
  * plot-state-cut.mjs --land [<default-branch>]
- * # exit 0 — HEAD, with the state tip merged in, was pushed at the state ref
- * # exit 1 — the merge conflicted or the push was refused; the reason is on stderr
- * # exit 4 — no `State branch` key is declared; nothing was done
+ * # exit 0 — HEAD, with the target's tip merged in, landed on the state ref or the default branch
+ * # exit 1 — the merge conflicted or the push was rejected; the reason is on stderr
+ * # exit 3, 4 — the Writer app refused before pushing; the reason is on stderr
+ * # exit 6 — another default-branch writer held the push lock for the whole wait; nothing was pushed
  * ```
  *
  * `--land` serves a skill that committed in a checkout of the default branch.
- * It reads the default branch from `origin/HEAD` where none is named, fetches
- * the state ref and the default branch, merges both into HEAD so the push is a
- * fast-forward of the state ref, and pushes through `plot-push-main.sh`, which
- * takes the push lock.
+ * It reads the default branch from `origin/HEAD` where none is named. With a
+ * `State branch` key it fetches the state ref and the default branch, merges
+ * both into HEAD so the push is a fast-forward of the state ref, and pushes at
+ * the state ref. With no key it fetches the default branch, merges it into
+ * HEAD, and pushes at the default branch. Both pushes go through
+ * `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app`
+ * on a GitHub origin where one is declared.
  *
  * The cut is {@link cutBooking}'s: from `origin/<default>` where no
  * `State branch` key is declared, else from the state ref with the default
@@ -39,7 +42,8 @@ import { cutBooking, pushTargetOf, pushUnderLock, Refused, stateTargetOf, type L
 const USAGE = 'usage: plot-state-cut.mjs <worktree> <branch> <default-branch> | --land [<default-branch>]';
 
 /**
- * Merges the state tip and the default branch into HEAD and pushes HEAD at the state ref.
+ * Merges the target's tip into HEAD and pushes HEAD at the state ref, or at
+ * the default branch where no `State branch` key is declared.
  *
  * @param named - the default branch's short name; `origin/HEAD`'s where absent.
  * @param cwd - the checkout holding the commit to push.
@@ -61,21 +65,22 @@ const land = async (
     const head = named ? null : await ctx.trees.originHead(cwd);
     const main = named || (head?.ok && head.value.trim() !== '' ? head.value.trim() : 'main');
     const target = await stateTargetOf(ctx, main);
-    if (target === null) return NO_STATE_BRANCH;
-    const state = await ctx.trees.fetchRef(cwd, target.pushRef, target.trackRef);
-    const defaults = await ctx.trees.fetchRef(cwd, `refs/heads/${main}`, target.defaultRef);
-    if (!state.ok || !defaults.ok) {
-      warn(`plot-state-cut: could not ask the origin about ${target.pushRef}; nothing was pushed\n`);
+    const defaultRef = target?.defaultRef ?? `refs/remotes/origin/${main}`;
+    const pushAt = target?.pushRef ?? main;
+    const state = target === null ? null : await ctx.trees.fetchRef(cwd, target.pushRef, target.trackRef);
+    const defaults = await ctx.trees.fetchRef(cwd, `refs/heads/${main}`, defaultRef);
+    if ((state !== null && !state.ok) || !defaults.ok || (target === null && !defaults.value)) {
+      warn(`plot-state-cut: could not ask the origin about ${target === null ? `refs/heads/${main}` : target.pushRef}; nothing was pushed\n`);
       return 1;
     }
-    for (const ref of state.value ? [target.trackRef, target.defaultRef] : [target.defaultRef]) {
+    for (const ref of target !== null && state?.ok && state.value ? [target.trackRef, defaultRef] : [defaultRef]) {
       const merged = await ctx.trees.mergeIn(cwd, ref, 'plot');
       if (!merged.ok || merged.value.length > 0) {
         warn(`plot-state-cut: merging ${ref} into HEAD conflicts in ${merged.ok ? merged.value.join(', ') : 'an unreadable state'}; nothing was pushed\n`);
         return 1;
       }
     }
-    const pushed = await pushUnderLock(ctx, 'HEAD', target.pushRef);
+    const pushed = await pushUnderLock(ctx, 'HEAD', pushAt);
     write(`${pushed.stdout}`);
     warn(`${pushed.stderr}`);
     return pushed.code;
