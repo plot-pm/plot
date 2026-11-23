@@ -63,6 +63,11 @@ describe('withoutMessageSinks', () => {
     expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
   });
 
+  it('blanks a git commit -m value in a loop body', () => {
+    const command = 'for i in 1; do git commit -m "plot-deliver.sh"; done';
+    expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
+  });
+
   it('blanks a git commit --message value naming a gated script', () => {
     const command = 'git commit --message "plot-deliver.sh flipped only the Status block"';
     expect(controllerInvocation(withoutMessageSinks(command))).toBeNull();
@@ -447,10 +452,14 @@ describe('unpinnedMerges', () => {
     ['gh pr merge 12 --match-head abc123', ['gh']],
     ['bash plot-host.sh pr-merge 12 --match-head-commit abc', ['plot-host']],
     ['gh pr merge 1; bash plot-host.sh pr-merge 2', ['gh', 'plot-host']],
+    ['if true; then gh pr merge 12; fi', ['gh']],
+    ['for i in 1; do gh pr merge 12; done', ['gh']],
+    ['! gh pr merge 12', ['gh']],
   ])('refuses %s', (command, programs) => expect(unpinnedMerges(command)).toEqual(programs));
 
   it.each([
     'gh pr merge 12 --squash --match-head-commit abc123',
+    'for i in 1; do gh pr merge 12 --match-head-commit abc; done',
     'gh pr merge 12 --match-head-commit=abc123',
     'bash plot-host.sh pr-merge 12 --match-head abc',
     'command gh pr merge 12 --match-head-commit abc',
