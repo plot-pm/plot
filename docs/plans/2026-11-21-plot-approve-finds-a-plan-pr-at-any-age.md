@@ -101,7 +101,7 @@ The check sits in `approve` because approval is the last step before dispatch an
 
 ### Slice branch
 
-- `bug/plot-approve-refuses-a-slice-on-the-plan-branch` — the `slice-on-plan-branch` refusal in `workflows/approve.ts` at its stated position, the in-session read of the adding merge's PR branch, its entry text, a `SKILL.md` sentence, a changeset, and the tests <!-- builds: slice-on-plan-branch, the approve refusal for a slice on the plan PR's branch --> <!-- waits: bug/plot-approve-asks-the-pr-of-the-adding-merge -->
+- `bug/plot-approve-refuses-a-slice-on-the-plan-branch` — the `slice-on-plan-branch` refusal in `workflows/approve.ts` at its stated position, the in-session read of the adding merge's PR branch, its entry text, a `SKILL.md` sentence, a changeset, and the tests <!-- builds: slice-on-plan-branch, the approve refusal for a slice on the plan PR's branch --> <!-- waits: bug/plot-approve-asks-the-pr-of-the-adding-merge --> → #3681
 
 ## Notes
 
