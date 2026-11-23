@@ -575,6 +575,7 @@ describe('a reserved word does not hide the program', () => {
     `! curl -X POST ${R}`,
     `(curl -X POST ${R})`,
     `time curl -X POST ${R}`,
+    `time -p curl -X POST ${R}`,
     `while X=ps curl -X POST ${R}; do break; done`,
   ])('%s is a release call', (command) => {
     expect(controllerInvocation(command)).toBe('release');
@@ -603,6 +604,7 @@ describe('a reserved word does not hide the program', () => {
     'if true; then pnpm run test:e2e; fi',
     '! pnpm run test:e2e',
     'time pnpm run test:e2e',
+    'time -p pnpm run test:e2e',
   ])('%s runs the suite', (command) => {
     expect(ciSuiteRefusal(command, SUITES)).toEqual({ suite: 'pnpm run test:e2e' });
   });

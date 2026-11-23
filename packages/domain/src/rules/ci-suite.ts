@@ -217,7 +217,7 @@ export const LEADING_KEYWORDS: ReadonlySet<string> = new Set([
 
 /** How many more `)` than `(` a word holds. */
 const unmatchedClosers = (word: string): number =>
-  (word.match(/\)/g)?.length ?? 0) - (word.match(/\(/g)?.length ?? 0);
+  word.split(')').length - word.split('(').length;
 
 /**
  * Strips the leading keywords of a simple command: any run of
