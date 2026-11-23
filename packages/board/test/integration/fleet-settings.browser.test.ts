@@ -129,76 +129,99 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
     }
   });
 
-  it('renders both controls right-aligned in the same column', async () => {
-    // THE GEOMETRY, NOT A CLASS NAME. A test asserting the presence of
-    // `ml-auto`, or that the control exists at all, passes the layout this
-    // slice replaced — the stepper used to sit immediately after a tally whose
-    // width changes with the data, so it moved between renders and the operator
-    // re-found it every time.
-    //
-    // TWO SECTIONS AGREEING IS THE PROPERTY. A later hand right-aligning only
-    // WORKING satisfies every claim about one control's position, so the
-    // assertion compares the two columns to each other — which is what such a
-    // change breaks.
-    //
-    // MEASURED ON THE COLUMN, NOT ON THE CONTROL. `[data-fleet-auto-dispatch]`
-    // is the `<input>` inside its label and the label's text follows it, so the
-    // checkbox's own right edge sits 85 px left of the column — measured
-    // 2026-09-10, 1286.7 against 1372. The right-aligned box is the column, and
-    // asserting on the input would have failed a correct layout.
-    //
-    // AND AGAINST THE HEADING'S CONTENT EDGE. The `<h2>` carries `px-3`, so its
-    // border box ends 12 px right of where its children can reach: 1384 against
-    // 1372. A claim against `h2.right` fails by exactly that padding.
+  it('renders the switches and the stepper in one row at the top of the open Fleet section', async () => {
+    // THE GEOMETRY, NOT A CLASS NAME. The row sits under the heading and above every group, and the switch and the
+    // stepper share it: a row that wrapped them apart, or one rendered inside the heading, fails here.
     const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
       const boxes = await page.evaluate(() => {
-        const read = (sel: string) => {
-          const el = document.querySelector(sel);
-          const column = el?.closest('[data-fleet-control-column]');
-          const h2 = column?.closest('h2');
-          if (!column || !h2) return null;
-          const c = column.getBoundingClientRect();
-          const h = h2.getBoundingClientRect();
-          const padRight = parseFloat(getComputedStyle(h2).paddingRight) || 0;
-          return { right: c.right, width: c.width, contentRight: h.right - padRight };
-        };
+        const row = document.querySelector('[data-section="fleet"] [data-fleet-switch-row]');
+        const head = document.querySelector('[data-section-head="fleet"]');
+        const sw = document.querySelector('[data-fleet-auto-dispatch]')?.closest('label') ?? document.querySelector('[data-fleet-auto-dispatch]');
+        const st = document.querySelector('[data-fleet-parallel-agents]');
+        if (!row || !head || !sw || !st) return null;
+        const r = row.getBoundingClientRect();
         return {
-          sw: read('[data-fleet-auto-dispatch]'),
-          st: read('[data-fleet-parallel-agents]'),
+          rowTop: r.top, rowWidth: r.width, headBottom: head.getBoundingClientRect().bottom,
+          inRow: [sw, st].every((el) => row.contains(el)),
+          inHeading: row.closest('h2') !== null,
+          firstAfterHead: head.nextElementSibling === row,
         };
       });
-      expect(boxes.sw).not.toBeNull();
-      expect(boxes.st).not.toBeNull();
-      const sw = boxes.sw!;
-      const st = boxes.st!;
-      // Each control's column ends on its own heading's content edge — a
-      // one-pixel tolerance for sub-pixel layout.
-      expect(Math.abs(sw.contentRight - sw.right)).toBeLessThan(2);
-      expect(Math.abs(st.contentRight - st.right)).toBeLessThan(2);
-      // AND THE SAME COLUMN. Both headings are the same width in the same
-      // container, so two right-aligned columns share an edge — this is the
-      // claim that fails if only one section is aligned.
-      expect(Math.abs(sw.right - st.right)).toBeLessThan(2);
-      // Neither column is zero-width: a collapsed box satisfies every
-      // arithmetic claim above while rendering nothing an operator can hit.
-      expect(sw.width).toBeGreaterThan(0);
-      expect(st.width).toBeGreaterThan(0);
+      expect(boxes).not.toBeNull();
+      expect(boxes!.inRow).toBe(true);
+      expect(boxes!.inHeading).toBe(false);
+      expect(boxes!.firstAfterHead).toBe(true);
+      expect(boxes!.rowTop).toBeGreaterThanOrEqual(boxes!.headBottom - 1);
+      // A collapsed box satisfies every claim above while rendering nothing an operator can hit.
+      expect(boxes!.rowWidth).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
   });
 
-  it('holds the switches and the stepper in the Fleet heading and none in the section body', async () => {
+  it('holds the switches and the stepper in the Fleet section body and none in its heading', async () => {
     const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     try {
       const switches = '[data-fleet-auto-dispatch], [data-fleet-auto-switch], [data-fleet-parallel-agents]';
       expect(await page.locator('#fleet-controls').count()).toBe(1);
-      expect(await page.locator('[data-delivery-section="fleet"] #fleet-controls').count()).toBe(1);
-      expect(await page.locator('[data-delivery-section="fleet"] ' + switches.split(', ').join(', [data-delivery-section="fleet"] ')).count()).toBe(5);
-      // Everything under the Fleet section that is not its heading holds no switch.
-      expect(await page.locator('[data-section="fleet"] > :not(div:first-child) ' + switches.split(', ').join(', [data-section="fleet"] > :not(div:first-child) ')).count()).toBe(0);
+      expect(await page.locator('#fleet-controls[data-fleet-control-column]').count()).toBe(1);
+      expect(await page.locator('[data-delivery-section="fleet"] #fleet-controls').count()).toBe(0);
+      expect(await page.locator(`[data-section="fleet"] :is(${switches})`).count()).toBe(5);
       expect(await page.locator('#fleet-controls [data-fleet-auto-switch]').count()).toBe(3);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders no switch outside the Fleet section', async () => {
+    const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
+    try {
+      const outside = await page.evaluate(() => [...document.querySelectorAll(
+        '[data-fleet-auto-dispatch], [data-fleet-auto-switch], [data-fleet-parallel-agents]',
+      )].filter((el) => el.closest('[data-section="fleet"]') === null).length);
+      expect(outside).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders the switch row above the empty frame of a stopped fleet', async () => {
+    const stopped = { ...fleet({ autoDispatch: false, parallelAgents: 3 }), supervisor: {
+      state: 'down', prominence: 'note', shown: true, label: 'fleet stopped', detail: '',
+    } } as Fleet;
+    const { page } = await open(stopped);
+    try {
+      const frame = page.locator('[data-section-empty-frame="fleet"]');
+      await frame.waitFor({ timeout: 10_000 });
+      expect(await frame.getAttribute('data-empty-kind')).toBe('stopped');
+      const order = await page.evaluate(() => {
+        const row = document.querySelector('[data-section="fleet"] [data-fleet-switch-row]');
+        const empty = document.querySelector('[data-section-empty-frame="fleet"]');
+        return row && empty ? (row.compareDocumentPosition(empty) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0 : null;
+      });
+      expect(order).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('shows no switch in a folded Fleet section, and a held group\'s link opens it with the switches in view', async () => {
+    const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
+    try {
+      const toggle = page.locator('[data-section-toggle="fleet"]');
+      if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
+      expect(await page.locator('#fleet-controls').count()).toBe(0);
+      const link = page.locator('[data-group-held="autoDispatch"] button');
+      await expect.poll(() => link.count()).toBe(1);
+      await link.click();
+      await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
+      await expect.poll(() => page.locator('#fleet-controls').isVisible()).toBe(true);
+      await expect.poll(() => page.locator('#fleet-controls').evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= window.innerHeight;
+      })).toBe(true);
     } finally {
       await page.close();
     }

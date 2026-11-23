@@ -80,4 +80,21 @@ describe('a Fleet row shows its role chip (real browser renders the shipped arti
     await expect.poll(() => doing.count()).toBe(1);
     expect(await doing.textContent()).toContain('fixing conflict ✗ · attempt 1 of 2');
   });
+
+  it('shows one state pill in each agent row\'s Doing now cell, after the spinner slot and before its text', async () => {
+    const rows = page.locator('[data-agent-row]');
+    await expect.poll(() => rows.count()).toBeGreaterThan(0);
+    const cells = await page.locator('[data-agent-row] [data-agent-cell="doing"]').evaluateAll((els) => els.map((el) => {
+      const pills = el.querySelectorAll('[data-status-pill]');
+      const holder = el.querySelector('[data-agent-pills]');
+      const slot = holder?.previousElementSibling ?? null;
+      return { pills: pills.length, tone: pills[0]?.getAttribute('data-pill-tone') ?? null, afterSlot: slot !== null && slot.querySelector(':scope > [data-activity-slot]') !== null };
+    }));
+    expect(cells.length).toBeGreaterThan(0);
+    for (const c of cells) {
+      expect(c.pills).toBe(1);
+      expect(c.tone).not.toBeNull();
+      expect(c.afterSlot).toBe(true);
+    }
+  });
 });

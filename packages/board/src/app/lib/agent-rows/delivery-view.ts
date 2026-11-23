@@ -45,6 +45,8 @@ import {
   type PlanIndex,
   type PlanLinkKey,
   TICKETS_ANCHOR,
+  agentPills,
+  type StatusPill,
 } from '@plot-pm/domain';
 import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer, IssueRow, Slice } from '../../../contract/schema.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
@@ -58,6 +60,8 @@ import { armedLabel as createPlanConfirm } from '../../components/CreatePlanButt
 import { armedLabel as createStoryConfirm } from '../../components/CreateStoryButton.js';
 import { armedLabel as needsDesignConfirm } from '../../components/NeedsDesignButton.js';
 import { armedLabel as resliceConfirm } from '../../components/ResliceButton.js';
+import { armedLabel as dropConfirm } from '../../components/DropAgentButton.js';
+import { restartOffered } from '@plot-pm/domain/rules/restart-offer';
 import { startRefusal } from '../../components/StartWorkButton.js';
 import { changedFilesLabel } from './actions.js';
 import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
@@ -135,7 +139,8 @@ export type RowMenuView =
 export type RowMenuAction =
   | 'approve' | 'needs-design' | 'deliver' | 'implement' | 'dispatch' | 'start-work' | 'reslice'
   | 'open' | 'release-claim' | 'resolve-conflict' | 'write-brief' | 'open-run' | 'worker-log' | 'status' | 'changed-files'
-  | 'create-plan' | 'create-story' | 'open-issue' | 'delete-branch';
+  | 'create-plan' | 'create-story' | 'open-issue' | 'delete-branch'
+  | 'continue' | 'restart' | 'drop-agent' | 'open-plan' | 'reveal-branch';
 
 /** One item of a row's `⋯` menu. */
 export interface RowMenuItem {
@@ -234,6 +239,31 @@ export interface SliceLineMenuFacts {
   dispatch?: DispatchInfo;
 }
 
+/** A Fleet agent row's facts: the agent's state and identity, the addresses its items open, and the bindings. */
+export interface FleetAgentMenuFacts {
+  kind: 'fleet-agent';
+  /** The agent's state word, from the registry or the role run. */
+  state: string;
+  /** `isBrokenState(state)` on a registry agent. */
+  broken: boolean;
+  /** The branch the agent works on; `''` where it holds none. */
+  branch: string;
+  /** The registry manifest's session id, which Drop agent removes; `''` where the agent has none. */
+  session: string;
+  /** `openTarget(row)` of the agent's branch row; `''` where the row or the host gives no address. */
+  openUrl: string;
+  /** `openLabel(row)`. */
+  openLabel: string;
+  /** The plan file of the agent's branch row; `''` where the agent acts on no plan. */
+  planFile: string;
+  /** Whether the view can open a plan and reveal a branch. */
+  canOpenPlan: boolean;
+  canReveal: boolean;
+  continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
+  drop?: DispatchInfo;
+}
+
 /** The Tickets row's facts. */
 export interface TicketMenuFacts {
   kind: 'ticket';
@@ -264,6 +294,7 @@ export type RowMenuInput =
   | SliceMenuFacts
   | SliceLineMenuFacts
   | BranchMenuFacts
+  | FleetAgentMenuFacts
   | TicketMenuFacts
   | ScopeTicketMenuFacts;
 
@@ -364,6 +395,40 @@ const sliceLineItems = (f: SliceLineMenuFacts): RowMenuItem[] => (f.state === 'd
   item('start-work', 'Start work', firstReason(sliceLineReason(f), f.branch === null && NO_BRANCH, startReason(f.card, f.dispatch))),
 ]);
 
+const NO_AGENT_BRANCH = 'the agent holds no branch';
+
+/** Why Restart refuses for an agent, or `null` where it acts. */
+const restartReason = (f: FleetAgentMenuFacts): string | null => firstReason(
+  f.branch === '' && NO_AGENT_BRANCH,
+  !restartOffered(f.state) && (f.state === 'running' || f.state === 'waiting' ? 'the worker still runs' : `a worker in state ${f.state} is not restarted`),
+  bindingReason(f.restartWith, 'restart a worker'),
+);
+
+/**
+ * The fixed item set of a Fleet agent row. A broken agent lists Restart and Drop agent; any other agent with a
+ * branch lists Show the agent, Open, Continue, Restart, Open plan and Reveal branch; an agent with neither lists none.
+ */
+const fleetAgentItems = (f: FleetAgentMenuFacts): RowMenuItem[] => {
+  const restart = item('restart', 'Restart', restartReason(f));
+  if (f.broken) {
+    return [
+      restart,
+      item('drop-agent', 'Drop agent',
+        firstReason(f.session === '' && 'the agent has no manifest to drop', bindingReason(f.drop, 'drop an agent')),
+        f.session === '' ? null : dropConfirm(f.session)),
+    ];
+  }
+  if (f.branch === '') return [];
+  return [
+    item('worker-log', 'Show the agent', null),
+    item('open', f.openLabel || 'Open', f.openUrl === '' ? 'no address' : null),
+    item('continue', 'Continue', firstReason(f.state !== 'waiting' && 'the agent asks no question', bindingReason(f.continueWith, 'continue a worker'))),
+    restart,
+    item('open-plan', 'Open plan', firstReason(f.planFile === '' && 'the agent acts on no plan', !f.canOpenPlan && 'this view opens no plan')),
+    item('reveal-branch', 'Reveal branch', f.canReveal ? null : 'this view reveals no branch'),
+  ];
+};
+
 const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
   const verdict = createFromIssueVerdict(f.idea, f.issueAnswer, 'plan');
   const story = createFromIssueVerdict(f.story, f.issueAnswer, 'story');
@@ -431,6 +496,7 @@ export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
     case 'slice': return itemsView(sliceItems(input));
     case 'slice-line': return itemsView(sliceLineItems(input));
     case 'branch': return itemsView(branchItems(input));
+    case 'fleet-agent': return itemsView(fleetAgentItems(input));
     case 'ticket': return itemsView(ticketItems(input));
     case 'scope-ticket': return itemsView(scopeTicketItems(input));
     case 'placed': {
@@ -504,6 +570,13 @@ export interface PlacedAgentView {
   anchor: string;
   /** The item the agent acts on, as a link; `null` while it holds none or the item is unknown. */
   links: LinkView[];
+  /**
+   * The agent's state word: the registry entry's state, else `running` for a live role run, `failed` for one a
+   * pass recorded as stopped, and `unknown` where neither is read.
+   */
+  state: string;
+  /** `agentPills(state)`: the status pills of the agent's Doing now cell. */
+  pills: StatusPill[];
 }
 
 export interface LinkView {
@@ -912,9 +985,18 @@ export const deliveryView = (
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),
     menu: rowMenuOf({ kind: 'placed', placement: p, rows: mapping.rowsByItem[p.id] ?? [], actions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }) }),
   }));
+  const stateOf = (id: string): string => {
+    const entry = mapping.agentsById[id];
+    if (entry !== undefined) return entry.state;
+    const run = mapping.runsById[id];
+    if (run === undefined) return 'unknown';
+    return run.stopped == null ? 'running' : 'failed';
+  };
   const agentViews = placement.agents.map((p): PlacedAgentView => ({
     placement: p,
     entry: mapping.agentsById[p.id] ?? null,
+    state: stateOf(p.id),
+    pills: agentPills(stateOf(p.id)),
     row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
     label: labelOfAgent(p.id),
     anchor: agentAnchor(p.id),
