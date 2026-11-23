@@ -4,7 +4,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Actual End:** 2026-11-23
 - **Start:** 2026-11-20
 - **End:** 2026-11-21
 - **Owner:** jwloka
@@ -50,7 +51,37 @@ Design spec (outside the repo): `/Users/jwloka/Quatico/Agentic-Tools/plot/docs/s
 
 ## Retrospective
 
-<!-- Filled during /plot-sprint close: What went well / What could improve / Action items -->
+### What went well
+
+- All 9 plans were delivered, and release 2.36.0 was published on 2026-11-23 at 17:25 UTC.
+- Main recovered from every red episode on the same day. The repair record admitted the one repair PR (#3685) while the default-branch hold refused every other merge.
+- The fixer resolved the conflict on #3665 within 28 minutes of its desk being stopped, and the Merger app merged it.
+- The review found two real HIGH defects in #3653 before it merged: the commit route rejected Bitbucket's short merge commit, and a merged same-branch plan's approval was committed locally and never pushed.
+
+### What could improve
+
+- Main went red four times on 2026-11-22 and 2026-11-23. Three were flaky tests: `page-hears-channel.browser.test.ts`, `worker-log.browser.test.ts` (a 30 s timeout) and the dispatch test "the wrapper's gone line follows a hop to the new desk". One was a real break: #3653 passed its PR CI, but the contract tests in `approve-batch.test.mjs` failed against the rebuilt bundle on main.
+- Five PRs were merged on GitHub with the admin bypass of ruleset `main` (#3682 while main was red, then #3683, #3684, #3686 and #3687 within minutes of each other), so the default-branch hold never ran for them.
+- A `plot/review` run stayed `pending` on #3658 for nine hours, from 12:51 to 22:02 UTC, and nothing noticed.
+- The release PR got a new head with every merge into main, so the first release approval landed on an old head and had to wait for the merges to stop.
+- The sprint ended on 2026-11-21 and closed two days late.
+
+### Action items
+
+- [ ] Deliver `github-refuses-a-merge-into-a-red-main`, a Could Have of the next sprint, so that the GitHub merge button shows the red-main hold.
+- [ ] File an issue: PR CI runs the contract suites against freshly built bundles, so that a PR like #3653 fails before it merges.
+- [ ] File an issue for the three flaky tests, with the failing run of each.
+- [ ] File an issue: a `plot/review` status that stays `pending` past `Checks wait` gets a new review run.
+- [ ] Hold merges into main while a release PR waits for its approval.
+
+### Metrics
+
+- **Must-haves completed:** 6/6
+- **Should-haves completed:** 2/2
+- **Could-haves completed:** 1/1
+- **Deferred items:** 0
+- **Scope changes during sprint:** 2
+- **Duration:** planned 2 days, actual 4 days
 
 ## Notes
 
