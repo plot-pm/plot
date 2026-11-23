@@ -269,7 +269,8 @@ describe('walkValueOf', () => {
     const walk = walkValueOf(estate, { ...branchStage, hostReach: 'throttled', hostCause: 'paused' }, deskStage, conflicts, header);
     expect(walk.branches.hostCause).toBe('paused');
     const pulse = fleetViewFrom(snapshotOf(walk), 0, HOST_BRANCH_URL_SCHEMES).pulse;
-    expect(pulse?.summary).toMatchObject({ host: 'throttled', hostCause: 'paused' });
+    expect(pulse).not.toBe('unknown');
+    expect(pulse !== 'unknown' && pulse.summary).toMatchObject({ host: 'throttled', hostCause: 'paused' });
   });
 
   it('leaves each desk file and worker reading to their own keys', () => {
