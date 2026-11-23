@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3608
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-host-names-the-prs-of-a-commit`
 - **Started:** 2026-11-21, Jan Wloka, `bug/plot-approve-asks-the-pr-of-the-adding-merge`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-approve-refuses-a-slice-on-the-plan-branch`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
