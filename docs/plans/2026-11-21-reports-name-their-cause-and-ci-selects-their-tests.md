@@ -123,7 +123,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Desk dirt
 
-- `bug/desk-dirt-excuses-the-fleets-own-files` — `desk_dirt` excuses `.plot-worker.limited`, `.plot-worker.log.1` and `.plot-worker.continue.lock`, `firstReapRefusal` refuses `continue-lock-held` through `Trees.continueLock` over the fleet's lock reader, `runDirtyKind` takes the reported paths and prints one row per desk, and the tests <!-- builds: continue-lock-held, the reaper's continue-lock refusal -->
+- `bug/desk-dirt-excuses-the-fleets-own-files` — `desk_dirt` excuses `.plot-worker.limited`, `.plot-worker.log.1` and `.plot-worker.continue.lock`, `firstReapRefusal` refuses `continue-lock-held` through `Trees.continueLock` over the fleet's lock reader, `runDirtyKind` takes the reported paths and prints one row per desk, and the tests <!-- builds: continue-lock-held, the reaper's continue-lock refusal --> → #3693
 
 ### Plan paths
 
