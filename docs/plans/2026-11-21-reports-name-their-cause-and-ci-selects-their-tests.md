@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3611 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-failed-sibling-tag-read-is-cannot-tell`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-jenkins-sha-refusal-names-its-cause`
+- **Started:** 2026-11-23, Jan Wloka, `bug/desk-dirt-excuses-the-fleets-own-files`
 
 ## Changelog
 
