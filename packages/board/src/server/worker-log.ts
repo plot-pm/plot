@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetReading } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
-import { pulseBranchReading, type LogMissReason } from '@plot-pm/domain';
+import { lookupBranch, pulseBranchReading, type LogMissReason } from '@plot-pm/domain';
 import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 
 /**
@@ -114,17 +114,10 @@ export type WorkerLog =
  * machine has not been asked what it holds. The caller reports `no-worktree`,
  * which is exactly right — *no worktree is KNOWN* — and the next pulse fixes it.
  */
-export function worktreeForBranch(pulse: FleetReading | null, branch: string): string | null {
-  if (!pulse) return null;
-  for (const plan of pulse.plans) {
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) {
-        if (b.branch === branch && b.local_worktree) return b.local_worktree;
-      }
-    }
-  }
-  return null;
-}
+export const worktreeForBranch = (pulse: FleetReading | null, branch: string): string | null => {
+  const lookup = lookupBranch(pulse, branch);
+  return lookup.kind === 'found' && lookup.desk.worktree !== '' ? lookup.desk.worktree : null;
+};
 
 /**
  * The last {@link TAIL_BYTES} of a file, and whether that was all of it.

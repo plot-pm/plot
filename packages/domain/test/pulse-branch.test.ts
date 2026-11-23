@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pulseBranchReading, pulsePlanReading, type FleetReading } from '../src/index.js';
+import { branchFromPulse, lookupBranch, pulseBranchReading, pulsePlanReading, type FleetReading } from '../src/index.js';
 
 const pulse = (branches: string[]): FleetReading =>
   ({
@@ -79,5 +79,56 @@ describe('pulsePlanReading', () => {
     const live = plans('docs/plans/2026-11-21-other.md');
     expect(pulsePlanReading(live, false, plans('docs/plans/2026-11-21-another.md'), 'p')).toEqual({ kind: 'pulse-partial' });
     expect(pulsePlanReading(live, false, null, 'p')).toEqual({ kind: 'pulse-partial' });
+  });
+});
+
+const twoPlans = {
+  main: 'main',
+  head: 'abc1234',
+  plans: [
+    {
+      file: 'docs/plans/a.md',
+      slices: [{ name: 'a1', verdict: 'eligible', branches: [{ branch: 'feature/a', state: 'claimed', local_worktree: '/w/a', worker: 'running', worker_pid: '7' }] }],
+      unreadBranchItems: [],
+    },
+    {
+      file: 'docs/plans/b.md',
+      slices: [
+        { name: 'b1', verdict: 'complete', branches: [{ branch: 'feature/b1', state: 'merged' }] },
+        { name: 'b2', verdict: 'eligible', branches: [{ branch: 'feature/b2', state: 'claimed', local_worktree: '/w/b2', worker: 'waiting', worker_pid: '41' }] },
+      ],
+      unreadBranchItems: [],
+    },
+  ],
+  summary: { plans: 2, waves: 3, branches: 3, claimed: 2, eligible: 2, blocked: 0, deferred: 0 },
+} as unknown as FleetReading;
+
+describe('lookupBranch', () => {
+  it('answers no-pulse for a null reading', () => {
+    expect(lookupBranch(null, 'feature/a')).toEqual({ kind: 'no-pulse' });
+  });
+
+  it('answers unknown-branch where the reading does not list the branch', () => {
+    expect(lookupBranch(twoPlans, 'feature/nope')).toEqual({ kind: 'unknown-branch' });
+  });
+
+  it('defaults an absent local_worktree, worker and worker_pid to "", "elsewhere" and ""', () => {
+    expect(lookupBranch(twoPlans, 'feature/b1')).toEqual({
+      kind: 'found',
+      desk: { worktree: '', plan: 'docs/plans/b.md', wave: 'b1', worker: 'elsewhere', pid: '' },
+    });
+  });
+
+  it('finds a branch in the second wave of the second plan', () => {
+    expect(lookupBranch(twoPlans, 'feature/b2')).toEqual({
+      kind: 'found',
+      desk: { worktree: '/w/b2', plan: 'docs/plans/b.md', wave: 'b2', worker: 'waiting', pid: '41' },
+    });
+  });
+
+  it('branchFromPulse answers the found desk, else null', () => {
+    expect(branchFromPulse(twoPlans, 'feature/a')).toMatchObject({ worktree: '/w/a', pid: '7' });
+    expect(branchFromPulse(twoPlans, 'feature/nope')).toBeNull();
+    expect(branchFromPulse(null, 'feature/a')).toBeNull();
   });
 });

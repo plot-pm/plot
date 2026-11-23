@@ -1,15 +1,14 @@
 import fs from 'node:fs';
-import { pulseBranchReading, type Caller, type FleetReading } from '@plot-pm/domain';
+import { branchFromPulse, pulseBranchReading, type Caller, type ContinueRefusal, type FleetReading } from '@plot-pm/domain';
 import { hostShell, processesFiles } from '@plot-pm/domain/adapters';
 import type { ProcessReading } from '@plot-pm/domain/ports/processes';
 import { isOpenDraft, restartWorker, type BranchPrReading } from '@plot-pm/domain/workflows/dispatch-verbs';
 import { deskManifestFor } from './manifest-stamp.js';
 import { readDeskLoop } from './desk-loop.js';
-import { branchFromPulse, refusal } from './continue-command.js';
+import { refusal } from './continue-command.js';
 import {
   continueOnDesk,
   type ContinuationOptions,
-  type ContinueRefusal,
   type DeskContinuation,
   type RestartVerdict,
 } from './continuation.js';

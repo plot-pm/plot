@@ -9,7 +9,8 @@ import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { answerRecordFile, ANSWER_RECORD_HOME_ENV, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
-import { branchFromPulse, continueBranch, lookupBranch } from '../../src/shared/continue-command.js';
+import { branchFromPulse, lookupBranch } from '@plot-pm/domain';
+import { continueBranch } from '../../src/shared/continue-command.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // The refusals the continue controller keeps, with no board: they are answered
