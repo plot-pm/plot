@@ -575,3 +575,53 @@ describe('approve — the person arm of a Design plan', () => {
     }
   });
 });
+
+describe('approve — a slice on the plan PR\'s own branch', () => {
+  const merged = { number: 42, state: 'MERGED' as const, draft: false, branch: 'feature/one' };
+  const detail = "slice feature/one is the plan PR's head branch (#42); its merge reads as this slice landing.";
+
+  it('refuses a slice on the merged plan PR\'s branch, with no writes', () => {
+    const out = approve(ready({ pr: merged }), on());
+    expect(refused(out) && out.reason).toBe('slice-on-plan-branch');
+    expect(refused(out) && out.detail).toBe(detail);
+    expect(out).not.toHaveProperty('writes');
+  });
+
+  it('passes the same plan under `same branch`, where the plan PR is the implementation PR', () => {
+    const out = approve(ready({ impl: 'same-branch', pr: merged }), on());
+    expect(decided(out)).toBe(true);
+  });
+
+  it('passes a plan whose slices name another branch than the plan PR\'s', () => {
+    const out = approve(ready({ pr: { ...merged, branch: 'docs/a-plan' } }), on());
+    expect(decided(out)).toBe(true);
+  });
+
+  it('refuses an open plan PR whose head is a slice branch before the pr-merge write', () => {
+    const out = approve(ready({ pr: { ...merged, state: 'OPEN', draft: true } }), on());
+    expect(refused(out) && out.reason).toBe('slice-on-plan-branch');
+    expect(out).not.toHaveProperty('writes');
+  });
+
+  it('outranks a checkout copy that differs from the PR head', () => {
+    const out = approve(
+      ready({ pr: { ...merged, state: 'OPEN', copies: { checkout: 'local', head: 'pushed' } } }),
+      on(),
+    );
+    expect(refused(out) && out.reason).toBe('slice-on-plan-branch');
+  });
+
+  it('refuses an in-session plan whose adding merge\'s PR names a slice branch', () => {
+    const out = approve(ready({ review: 'in-session', pr: merged }), on());
+    expect(refused(out) && out.reason).toBe('slice-on-plan-branch');
+    expect(out).not.toHaveProperty('writes');
+  });
+
+  it('approves an in-session plan whose commit answer was unaskable, which leaves the branch unnamed', () => {
+    const out = approve(
+      ready({ review: 'in-session', pr: { number: 0, state: 'NONE', draft: false, branch: '' } }),
+      on(),
+    );
+    expect(decided(out)).toBe(true);
+  });
+});

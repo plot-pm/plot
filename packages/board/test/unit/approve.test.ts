@@ -556,13 +556,13 @@ describe('approve perform — a plan the default branch holds, found by its addi
   };
 
   /** A plan in the checkout at its real path, which the default branch also holds, added by `MERGE` (or a squash where `squash`). */
-  const ctxOnMain = (host: Host, impl: string, opts: { squash?: boolean; onMain?: boolean } = {}): Context => ({
+  const ctxOnMain = (host: Host, impl: string, opts: { squash?: boolean; onMain?: boolean; review?: string } = {}): Context => ({
     repoRoot: '/repo',
     scriptDir: '/repo/skills/plot/scripts',
     host,
     planStore: planStoreFixture({
       files: { [REAL_FILE]: 'placeholder' },
-      plans: [planRecord({ file: REAL_FILE, phase: 'draft', review: 'pr', impl, branches: ['feature/one'] })],
+      plans: [planRecord({ file: REAL_FILE, phase: 'draft', review: opts.review ?? 'pr', impl, branches: ['feature/one'] })],
     }),
     refs: refsFixture({
       trees: opts.onMain === false ? {} : { [`origin/main`]: [{ mode: '100644', sha: 'b'.repeat(40), path: REAL_FILE }] },
@@ -676,5 +676,38 @@ describe('approve perform — a plan the default branch holds, found by its addi
       `  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${SLUG}. Nothing was merged and the phase is unchanged.`,
     ]);
     expect(asked.merged).toBe(1);
+  });
+
+  it('refuses slice-on-plan-branch, naming the branch, the PR and the next action', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, 'feature/one', SECOND, MERGE)] });
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `slice feature/one is the plan PR's head branch (#${PLAN_PR}); its merge reads as this slice landing.`,
+      `  Rename the slice's branch in the plan, then re-run. Nothing was merged and the phase is unchanged.`,
+    ]);
+  });
+
+  it('refuses slice-on-plan-branch for an in-session plan whose adding merge came from a slice branch', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, 'feature/one', SECOND, MERGE)] });
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const { error } = await run(ctxOnMain(host, 'own-branches', { review: 'in-session' })).finally(() => vi.unstubAllEnvs());
+
+    expect(error.split('\n')[0]).toBe(`slice feature/one is the plan PR's head branch (#${PLAN_PR}); its merge reads as this slice landing.`);
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('asks prsOfCommit once and prList never for an in-session plan on the default branch, and approves on an unread answer', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, null);
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const { error } = await run(ctxOnMain(host, 'own-branches', { review: 'in-session' })).finally(() => vi.unstubAllEnvs());
+
+    expect(error).toBe('');
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
   });
 });
