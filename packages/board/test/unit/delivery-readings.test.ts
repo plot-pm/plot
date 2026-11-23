@@ -5,6 +5,7 @@ import { RoleRunSchema, type AgentRow, type Slice } from '../../src/contract/sch
 import { agentRowFactsOf } from '../../src/app/lib/agent-rows/delivery-row-facts.js';
 import {
   deliveryMapping,
+  rateLimitOf,
   sliceItemId,
   sprintReleases,
   type DeliveryMapInput,
@@ -538,6 +539,25 @@ describe('deliveryMapping under a Mine mode', () => {
     expect(shown('mine-and-unknown')).toContain(sliceItemId('p', 'B'));
     expect(shown('mine')).not.toContain(sliceItemId('p', 'B'));
     expect(shown('mine')).toContain(sliceItemId('p', 'A'));
+  });
+});
+
+describe("rateLimitOf over bb's predicted Bitbucket bucket", () => {
+  const NOW = 1_000_000;
+  const bitbucket = (remaining: number | null, resetAt: number | null) => ({
+    buckets: [{ connector: 'bitbucket', bucket: 'api', limit: 800, remaining, resetAt, basis: 'predicted' }],
+  });
+
+  it('reads a free bucket as free and a spent one as exhausted until its reset', () => {
+    expect(rateLimitOf(bitbucket(712, null), NOW)).toBe('free');
+    expect(rateLimitOf(bitbucket(0, NOW + 300_000), NOW)).toBe('exhausted');
+    expect(rateLimitOf(bitbucket(0, NOW + 300_000), NOW + 300_001)).toBe('free');
+  });
+
+  it('keeps the reading of a GitHub host', () => {
+    const github = { buckets: [{ remaining: 4210, resetAt: null }, { remaining: 0, resetAt: NOW + 60_000 }] };
+    expect(rateLimitOf(github, NOW)).toBe('exhausted');
+    expect(rateLimitOf({ buckets: [{ remaining: 4210, resetAt: null }] }, NOW)).toBe('free');
   });
 });
 

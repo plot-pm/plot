@@ -863,6 +863,17 @@ export const FleetReadingSchema = z.object({
     //                       unrecognised word reads as 'unknown' rather than
     //                       throwing.
     host: z.enum(['ok', 'throttled', 'secondary', 'failed', 'unknown']).catch('unknown').default('unknown'),
+    /**
+     * Where a `throttled` host came from: `ceiling` is this machine's hourly
+     * ceiling in `bb`'s ledger, `paused` is `bb`'s pause after a 429, and
+     * `host` is the host's own refusal. Absent where `host` is not
+     * `throttled`, and in a pulse from a scan that predates the field; an
+     * unrecognised word reads as absent.
+     */
+    // plot-state: reading — why the host refused during ONE scan; the next
+    //                       scan reads it again, and an unrecognised word
+    //                       reads as absent rather than throwing.
+    hostCause: z.enum(['ceiling', 'paused', 'host']).optional().catch(undefined),
   }),
   /**
    * Whether the scan's `git fetch` of the ref failed during this pass.

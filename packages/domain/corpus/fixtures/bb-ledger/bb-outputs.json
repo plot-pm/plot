@@ -1,0 +1,158 @@
+{
+  "bb": "bb 1.15.0 (quatico-bb — brew install quatico-solutions/tap/quatico-bb)",
+  "now": 1788000123,
+  "email": "me.name@example.com",
+  "key": "e2fb284b4fb7",
+  "cases": [
+    {
+      "name": "rate-limit-idle",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {},
+      "files": {
+        "requests-e2fb284b4fb7-2026082909.log": "1787997123\n",
+        "requests-e2fb284b4fb7-2026082910.log": "1788000113\n"
+      },
+      "status": 0,
+      "stdout": "{\n  \"requests\": 2,\n  \"ceiling\": 800,\n  \"paused_until\": null,\n  \"wait_seconds\": 0\n}\n",
+      "stderr": ""
+    },
+    {
+      "name": "rate-limit-ceiling",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {
+        "BB_HOURLY_LIMIT": "3"
+      },
+      "files": {
+        "requests-e2fb284b4fb7-2026082909.log": "1787997123\n",
+        "requests-e2fb284b4fb7-2026082910.log": "1788000103\n1788000113\n"
+      },
+      "status": 75,
+      "stdout": "{\n  \"requests\": 3,\n  \"ceiling\": 3,\n  \"paused_until\": null,\n  \"wait_seconds\": 600\n}\n",
+      "stderr": ""
+    },
+    {
+      "name": "rate-limit-paused",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {},
+      "files": {
+        "requests-e2fb284b4fb7-2026082910.log": "1788000113\n",
+        "pause-e2fb284b4fb7": "1788000323 300\n"
+      },
+      "status": 75,
+      "stdout": "{\n  \"requests\": 1,\n  \"ceiling\": 800,\n  \"paused_until\": 1788000323,\n  \"wait_seconds\": 200\n}\n",
+      "stderr": ""
+    },
+    {
+      "name": "rate-limit-paused-429",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {},
+      "files": {
+        "pause-e2fb284b4fb7": "1788000552 600\n"
+      },
+      "status": 75,
+      "stdout": "{\n  \"requests\": 0,\n  \"ceiling\": 800,\n  \"paused_until\": 1788000553,\n  \"wait_seconds\": 430\n}\n",
+      "stderr": ""
+    },
+    {
+      "name": "rate-limit-unknown",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {},
+      "files": {
+        "requests-e2fb284b4fb7-2026082910.log": null
+      },
+      "status": 0,
+      "stdout": "{\n  \"requests\": null,\n  \"ceiling\": 800,\n  \"paused_until\": null,\n  \"wait_seconds\": 0\n}\n",
+      "stderr": "warning: bb cannot keep its request count in <dir>; the hourly budget is off for this call\n"
+    },
+    {
+      "name": "rate-limit-off",
+      "argv": [
+        "rate-limit",
+        "--json"
+      ],
+      "env": {
+        "BB_HOURLY_LIMIT": "0"
+      },
+      "files": {
+        "requests-e2fb284b4fb7-2026082910.log": "1788000103\n1788000113\n"
+      },
+      "status": 0,
+      "stdout": "{\n  \"requests\": 2,\n  \"ceiling\": null,\n  \"paused_until\": null,\n  \"wait_seconds\": 0\n}\n",
+      "stderr": ""
+    },
+    {
+      "name": "refused-ceiling",
+      "argv": [
+        "api",
+        "/user"
+      ],
+      "env": {
+        "BB_HOURLY_LIMIT": "3"
+      },
+      "files": {
+        "requests-e2fb284b4fb7-2026082909.log": "1787997123\n",
+        "requests-e2fb284b4fb7-2026082910.log": "1788000103\n1788000113\n"
+      },
+      "status": 75,
+      "stdout": "",
+      "stderr": "error: rate limited — 3 requests in the last hour from this machine; next request at 10:52:03Z (in 600 s)\n"
+    },
+    {
+      "name": "refused-paused",
+      "argv": [
+        "api",
+        "/user"
+      ],
+      "env": {},
+      "files": {
+        "pause-e2fb284b4fb7": "1788000323 300\n"
+      },
+      "status": 75,
+      "stdout": "",
+      "stderr": "error: rate limited — bb paused until 10:45:23Z after Bitbucket refused a request (in 200 s)\n"
+    },
+    {
+      "name": "refused-429",
+      "argv": [
+        "api",
+        "/user"
+      ],
+      "env": {},
+      "files": {},
+      "status": 75,
+      "stdout": "",
+      "stderr": "error: rate limited — Bitbucket asked to wait 30 s; bb paused until 10:47:03Z (in 300 s)\n"
+    },
+    {
+      "name": "refused-429-later-page",
+      "argv": [
+        "-R",
+        "ws/repo",
+        "pr",
+        "list",
+        "--all",
+        "--json"
+      ],
+      "env": {},
+      "files": {},
+      "status": 75,
+      "stdout": "",
+      "stderr": "error: rate limited after 50 rows — bb paused until 10:47:03Z (in 300 s)\n"
+    }
+  ]
+}

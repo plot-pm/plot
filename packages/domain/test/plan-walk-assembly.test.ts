@@ -445,3 +445,12 @@ describe('fleetReading — where the plans were read', () => {
     expect((fleetReading(value, { ...header, planSource: 'worktree' }) as any).plan_source).toBe('worktree');
   });
 });
+
+describe('fleetReading — the cause of a throttle', () => {
+  it('writes the cause where the host was throttled and omits it otherwise', () => {
+    const value = assembled(estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }]])), branchesOf(['p.md', 'feature/a', open()]));
+    expect((fleetReading(value, { ...header, host: 'throttled', hostCause: 'ceiling' }) as any).summary.hostCause).toBe('ceiling');
+    expect((fleetReading(value, { ...header, host: 'throttled' }) as any).summary).not.toHaveProperty('hostCause');
+    expect((fleetReading(value, { ...header, hostCause: 'paused' }) as any).summary).not.toHaveProperty('hostCause');
+  });
+});

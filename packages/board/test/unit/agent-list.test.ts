@@ -2225,6 +2225,29 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
     expect(note).not.toContain('unavailable'); // NOT the outage word
   });
 
+  it("names bb's hourly ceiling, its next free time and the wait, for the client's ceiling refusal", () => {
+    const note = text(at({
+      prError: 'rate limited — 800 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)',
+      prNextInSeconds: 3590,
+      prAgeSeconds: 45,
+    }));
+    expect(note).toBe("PR data paused: this machine's hourly Bitbucket ceiling is spent, next request at 11:41:53Z (in ~60 min) — showing data from 45s ago — the two groups above that depend on it may be incomplete.");
+  });
+
+  it("names bb's pause and its end, for a pause refusal", () => {
+    const note = text(at({
+      prError: 'rate limited — bb paused until 10:47:03Z after Bitbucket refused a request (in 300 s)',
+      prNextInSeconds: 300,
+      prAgeSeconds: 45,
+    }));
+    expect(note).toBe('PR data paused: bb is paused after Bitbucket refused a request, until 10:47:03Z (in ~5 min) — showing data from 45s ago — the two groups above that depend on it may be incomplete.');
+  });
+
+  it("keeps today's words for the host's own spent quota", () => {
+    const note = text(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 300, prAgeSeconds: 45 }));
+    expect(note).toBe("PR data paused: the host's rate limit is spent, service returns in ~5 min — showing data from 45s ago — the two groups above that depend on it may be incomplete.");
+  });
+
   it('says the budget is spent even when the reset is unknown', () => {
     // An older server sends no `prNextInSeconds`. The state is still knowable
     // from the message, so the note still says RATE LIMIT rather than falling
@@ -2551,6 +2574,22 @@ describe('scanHostNote — the scan says when it could not ask', () => {
     // The distinction is worth nothing if two words print the same words.
     const notes = (['throttled', 'secondary', 'failed'] as const).map((host) => scanHostNote(at(host)));
     expect(new Set(notes).size).toBe(3);
+  });
+
+  it("names bb's hourly ceiling where the scan's cause is `ceiling`", () => {
+    const note = scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'ceiling' }, prNextInSeconds: 600 } as Fleet);
+    expect(note).toBe("Fleet scan blind: this machine's hourly Bitbucket ceiling is spent, so no PR could be read. Every branch below reads from local evidence alone and none was offered to --next — the ceiling frees a request as each request of the last hour ages out (next request in ~10 min), so a later scan will say more.");
+  });
+
+  it("names bb's pause where the scan's cause is `paused`", () => {
+    const note = scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'paused' }, prNextInSeconds: 300 } as Fleet);
+    expect(note).toBe('Fleet scan blind: bb is paused after Bitbucket refused a request, so no PR could be read. Every branch below reads from local evidence alone and none was offered to --next — the pause ends on a clock (ends in ~5 min), so a later scan will say more.');
+  });
+
+  it("keeps today's words where the cause is `host`, or absent in a pulse that predates it", () => {
+    const today = scanHostNote(at('throttled'));
+    expect(scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'host' } } as Fleet)).toBe(today);
+    expect(today).toContain("the git host's rate limit was spent");
   });
 
   it('is a DIFFERENT sentence from the board\'s own PR failure', () => {

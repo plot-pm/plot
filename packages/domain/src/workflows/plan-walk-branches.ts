@@ -12,6 +12,7 @@ import {
   type WaitsReading,
 } from '../rules/branch-state.js';
 import { realCommits } from '../rules/empty-claim.js';
+import { bbThrottleCause, type BbThrottleCause } from '../rules/bb-ledger.js';
 import { refusalKindOfWords } from '../rules/refusal.js';
 import { encodeListingKey, type CarriedPrStates, type ReportedListingRow } from '../rules/scan-listing.js';
 import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge-subject.js';
@@ -178,6 +179,11 @@ export interface BranchStageReadings {
   origin: string;
   /** How far the PR list reached; every branch's `hostReach` carries the same word. */
   hostReach: HostReach;
+  /**
+   * Where a `throttled` reach came from, read from the refusal's words by
+   * `bbThrottleCause`; absent where `hostReach` is not `throttled`.
+   */
+  hostCause?: BbThrottleCause;
   /** The merge commits the subject lookup walked, newest first. */
   merges: ReadonlyArray<{ sha: string; subject: string }>;
   /** Each plan file to the commit that first added it, for the plans that have one. */
@@ -305,6 +311,7 @@ export const readBranchReadings = async (
   const listLimit = input.listLimit ?? PR_LIST_LIMIT;
 
   let hostReach: HostReach = 'ok';
+  let refusalSaid = '';
   let prListComplete = false;
   let listed = false;
   let heldPr: (branch: string) => PrReading | undefined = () => undefined;
@@ -340,6 +347,7 @@ export const readBranchReadings = async (
     // What the host said when the caller's own read was refused: a host that
     // could not be asked at all is `unasked`, as `plot-fleet-scan.sh` read it.
     hostReach = input.prs.reach ?? reachOfRefusal('failed', input.prs.said ?? '');
+    refusalSaid = input.prs.said ?? '';
   } else {
     // Open first, then settled: a PR that merges between the two calls carries an OPEN row and a MERGED one, and the rank keeps OPEN.
     // A failed open call decides alone; the settled call is not made.
@@ -366,6 +374,7 @@ export const readBranchReadings = async (
     } else {
       const refusal = host.lastRefusal();
       hostReach = reachOfRefusal(refusal?.kind ?? null, refusal?.said ?? '');
+      refusalSaid = refusal?.said ?? '';
     }
     heldPr = (branch) => {
       const held = prByBranch.get(branch);
@@ -563,6 +572,7 @@ export const readBranchReadings = async (
     backend,
     origin,
     hostReach,
+    ...(hostReach === 'throttled' ? { hostCause: bbThrottleCause(refusalSaid) } : {}),
     merges: merges.value,
     added: addedByPlan,
     branches,

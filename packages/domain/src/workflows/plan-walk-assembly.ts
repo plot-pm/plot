@@ -8,6 +8,7 @@ import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
+import type { BbThrottleCause } from '../rules/bb-ledger.js';
 import { pulseOmitsPlan } from '../rules/pulse-omits-plan.js';
 import type { SpikeUnlicensed } from '../rules/spike.js';
 import { spikeCardState } from '../rules/spike-confirm.js';
@@ -475,6 +476,8 @@ export interface FleetReadingHeader {
   planDir: string;
   /** The host word the summary carries. */
   host: string;
+  /** The cause of a `throttled` host word, carried as `summary.hostCause`; absent elsewhere. */
+  hostCause?: BbThrottleCause;
   /** The merge-detection word the summary carries. */
   mergeDetect: string;
   /** The wall clock in epoch seconds, for `changed_at`. */
@@ -597,5 +600,6 @@ export const fleetReading = (
     prereq_missing: assembly.summary.prereqMissing,
     merge_detect: header.mergeDetect,
     host: header.host,
+    ...(header.host === 'throttled' && header.hostCause !== undefined ? { hostCause: header.hostCause } : {}),
   },
 });

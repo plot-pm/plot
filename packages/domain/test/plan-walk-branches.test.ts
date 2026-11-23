@@ -753,6 +753,20 @@ describe('readBranchReadings — the stage carries its host reach', () => {
     expect(await stage(base, { kind: 'unread' })).toBe('failed');
     expect(await stage({ ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said: '' }) as never }, undefined)).toBe('throttled');
   });
+
+  it("names the cause of a throttle from the refusal's words, and no cause where the host was not throttled", async () => {
+    const cause = async (said: string | null, prs?: BranchStageInput['prs']) => {
+      const base = hostFixture({ backend: 'bitbucket' });
+      const host: Host = said === null ? base : { ...base, prList: async () => failed(), lastRefusal: () => ({ kind: 'throttled', said }) as never };
+      const answer = await readBranchReadings(world(), host, estateOf(line('feature/here')), { ...INPUT, prs });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.hostCause;
+    };
+    expect(await cause('rate limited — 800 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)')).toBe('ceiling');
+    expect(await cause('rate limited — bb paused until 11:41:53Z after Bitbucket refused a request (in 300 s)')).toBe('paused');
+    expect(await cause('HTTP 429: Too Many Requests')).toBe('host');
+    expect(await cause(null, { kind: 'listed', listing: { states: new Map(), complete: true, rows: [] } })).toBeUndefined();
+  });
 });
 
 describe('readBranchConflicts — which branches are asked', () => {
