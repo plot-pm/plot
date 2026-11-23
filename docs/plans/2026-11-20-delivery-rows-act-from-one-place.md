@@ -124,7 +124,7 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### Fleet switches
 
-- `feature/fleet-switches-in-fleet-section` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tab-has-one-header, feature/delivery-section-empty-kinds --> — the switch row with `#fleet-controls` at the top of the open Fleet section from `fleetSwitchRow`, visible above the stopped frame, `WorkingCounts` and `FleetAlert` below it, agent rows with circle, agent, role, working-on tuple, a status pill from `agentPills` with its unit test, tokens, time left and a ⋯ that holds `BrokenAgentMenu`'s actions for a broken agent and `BranchMenu`'s items for every other agent with the Fleet agent item unit test, and no switch outside the Fleet section <!-- builds: fleetSwitchRow, the Fleet section's switch row -->
+- `feature/fleet-switches-in-fleet-section` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tab-has-one-header, feature/delivery-section-empty-kinds --> — the switch row with `#fleet-controls` at the top of the open Fleet section from `fleetSwitchRow`, visible above the stopped frame, `WorkingCounts` and `FleetAlert` below it, agent rows with circle, agent, role, working-on tuple, a status pill from `agentPills` with its unit test, tokens, time left and a ⋯ that holds `BrokenAgentMenu`'s actions for a broken agent and `BranchMenu`'s items for every other agent with the Fleet agent item unit test, and no switch outside the Fleet section <!-- builds: fleetSwitchRow, the Fleet section's switch row --> → #3673
 
 ## Notes
 
