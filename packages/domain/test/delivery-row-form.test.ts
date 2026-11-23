@@ -341,6 +341,26 @@ describe('agent rows, the other readings', () => {
     expect(agentRowCells(agent({ actsOn: 'x' }), { commits: 1 }).doing!.value).toBe('writing code · 1 commit');
   });
 
+  it('names the plan of the agent branch, linked to its slice where one is read', () => {
+    expect(agentRowCells(agent({}), { plan: 'the-plan', slice: 'first' }).plan)
+      .toEqual({ value: 'the-plan', links: [{ to: 'plan', plan: 'the-plan', slice: 'first' }] });
+    expect(agentRowCells(agent({}), { plan: 'the-plan' }).plan)
+      .toEqual({ value: 'the-plan', links: [{ to: 'plan', plan: 'the-plan', slice: null }] });
+    expect(agentRowCells(agent({}), {}).plan).toBeNull();
+  });
+
+  it('marks the sprint: a grey no sprint wins over a named sprint, and no reading gives no mark', () => {
+    expect(agentRowCells(agent({}), { noSprint: true, sprint: 's-1' }).sprint).toEqual({ word: 'no sprint', tone: 'grey', href: null });
+    expect(agentRowCells(agent({}), { sprint: 's-1' }).sprint).toEqual({ word: 's-1', tone: 'quiet', href: null });
+    expect(agentRowCells(agent({}), {}).sprint).toBeNull();
+  });
+
+  it('links actsOnItem in Acting on where the placement names no item', () => {
+    const c = agentRowCells(agent({ role: 'reviewer' }), { actsOnItem: 'item-7' });
+    expect(c.actingOn).toEqual({ value: 'item-7', links: [{ to: 'item', id: 'item-7' }] });
+    expect(c.doing!.value).toBe('reviewing');
+  });
+
   it.each([
     ['high', 'fixing review ✗'],
     ['ci', 'fixing CI ✗'],
