@@ -50,6 +50,7 @@ const treesStub = (
     markers: async () => answered([]),
     dirtyPaths: async () => answered(dirtyPaths),
     dirtyPathsWithStatus: async () => answered(dirtyPathsWithStatus),
+    continueLock: async () => answered({ held: false }),
     changedUnder: async () => answered([]),
     quietSeconds: async () => answered(null),
     unpushedCommits: async () => answered([]),
@@ -81,7 +82,7 @@ describe('runDirtyKind', () => {
     const ctx = ctxFor(trees);
     const lines: string[] = [];
 
-    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s));
+    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s), new Set());
 
     expect(count).toBe(0);
     expect(lines.join('')).not.toContain('LEFTOVER');
@@ -92,7 +93,7 @@ describe('runDirtyKind', () => {
     const ctx = ctxFor(trees);
     const lines: string[] = [];
 
-    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s));
+    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s), new Set());
 
     expect(count).toBe(1);
     expect(lines.join('')).toContain('LEFTOVER');
@@ -103,12 +104,12 @@ describe('runDirtyKind', () => {
     const ctx = ctxFor(trees);
     const lines: string[] = [];
 
-    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s));
+    const count = await runDirtyKind(ctx, '/repo/.plot/agents', (s) => lines.push(s), new Set());
 
     expect(count).toBe(0);
   });
 
-  it('prints a keep row, not a LEFTOVER, for a dirty desk whose manifest names it', async () => {
+  it('prints the owned keep row under its own heading, not under the leftovers', async () => {
     const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'reap-dirty-')));
     try {
       const desk = path.join(root, 'desk-a');
@@ -119,15 +120,52 @@ describe('runDirtyKind', () => {
       const ctx = ctxFor(treesStub([worktree({ path: desk })], [], ['?? half-done.txt']));
       const lines: string[] = [];
 
-      const count = await runDirtyKind(ctx, manifestDir, (s) => lines.push(s));
+      const count = await runDirtyKind(ctx, manifestDir, (s) => lines.push(s), new Set());
 
       const out = lines.join('');
       expect(count).toBe(0);
       expect(out).not.toContain('LEFTOVER');
-      expect(out).toContain('keep');
-      expect(out).toContain('owner: a.json');
+      const owned = out.indexOf('-- dirty trees with an owner --');
+      const nobody = out.indexOf('-- dirty trees nobody owns --');
+      const keep = out.indexOf('owner: a.json');
+      expect(owned).toBeGreaterThanOrEqual(0);
+      expect(keep).toBeGreaterThan(owned);
+      expect(nobody).toBeGreaterThan(keep);
+      expect(out.slice(owned, nobody)).toContain('keep');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('prints no row for an owned dirty desk the worktree kind already reported', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'reap-dirty-')));
+    try {
+      const desk = path.join(root, 'desk-a');
+      const manifestDir = path.join(root, 'agents');
+      mkdirSync(desk);
+      mkdirSync(manifestDir);
+      writeFileSync(path.join(manifestDir, 'a.json'), JSON.stringify({ worktree: desk, pid: '', wrapperPid: '' }));
+      const ctx = ctxFor(treesStub([worktree({ path: desk })], [], ['?? half-done.txt']));
+      const lines: string[] = [];
+
+      const count = await runDirtyKind(ctx, manifestDir, (s) => lines.push(s), new Set([desk]));
+
+      const out = lines.join('');
+      expect(count).toBe(0);
+      expect(out).not.toContain(desk);
+      expect(out).not.toContain('-- dirty trees with an owner --');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still names a reported desk nobody owns as a leftover', async () => {
+    const trees = treesStub([worktree()], [], ['?? half-done.txt']);
+    const lines: string[] = [];
+
+    const count = await runDirtyKind(ctxFor(trees), '/repo/.plot/agents', (s) => lines.push(s), new Set(['/worktrees/desk-a']));
+
+    expect(count).toBe(1);
+    expect(lines.join('')).toContain('LEFTOVER');
   });
 });

@@ -330,6 +330,23 @@ export const dirtyTreeOwner = (readings: DirtyTreeReadings): string => {
   return 'nobody';
 };
 
+/** Which row the dirty-tree report prints for one dirty tree. */
+export type DirtyTreeRow = 'skip' | 'owned' | 'leftover';
+
+/**
+ * Chooses the dirty-tree report's row for one dirty tree, so a desk the
+ * worktree report already named prints no second row.
+ *
+ * @param owner - the tree's owner, as {@link dirtyTreeOwner} names it.
+ * @param reported - whether the worktree report printed a row for the tree.
+ * @returns `leftover` where nobody owns the tree, whether reported or not;
+ *   `skip` for an owned tree the worktree report named; `owned` otherwise.
+ */
+export const dirtyTreeRow = (owner: string, reported: boolean): DirtyTreeRow => {
+  if (owner === 'nobody') return 'leftover';
+  return reported ? 'skip' : 'owned';
+};
+
 /**
  * Whether a dirty tree is one nobody is coming back for.
  *
