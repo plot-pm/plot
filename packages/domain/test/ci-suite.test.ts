@@ -341,6 +341,7 @@ describe('a word list is data only when every body command is a reader (#1341)',
     'for f in plot-deliver.sh; do [ -f $f ] && test -x $f && stat $f; done',
     'for f in plot-deliver.sh; do diff $f x; shasum $f; sha256sum $f; tail -1 $f; grep -c x $f; ls $f; cat $f; done',
     'for f in plot-deliver.sh; do cmp $f x; done; echo ok',
+    'for f in plot-deliver.sh; do while cat x; do cat $f; done; done',
   ])('%s answers null', (command) => {
     expect(controllerInvocation(command)).toBeNull();
   });
@@ -365,6 +366,10 @@ describe('a word list is data only when every body command is a reader (#1341)',
     ['for f in plot-deliver.sh; do git diff --ext-diff -- $f; done', 'deliver'],
     ['for f in plot-deliver.sh; do git log --textconv -- $f; done', 'deliver'],
     ['for f in plot-deliver.sh; do X=1 cat $f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do until cat README.md; do cat x; done; bash skills/plot/scripts/$f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do while cat README.md; do cat x; done; bash skills/plot/scripts/$f; done', 'deliver'],
+    ['for f in plot-deliver.sh; do for g in a; do cat $g; done; bash $f s; done', 'deliver'],
+    ['for f in plot-deliver.sh\ndo\n  while cat x\n  do\n    cat y\n  done\n  bash $f s\ndone', 'deliver'],
   ])('%s answers %s', (command, action) => {
     expect(controllerInvocation(command)).toBe(action);
   });

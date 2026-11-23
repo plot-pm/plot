@@ -167,15 +167,25 @@ const unquotedSplit = (text: string, separator: RegExp): string[] => {
 };
 
 /**
- * The simple commands of a loop body: the text after `do` up to the segment
- * that is `done`, split on `&&`, `||`, `;`, `|` and new lines outside quotes
- * and escapes. An unreadable body splits on every separator.
+ * The simple commands of a loop body: the text after `do` up to the `done`
+ * that closes it, split on `&&`, `||`, `;`, `|` and new lines outside quotes
+ * and escapes. An unreadable body splits on every separator. Each `do` among a
+ * segment's leading keywords (`commandWords`) opens an inner loop, and the
+ * next `done` closes that inner loop, not the body; the inner loop's segments
+ * stay in the body.
  */
 const bodySegments = (after: string): string[][] => {
   const segments: string[][] = [];
+  let depth = 0;
   for (const segment of unquotedSplit(after, /&&|\|\||[;|\n]/)) {
     const words = segment.trim().split(/\s+/).filter((w) => w !== '');
-    if (words[0] === 'done') break;
+    if (words[0] === 'done') {
+      if (depth === 0) break;
+      depth -= 1;
+      continue;
+    }
+    const leading = words.slice(0, words.length - commandWords(words).length);
+    depth += leading.filter((w) => w === 'do').length;
     if (words.length > 0) segments.push(words);
   }
   return segments;
