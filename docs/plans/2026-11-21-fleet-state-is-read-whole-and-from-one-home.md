@@ -18,6 +18,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/every-state-reader-asks-one-state-home`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-board-routes-read-a-partial-pulse`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-pulse-lookup-moves-into-the-domain`
+- **Started:** 2026-11-23, Jan Wloka, `bug/a-new-failure-on-main-starts-a-repair`
 
 ## Changelog
 
