@@ -15,6 +15,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-delivery-row-carries-its-plan-state`
 - **Started:** 2026-11-22, Jan Wloka, `bug/the-spike-card-names-its-reason`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-plan-store-corpus-checks-both-lists`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-verdict-line-drops-the-spike-columns`
 
 ## Changelog
 
