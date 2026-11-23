@@ -115,7 +115,6 @@ const shellVerdict = (one: Case, index: number): boolean => {
       PATH: `${dir}:${process.env.PATH}`,
       PLOT_HOST: 'bitbucket',
       PLOT_BUDGET_OFF: '1',
-      PLOT_BB_SKIP_CAP_CHECK: '1',
     },
   });
   if (run.status === 0) return true;
