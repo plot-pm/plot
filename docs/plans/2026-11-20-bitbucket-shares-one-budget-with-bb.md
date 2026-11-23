@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/fleetd-counts-in-the-bb-ledger`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-host-reads-bb-rate-limit`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
