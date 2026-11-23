@@ -76,7 +76,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  *
  * `--ci` prints the `ciSelection` answer as one line of JSON instead, for a CI
  * job to write as its outputs: `suites`, `checks` (each `suite`, `command`,
- * `tests`, `always`), `tests`, `corpus` and `untested`. It reads the
+ * `tests`, `always`), `tests`, `corpus`, `untested` and `estateTests`. It reads the
  * `Plan directory` and `Sprint directory` keys for the corpus globs, and
  * those two with `Active index` and `Delivered index` for `planDataOnly`. It
  * combines with `--files`.
@@ -281,13 +281,15 @@ export const run = async (
   const generatedSet = new Set(generated);
   const tests = await readTests(refs, repoRoot, checks, changed);
 
+  const corpus = corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : '');
+
   if (ci) {
     const selection = ciSelection({
       changed,
       generated,
       checks,
       tests,
-      corpus: corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : ''),
+      corpus,
       corpusFiles: corpusGlob === null ? [] : await readCorpus(refs, repoRoot, corpusGlob, changed),
       sync: {
         planDir: rawPlans.ok ? rawPlans.value : 'docs/plans/',
@@ -302,8 +304,9 @@ export const run = async (
     return EXIT.ok;
   }
 
+  const data = corpus.map(globToRegExp);
   const references = testsNaming(
-    changed.filter((file) => !generatedSet.has(file)),
+    changed.filter((file) => !generatedSet.has(file) && !data.some((pattern) => pattern.test(file))),
     tests,
   );
 
@@ -312,6 +315,8 @@ export const run = async (
         changed,
         generated,
         references,
+        corpus,
+        tests,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
         root: repoRoot,

@@ -25,8 +25,15 @@ export interface LocalChecksReadings {
   readonly changed: readonly string[];
   /** The changed paths the repository marks as generated (`-merge`); they select nothing. */
   readonly generated: readonly string[];
-  /** For each changed path, the test files that name it (see {@link searchTerms}). */
+  /**
+   * For each changed path, the test files that name it (see {@link searchTerms}).
+   * A path under a `corpus` glob reads no entry here.
+   */
   readonly references: ReadonlyMap<string, readonly string[]>;
+  /** Path globs whose paths are plan data (see {@link corpusGlobs}); absent reads as none. */
+  readonly corpus?: readonly string[];
+  /** The test files the caller read, with their text, for {@link estateReaders}; absent reads as none. */
+  readonly tests?: readonly TestFile[];
   /** The declared checks, in declaration order. */
   readonly checks: readonly LocalCheck[];
   /** The most test files one path may select before it is reported instead. */
@@ -56,6 +63,8 @@ export interface LocalChecksAnswer {
   readonly overLimit: readonly OverLimit[];
   /** Paths no check reaches, so CI alone tests them. */
   readonly untested: readonly string[];
+  /** The test files {@link estateReaders} selects, sorted; the limit does not apply to them. */
+  readonly estateTests: readonly string[];
 }
 
 /** The default for `Local checks limit`. */
@@ -219,6 +228,11 @@ export interface Selection {
   /** Changed paths that no path-selected check and no corpus glob reaches. */
   readonly untested: readonly string[];
   /**
+   * The test files {@link estateReaders} selects for the changed plan data,
+   * sorted. No check in `checks` runs them; the CI job reads this field.
+   */
+  readonly estateTests: readonly string[];
+  /**
    * True when at least one changed path is not generated and every such path
    * lies in {@link syncPathSet}. A `.plot/panels/` path is plan data for
    * `corpus` and is not in the set, so it answers false here.
@@ -325,7 +339,56 @@ interface Decided {
   readonly untested: readonly string[];
 }
 
-const decide = (readings: LocalChecksReadings, policy: Policy): Decided => {
+/** The marker a test file holds for each directory of plan data it reads. */
+const PLOT_READS = /^[ \t]*\/\/[ \t]*plot-reads:[ \t]*(\S+)[ \t]*$/gm;
+
+const markedDir = (dir: string): string => dir.trim().replace(/^\.\//, '').replace(/\/+$/, '');
+
+/**
+ * The directories a test file declares it reads, one `// plot-reads: <dir>`
+ * line each.
+ *
+ * @param text - the test file's content.
+ * @returns the directories, without `./` or a trailing `/`, each once.
+ */
+export const plotReads = (text: string): string[] => [
+  ...new Set([...text.matchAll(PLOT_READS)].map((match) => markedDir(match[1] as string)).filter((dir) => dir !== '')),
+];
+
+/**
+ * The test files that declare they read the plan data a changed path belongs
+ * to. A changed path under a `<dir>/**` glob selects every test file holding
+ * the line `// plot-reads: <dir>`; a marker for another directory selects
+ * nothing for it.
+ *
+ * @param changed - the changed paths.
+ * @param corpus - the plan-data globs, as {@link corpusGlobs} answers them.
+ * @param tests - the test files and their text.
+ * @returns for each changed path under a glob, the marked test files, sorted;
+ *   a path under no glob has no entry.
+ */
+export const estateReaders = (
+  changed: readonly string[],
+  corpus: readonly string[],
+  tests: readonly TestFile[],
+): Map<string, readonly string[]> => {
+  const dirs = corpus
+    .filter((glob) => glob.endsWith('/**'))
+    .map((glob) => ({ dir: markedDir(glob.slice(0, -3)), pattern: globToRegExp(glob) }));
+  const marks = tests.map((test) => ({ path: test.path, dirs: new Set(plotReads(test.text)) }));
+  const answer = new Map<string, readonly string[]>();
+  for (const path of new Set(changed)) {
+    const under = dirs.filter((entry) => entry.pattern.test(path)).map((entry) => entry.dir);
+    if (under.length === 0) continue;
+    const readers = marks.filter((mark) => under.some((dir) => mark.dirs.has(dir))).map((mark) => mark.path);
+    answer.set(path, [...new Set(readers)].sort());
+  }
+  return answer;
+};
+
+const allOf = (map: ReadonlyMap<string, readonly string[]>): string[] => [...new Set([...map.values()].flat())].sort();
+
+const decide = (readings: LocalChecksReadings, policy: Policy, declared: ReadonlyMap<string, readonly string[]> = new Map()): Decided => {
   const generated = new Set(readings.generated);
   const changed = [...new Set(readings.changed)].filter((path) => !generated.has(path)).sort();
   const checks = readings.checks.map((check) => ({ ...check, pattern: globToRegExp(check.glob) }));
@@ -341,8 +404,11 @@ const decide = (readings: LocalChecksReadings, policy: Policy): Decided => {
   const named = new Map<string, readonly string[]>();
   for (const path of changed) {
     const refs = [...new Set(readings.references.get(path) ?? [])].filter((ref) => usable(path, ref));
-    if (refs.length > policy.limit) overLimit.push({ path, count: refs.length });
-    else named.set(path, refs);
+    const readers = (declared.get(path) ?? []).filter((ref) => usable(path, ref));
+    if (refs.length > policy.limit) {
+      overLimit.push({ path, count: refs.length });
+      named.set(path, readers);
+    } else named.set(path, [...new Set([...refs, ...readers])]);
   }
 
   const selected: SelectedCheck[] = [];
@@ -355,12 +421,12 @@ const decide = (readings: LocalChecksReadings, policy: Policy): Decided => {
   for (const check of checks) {
     if (check.command.includes(TESTS)) {
       const chosen = new Set<string>();
-      for (const path of changed) {
+      for (const [path, refs] of named) {
         if (check.pattern.test(path)) {
           chosen.add(path);
           reached.add(path);
         }
-        for (const test of named.get(path) ?? []) {
+        for (const test of refs) {
           if (check.pattern.test(test)) {
             chosen.add(test);
             reached.add(path);
@@ -375,13 +441,13 @@ const decide = (readings: LocalChecksReadings, policy: Policy): Decided => {
     } else if (check.command.includes(CHANGED)) {
       const chosen = new Set<string>();
       const naming = new Set<string>();
-      for (const path of changed) {
+      for (const [path, refs] of named) {
         if (check.pattern.test(path)) {
           chosen.add(path);
           reached.add(path);
         }
         if (IMPORTED.test(path)) continue;
-        for (const test of named.get(path) ?? []) {
+        for (const test of refs) {
           if (isTestFile(test) && check.pattern.test(test)) {
             chosen.add(test);
             naming.add(test);
@@ -424,18 +490,31 @@ const decide = (readings: LocalChecksReadings, policy: Policy): Decided => {
  * - A generated path selects nothing and is not reported.
  * - A path named by more test files than `limit` selects none of them and is
  *   reported in `overLimit`.
+ * - A path under a `corpus` glob selects no test file by its basename. It
+ *   selects the test files {@link estateReaders} answers for it, which the
+ *   checks run like named test files, whatever their number; they are listed
+ *   in `estateTests`.
  * - A path no check reaches is reported in `untested`.
  *
  * @param readings - what the caller read.
  * @returns the commands and the report.
  */
 export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer => {
-  const decided = decide(readings, { limit: readings.limit, always: false });
+  const patterns = (readings.corpus ?? []).map(globToRegExp);
+  const references = new Map([...readings.references].filter(([path]) => !patterns.some((pattern) => pattern.test(path))));
+  const generated = new Set(readings.generated);
+  const declared = estateReaders(
+    readings.changed.filter((path) => !generated.has(path)),
+    readings.corpus ?? [],
+    readings.tests ?? [],
+  );
+  const decided = decide({ ...readings, references }, { limit: readings.limit, always: false }, declared);
   return {
     commands: [...new Set(decided.selected.map((check) => check.command))],
     tests: decided.tests,
     overLimit: decided.overLimit,
     untested: decided.untested,
+    estateTests: allOf(declared),
   };
 };
 
@@ -449,7 +528,8 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  * - A changed path under a {@link corpusGlobs} glob sets `corpus` and adds
  *   {@link CORPUS_SUITE} to `suites`, because plan data alone can fail the
  *   corpus tier. Plan data selects no other check: a test naming a plan
- *   file's basename, such as `panel.md`, names its own fixture.
+ *   file's basename, such as `panel.md`, names its own fixture. The test
+ *   files {@link estateReaders} answers for it go into `estateTests`.
  * - A changed corpus file, or a changed path a corpus file names by one of
  *   its {@link searchTerms}, adds {@link CORPUS_SUITE}: a corpus test file
  *   goes into `corpusTests`, and a shared corpus module sets `corpus`.
@@ -494,6 +574,7 @@ export const ciSelection = (readings: SelectionReadings): Selection => {
     corpus,
     corpusTests: tier.tests,
     untested: decided.untested.filter((path) => !reached.has(path)),
+    estateTests: allOf(estateReaders(changed, readings.corpus, readings.tests)),
     planDataOnly: changed.length > 0 && syncPathVerdict(changed, syncPathSet(readings.sync)).ok,
   };
 };

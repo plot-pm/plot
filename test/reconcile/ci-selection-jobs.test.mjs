@@ -232,6 +232,32 @@ test('a plan-only change selects the corpus tier and no other job', () => {
   for (const job of ['contracts', 'board', 'domain', 'fleet', 'e2e', 'macos', 'census']) assert.equal(out[job], 'false', job);
 });
 
+test('a plan-only change with estate readers runs them in contracts and starts no e2e run', () => {
+  const estateTests = ['test/reconcile/parser.test.mjs', 'test/reconcile/scan.test.mjs'];
+  const out = map({
+    changed: 'docs/plans/x.md\n',
+    selection: answer({ suites: ['.', 'corpus'], checks: [always], corpus: true, estateTests }),
+  });
+  assert.equal(out.corpus, 'true');
+  assert.equal(out.contracts, 'true');
+  assert.equal(out.contracts_tests, estateTests.join(' '));
+  for (const job of ['board', 'domain', 'fleet', 'e2e', 'macos', 'census']) assert.equal(out[job], 'false', job);
+});
+
+test('an estate reader a check already selects is listed once in contracts_tests', () => {
+  const tests = ['test/reconcile/parser.test.mjs'];
+  const out = map({
+    changed: 'docs/plans/x.md\nskills/plot/scripts/plot-plan-meta.sh\n',
+    selection: answer({
+      checks: [{ suite: 'test/reconcile', command: 'node --test …', tests, always: false }, always],
+      corpus: true,
+      estateTests: ['test/reconcile/parser.test.mjs', 'test/reconcile/scan.test.mjs'],
+    }),
+  });
+  assert.equal(out.contracts_tests, 'test/reconcile/parser.test.mjs test/reconcile/scan.test.mjs');
+  assert.equal(out.e2e, 'true', 'the selected check still starts e2e');
+});
+
 test('a changeset or a document outside skills/ selects no job', () => {
   const out = map({
     changed: '.changeset/x.md\ndocs/notes.md\n',

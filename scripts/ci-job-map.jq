@@ -2,12 +2,15 @@
 #
 # Input: the answer. `$changed` (`--rawfile`): the changed paths, one per
 # line. Output: one object, each job's flag, `corpus_tests`,
-# `contracts_tests` and `widened_by`. `ci.yml`'s `select` job reads it twice:
+# `contracts_tests` and `widened_by`. `.estateTests` set `contracts` and
+# join `contracts_tests`, and set no other job: a plan PR starts no e2e run.
+# `ci.yml`'s `select` job reads it twice:
 # for this run's selection, and for the reuse diff against an earlier run.
 def under($p): . == $p or startswith($p + "/");
 ($changed | split("\n") | map(select(. != ""))) as $paths
 | [.checks[] | select(.always | not) | .suite] as $suites
 | ([.checks[] | select((.always | not) and .suite == "test/reconcile") | .tests[]] | unique) as $contracts
+| ((.estateTests // []) - $contracts) as $estate
 | ([.untested[] | select((endswith(".md") and (startswith("skills/") | not)) | not)]) as $wide
 | ($wide | length > 0) as $all
 | any($suites[]; under("packages/domain")) as $domain
@@ -17,8 +20,8 @@ def under($p): . == $p or startswith($p + "/");
 | {
     corpus: ($all or .corpus or (.corpusTests | length > 0)),
     corpus_tests: (if $all or .corpus then "" else (.corpusTests | map(sub("^packages/domain/"; "")) | join(" ")) end),
-    contracts: $contract,
-    contracts_tests: (if $all then "" else ($contracts | join(" ")) end),
+    contracts: ($contract or ($estate | length > 0)),
+    contracts_tests: (if $all then "" else (($contracts + $estate) | unique | join(" ")) end),
     board: $board,
     delivery: ($all or any($paths[]; under("packages/board/src/app") or under("packages/board/test/catalogue") or under("docs/superpowers/specs/2026-11-16-delivery-tab-mockups"))),
     domain: ($all or $domain),
