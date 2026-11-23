@@ -2,6 +2,7 @@ import { sprintsListing, type SprintFile } from '../rules/sprint-membership.js';
 import { annotateSprintItem } from '../rules/sprint-annotation.js';
 import { tickSprintItem } from '../rules/sprint-tick.js';
 import { branchClaims } from '../rules/cross-repo-reference.js';
+import { planIssueValue } from '../rules/escalation.js';
 
 /**
  * `add`, `defer` and `remove` write a sprint's member line, the plan's
@@ -125,11 +126,7 @@ const isUnexpectedComment = (value: string): boolean => {
 const planTitle = (planText: string): string => planText.match(/^# (.+)$/m)?.[1].trim() ?? '';
 
 /** The plan's `## Status` `Issue:` field, as the first number it names, or `''`. */
-const planIssue = (planText: string): string => {
-  const statusBody = planText.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
-  const value = statusBody.match(/^- \*\*Issue:\*\* (.+)$/m)?.[1] ?? '';
-  return value.match(/#(\d+)/)?.[1] ?? '';
-};
+const planIssue = (planText: string): string => planIssueValue(planText).match(/#(\d+)/)?.[1] ?? '';
 
 /** The plan's `## Status` `State:` field. */
 const planState = (planText: string): string => {

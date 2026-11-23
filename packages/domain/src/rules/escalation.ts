@@ -70,6 +70,18 @@ export const escalationComment = (input: {
 };
 
 /**
+ * The raw value of a plan's `## Status` `- **Issue:**` line.
+ *
+ * @param planText - the whole plan file.
+ * @returns the text after `- **Issue:** `, or `''` where the plan has no
+ *   `## Status` section or the section has no `Issue:` line. Never throws.
+ */
+export const planIssueValue = (planText: string): string => {
+  const statusBody = planText.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
+  return statusBody.match(/^- \*\*Issue:\*\* (.+)$/m)?.[1] ?? '';
+};
+
+/**
  * The issue a plan's `## Status` `Issue:` line names, as the tracker's
  * identifier: the first `#<number>` or Jira-style key (`ABC-123`) on the line.
  *
@@ -78,7 +90,6 @@ export const escalationComment = (input: {
  *   no `Issue:` line or the line names no issue.
  */
 export const planIssueId = (planText: string): string | null => {
-  const statusBody = planText.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
-  const value = statusBody.match(/^- \*\*Issue:\*\* (.+)$/m)?.[1] ?? '';
+  const value = planIssueValue(planText);
   return value.match(/#(\d+)/)?.[1] ?? value.match(/\b[A-Z][A-Z0-9]+-\d+\b/)?.[0] ?? null;
 };

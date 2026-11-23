@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, scenario, row as buildRow, fleet as buildFleet, type Catalogue } from '../catalogue/index.js';
 import { type Fleet } from '../../src/contract/schema.js';
+import { questionNote } from '../../src/server/fleet.js';
 
 /**
  * A row whose desk holds a question renders under You › Unblock with the note
@@ -19,6 +20,10 @@ describe('a question moves its row into You › Unblock, with its age', () => {
   afterAll(async () => {
     await cat?.close();
   });
+
+  /** Four hours, the age the other row's hand-written note states. */
+  const questionAgeMinutes = 240;
+  const escalated = { firstLine: 'should the scan keep its cache?', askedAt: '2026-10-05T13:36:00.000Z' };
 
   const rows = [
     buildRow({
@@ -38,8 +43,8 @@ describe('a question moves its row into You › Unblock, with its age', () => {
       state: 'wip',
       group: 'waiting-on-you',
       ageMinutes: 30,
-      note: 'waiting on you: should the scan keep its cache? · asked 4 hours ago · escalated: test',
-      question: { firstLine: 'should the scan keep its cache?', askedAt: '2026-10-05T13:36:00.000Z' },
+      note: questionNote(escalated.firstLine, questionAgeMinutes, 'test'),
+      question: escalated,
     }),
   ];
 

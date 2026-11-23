@@ -4639,7 +4639,7 @@ function prerequisiteList(names: readonly string[]): string {
  * @param questionAgeMinutes Minutes since the marker was written, or `null`.
  * @param escalationReason Why the unblocker escalated the question, `''` where it did not; appended as `· escalated: <reason>`.
  */
-const questionNote = (
+export const questionNote = (
   workerQuestion: string,
   questionAgeMinutes: number | null,
   escalationReason = '',

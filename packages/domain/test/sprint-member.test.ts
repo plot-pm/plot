@@ -499,6 +499,11 @@ describe('sprint-member edge forms', () => {
     expect(write(addSprintMember(sprint, PLAIN, 'must', ctx())).sprintText).not.toContain('Added [a]');
   });
 
+  it('builds the member line with no issue where the Issue line names only a Jira key', () => {
+    const r = write(addSprintMember(SPRINT('x'), PLAN('- **State:** Draft\n- **Issue:** ABC-1\n'), 'must', ctx()));
+    expect(r.sprintText).toContain('- [ ] [a] A plan that does something\n');
+  });
+
   it('builds the member line from a plan with no title and no Issue', () => {
     const r = write(addSprintMember(SPRINT('x'), '## Status\n\n- **State:** Draft\n', 'must', ctx()));
     expect(r.sprintText).toContain('- [ ] [a]\n');
