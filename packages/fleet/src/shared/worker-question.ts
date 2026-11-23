@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetReading } from '@plot-pm/domain';
 import { answerRecordFile } from '@plot-pm/domain/adapters/answer-record/answer-record-file';
+import type { AnswerRecordStore } from '@plot-pm/domain/ports/answer-record';
 import { escalationReason } from '@plot-pm/domain/rules/escalation';
 
 /** What a desk's marker asks and when it was written: the first line and an ISO-8601 modification time. */
@@ -254,10 +255,11 @@ export const workerQuestions = async (pulse: FleetReading, repoRoot?: string): P
   if (targets.length === 0) return new Map();
   const found = await Promise.all(targets.map(([, wt]) => markerReading(wt)));
   const questions = new Map<string, MarkerReading>();
+  const record = repoRoot === undefined ? null : answerRecordFile({ cwd: repoRoot });
   for (const [i, [branch, worktree]] of targets.entries()) {
     const reading = found[i];
     if (!reading) continue;
-    const reason = repoRoot === undefined ? null : await escalationOf(repoRoot, worktree, reading.askedAt);
+    const reason = record === null ? null : await escalationOf(record, worktree, reading.askedAt);
     questions.set(branch, reason === null ? reading : { ...reading, escalation: reason });
   }
   return questions;
@@ -268,7 +270,7 @@ export const workerQuestions = async (pulse: FleetReading, repoRoot?: string): P
  * record holds none or cannot be read: an unread record is no reason, never a
  * false one.
  */
-const escalationOf = async (repoRoot: string, worktree: string, askedAt: string): Promise<string | null> => {
-  const rows = await answerRecordFile({ cwd: repoRoot }).rowsFor(worktree, askedAt);
+const escalationOf = async (record: AnswerRecordStore, worktree: string, askedAt: string): Promise<string | null> => {
+  const rows = await record.rowsFor(worktree, askedAt);
   return rows.ok ? escalationReason(rows.value) : null;
 };
