@@ -19,6 +19,17 @@ const live = (over: Partial<RoleReadings> = {}): RoleReadings => ({
 });
 
 describe('roleRuns', () => {
+  it('gives a design or verify run the branch its reading names, running or stopped, and none otherwise', () => {
+    const stopped = [{ plan: 'plan-s', reason: 'r', restart: 'x', log: '/l' }];
+    const runs = roleRuns(live({
+      design: { running: ['plan-d'], stopped, branches: { 'plan-d': 'idea/plan-d-spec', 'plan-s': 'idea/plan-s-spec' } },
+    }));
+    expect(runs.filter((r) => r.role === 'design').map((r) => [r.plan, r.branch])).toEqual([
+      ['plan-d', 'idea/plan-d-spec'], ['plan-s', 'idea/plan-s-spec'],
+    ]);
+    expect(runs.find((r) => r.role === 'verify')).not.toHaveProperty('branch');
+  });
+
   it('yields one agent per source with its role and no others', () => {
     const runs = roleRuns(live());
     expect(runs.map((r) => [r.role, r.pr ?? r.plan])).toEqual([

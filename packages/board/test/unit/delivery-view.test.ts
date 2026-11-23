@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { DELIVERY_LAYOUT, deliveryScope, type ItemKind, type ItemPlacement, type YouReason, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
+import { DELIVERY_LAYOUT, deliveryScope, placeDelivery, type ItemKind, type ItemPlacement, type YouReason, parsePersonDirectory, planIndexOf } from '@plot-pm/domain';
 import type { AgentRow, DraftPlan, Slice } from '../../src/contract/schema.js';
 import { countedPlanFactsOf, deliveryMapping, sliceItemId, sprintCardViewOf, type RegistryAgent } from '../../src/app/lib/agent-rows/delivery-readings.js';
 import { GLYPH_PATH } from '../../src/app/lib/glyphs.js';
+import { rowFormsOf } from '../../src/app/lib/agent-rows/delivery-row-facts.js';
 import { anchorOwner, FLEET_CONTROLS_ANCHOR, itemAnchor, releasePlanAnchor, sectionAnchor, ticketAnchor, UNPLACED_ANCHOR, deleteWords, releaseWords, youRowKindOf, groupAnchor, nestItems, placeMapping, planBlockShown, summarise, type PlacedItemView } from '../../src/app/lib/agent-rows/delivery-view.js';
 
 const row = (over: Record<string, unknown>): AgentRow => ({
@@ -608,5 +609,56 @@ describe('anchorOwner — which section and group a jump opens', () => {
       .toMatchObject({ hidden: 'filter', reason: 'hidden by Mine' });
     expect(anchorOwner(anchor, shown, { wider: [{ view: shown, by: 'mine' }, { view: whole, by: 'scope' }] }))
       .toMatchObject({ hidden: 'filter', reason: 'hidden by the scope' });
+  });
+});
+
+describe('a Fleet row names the item of its checkout', () => {
+  // #1101 empties `branch` on a synthesized desk and moves its branch to `checkout`.
+  // Display reads `checkout`; placement keeps reading `branch` alone.
+  const rows = [row({ branch: 'feature/x', plan: 'p', wave: 'A', sprint: 'polish' })];
+  const desk = agent({ session: '', identity: 'synthesized', branch: '', checkout: 'feature/x', worktree: '/w/desk-1' });
+  const fleetAgents = (v: ReturnType<typeof view>) => v.sections.filter((s) => s.key === 'fleet').flatMap((s) => s.groups.flatMap((g) => g.agents));
+  const mappingOf = (agents: RegistryAgent[]) => deliveryMapping({
+    rows, slices: ['A', 'B'].map(slice), agents, drafts: [], reader: { hostUser: 'me' }, mode: 'all',
+    config: { autoReview: true, correctionBudget: 2 },
+  });
+
+  it('links a desk agent with branch \'\' to its checkout\'s item and keeps its placement group', () => {
+    const [placed] = fleetAgents(view(rows, [desk]));
+    const [bare] = fleetAgents(view(rows, [{ ...desk, checkout: '' }]));
+    expect(placed!.placement.actsOn).toBeNull();
+    expect(placed!.placement.group).toBe(bare!.placement.group);
+    expect(placed!.links.map((l) => l.anchor)).toEqual([itemAnchor(sliceItemId('p', 'A'))]);
+    expect(placed!.row?.branch).toBe('feature/x');
+  });
+
+  it('names the plan, the slice and the sprint of the checkout in the row\'s cells', () => {
+    const m = mappingOf([desk]);
+    const placement = placeDelivery(m.readings, m.input);
+    const cells = rowFormsOf(m, placement, 0).agents.get(placement.agents[0]!.id)!;
+    expect(cells.actingOn).toEqual({ value: 'A', links: [{ to: 'item', id: sliceItemId('p', 'A') }] });
+    expect(cells.branch?.value).toBe('feature/x');
+    expect(cells.plan).toEqual({ value: 'p', links: [{ to: 'plan', plan: 'p', slice: 'A' }] });
+    expect(cells.sprint).toEqual({ word: 'polish', tone: 'quiet', href: null });
+    expect(cells.doing?.value).not.toBe('waiting for a slice');
+  });
+
+  it('shows a grey no sprint pill where the sprint rule says so, and the sprint name nowhere then', () => {
+    const m = mappingOf([desk]);
+    const placement = placeDelivery(m.readings, m.input);
+    const cells = rowFormsOf(m, placement, 0, () => 'no sprint').agents.get(placement.agents[0]!.id)!;
+    expect(cells.sprint).toEqual({ word: 'no sprint', tone: 'grey', href: null });
+  });
+
+  it('shows no link, no plan and no sprint pill for a checkout no payload row carries', () => {
+    const lost = { ...desk, checkout: 'feature/gone' };
+    const [placed] = fleetAgents(view(rows, [lost]));
+    expect(placed!.links).toEqual([]);
+    const m = mappingOf([lost]);
+    const placement = placeDelivery(m.readings, m.input);
+    const cells = rowFormsOf(m, placement, 0, () => 'no sprint').agents.get(placement.agents[0]!.id)!;
+    expect(cells.branch?.value).toBe('feature/gone');
+    expect(cells.plan).toBeNull();
+    expect(cells.sprint).toBeNull();
   });
 });
