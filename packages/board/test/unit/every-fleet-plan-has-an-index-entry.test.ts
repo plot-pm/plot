@@ -6,6 +6,7 @@
 // files, real helper scripts, a real pulse — so the row names and the index
 // keys come from the same server read a client would actually receive.
 import { afterEach, describe, it, expect } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -77,6 +78,8 @@ function fixture() {
   const repoRoot = path.join(parent, 'repo');
   const scripts = path.join(parent, 'scripts');
   fs.mkdirSync(path.join(repoRoot, 'docs/plans'), { recursive: true });
+  // A repository, so the heartbeat and the bridge under its state home are read.
+  execFileSync('git', ['init', '-q', '-b', 'main', repoRoot], { stdio: 'ignore' });
   fs.mkdirSync(scripts, { recursive: true });
 
   fs.writeFileSync(path.join(repoRoot, 'docs/plans', FIRST_FILE),

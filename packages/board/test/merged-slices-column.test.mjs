@@ -13,6 +13,7 @@
 // measurement; delivering is a decision, and nothing here writes one.
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,9 +39,10 @@ const deliveredPlan = (title) => `# ${title}
 - **Delivered:** 2026-08-20, jwloka, everything landed
 `;
 
-/** A scratch repo with the four plan files — no git needed; the pulse is planted. */
+/** A scratch repo with the four plan files. The pulse is planted under its state home, so it is a git repository. */
 function makeRepo() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-merged-waves-'));
+  execFileSync('git', ['init', '-q', '-b', 'main', tmp], { stdio: 'ignore' });
   const plans = path.join(tmp, 'docs/plans');
   fs.mkdirSync(plans, { recursive: true });
   fs.writeFileSync(path.join(plans, ALL_MERGED), approvedPlan('Every wave merged'), 'utf8');
