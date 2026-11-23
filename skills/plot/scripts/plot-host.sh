@@ -3085,8 +3085,10 @@ BB_LIST_PAGELEN=50
 # space-separated. `adapters/host/listing-paging.ts` holds the same table.
 BB_LIST_PAGE_VERSIONS="1.9.0"
 
-# WHICH `bb` ANSWERS, read once per Bitbucket run by `bb_identity_check` before
-# the op starts. `command bb --version` runs outside the `bb()` wrapper: it
+# WHICH `bb` ANSWERS, read by `bb_identity_check` before the first `bb()` call
+# of a run. `BB_RC` is empty until a `bb()` call ends, and it is one file for the
+# run and its subshells, so the check runs once; an op that never calls `bb`
+# never reads it. `command bb --version` runs outside the `bb()` wrapper: it
 # sends no request, so it takes no host slot and records no budget row.
 #
 # The check refuses craftamap/bb, which has no `--json` and prints a git sha in
@@ -3096,7 +3098,8 @@ BB_LIST_PAGE_VERSIONS="1.9.0"
 # nothing passes, and its first real call fails with its own words.
 #
 # `BB_VERSION` is the version the line names, empty where it names none;
-# `bb_list_page_length` is its one reader.
+# `bb_list_page_length` is its one reader, and reads the line again because
+# the first check can have run in a subshell.
 BB_VERSION=""
 bb_identity_check() {
   local line; line="$(command bb --version 2>/dev/null | bb_strip_ansi | head -1)"
@@ -3106,10 +3109,12 @@ bb_identity_check() {
 }
 
 # The page length the answering `bb` lists by, or nothing where its version is
-# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION`, so it costs no `bb` call.
+# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION` through `command bb --version`,
+# so it costs no request.
 # Quatico's `bb` 1.9.0 prints `bb version 1.9.0`, which names 1.9.0, so its
 # row still matches.
 bb_list_page_length() {
+  bb_identity_check
   [ -n "$BB_VERSION" ] || return 0
   case " $BB_LIST_PAGE_VERSIONS " in
     *" $BB_VERSION "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
@@ -3731,6 +3736,7 @@ gh() {
 }
 
 bb() {
+  [ -s "$BB_RC" ] || bb_identity_check
   host_slot_take bitbucket bitbucket
   command bb "$@"
   local rc=$?
@@ -3794,7 +3800,6 @@ be="$(backend)" || exit $?
 # emptiness is the honest value — there is no route where there is no fork.
 route=""
 [ "$be" = "github" ] && route="$(gh_route "$op")"
-[ "$be" = "bitbucket" ] && bb_identity_check
 # THE HOST CLI FOR OPS WHOSE TWO ARMS DIFFER ONLY IN ITS NAME.
 cli=gh; [ "$be" = "github" ] || cli=bb
 
