@@ -349,6 +349,16 @@ describe('bundle entries', () => {
     expect(local([ENTRY], []).tests).toEqual([]);
   });
 
+  it('selects the bundle test where the caller read no references for the entry', () => {
+    const answer = localChecks({ ...readings({ changed: [ENTRY], checks: BOARD_CHECKS }), tests: TESTS, bundles: [PAIR] });
+    expect(answer.tests).toEqual([BUNDLE_TEST.path]);
+  });
+
+  it('a generated entry source and an absent tests reading select nothing', () => {
+    expect(localChecks({ ...readings({ changed: [ENTRY], generated: [ENTRY], checks: BOARD_CHECKS }), tests: TESTS, bundles: [PAIR] }).tests).toEqual([]);
+    expect(localChecks({ ...readings({ changed: [ENTRY], checks: BOARD_CHECKS }), bundles: [PAIR] }).tests).toEqual([]);
+  });
+
   it('localChecks and ciSelection answer the same tests for one input', () => {
     const changed = [ENTRY, 'packages/board/src/server/entry/approve.ts'];
     expect(local(changed, [PAIR]).tests).toEqual(ci(changed, [PAIR]).tests);
