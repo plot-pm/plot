@@ -39,6 +39,13 @@ const selection = (over: Partial<SelectionReadings>): SelectionReadings => ({
   tests: [HOST_TEST, QUEUE_TEST, UNRELATED],
   corpus: corpusGlobs('docs/plans/', 'docs/sprints/'),
   corpusFiles: [],
+  sync: {
+    planDir: 'docs/plans/',
+    activeIndex: 'docs/plans/active/',
+    deliveredIndex: 'docs/plans/delivered/',
+    sprintDir: 'docs/sprints/',
+    releaseDir: 'docs/releases/',
+  },
   ...over,
 });
 
@@ -342,5 +349,47 @@ describe('ciSelection over the corpus tier', () => {
     expect(answer.corpus).toBe(false);
     expect(answer.corpusTests).toEqual([]);
     expect(answer.suites).not.toContain(CORPUS_SUITE);
+  });
+});
+
+describe('ciSelection.planDataOnly', () => {
+  it('answers true for plans with their index, a sprint, a brief and the hold file', () => {
+    for (const changed of [
+      ['docs/plans/x.md', 'docs/plans/active/x.md'],
+      ['docs/sprints/s.md'],
+      ['.plot/briefs/b.md'],
+      ['.plot/hold'],
+    ]) {
+      expect(ciSelection(selection({ changed })).planDataOnly, changed.join(' ')).toBe(true);
+    }
+  });
+
+  it('answers false for a `.plot/panels/` path, which corpus still reads as plan data', () => {
+    const answer = ciSelection(selection({ changed: ['.plot/panels/x/panel.md'] }));
+    expect(answer.planDataOnly).toBe(false);
+    expect(answer.corpus).toBe(true);
+  });
+
+  it('answers false for one code path beside plan files', () => {
+    const answer = ciSelection(selection({ changed: ['docs/plans/x.md', 'packages/domain/src/rules/queue.ts'] }));
+    expect(answer.planDataOnly).toBe(false);
+  });
+
+  it('answers false for a path with `..` segments', () => {
+    expect(ciSelection(selection({ changed: ['docs/plans/../../packages/x.ts'] })).planDataOnly).toBe(false);
+  });
+
+  it('answers false for an empty change', () => {
+    expect(ciSelection(selection({ changed: [] })).planDataOnly).toBe(false);
+  });
+
+  it('answers false for a change of generated bundles only', () => {
+    const bundle = 'skills/plot/scripts/board/board-server.mjs';
+    expect(ciSelection(selection({ changed: [bundle], generated: [bundle] })).planDataOnly).toBe(false);
+  });
+
+  it('ignores a generated bundle beside plan files', () => {
+    const bundle = 'skills/plot/scripts/board/board-server.mjs';
+    expect(ciSelection(selection({ changed: ['docs/plans/x.md', bundle], generated: [bundle] })).planDataOnly).toBe(true);
   });
 });

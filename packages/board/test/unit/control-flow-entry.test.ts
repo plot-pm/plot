@@ -163,8 +163,53 @@ describe('plot-local-checks as a process', () => {
     });
     expect(result.status).toBe(2);
     expect(result.stderr.toString('utf8')).toBe(
-      'plot-local-checks: unknown argument --bogus\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>] [--base <branch>] [--run]\n',
+      'plot-local-checks: unknown argument --bogus\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>] [--base <branch>] [--run]\n       plot-local-checks.mjs --push-base <green.json> <first-parent.txt>\n',
     );
+  });
+
+  describe('--push-base', () => {
+    const head = 'a'.repeat(40);
+    const older = 'b'.repeat(40);
+    const ask = (greenText: string | null, firstParent: string) => {
+      const files = mkdtempSync(path.join(tmpdir(), 'plot-push-base-'));
+      try {
+        const greenFile = path.join(files, 'green.json');
+        if (greenText !== null) writeFileSync(greenFile, greenText);
+        const lineFile = path.join(files, 'first-parent.txt');
+        writeFileSync(lineFile, firstParent);
+        return spawnSync(process.execPath, [localChecksBundle, '--push-base', greenFile, lineFile], { cwd: files });
+      } finally {
+        rmSync(files, { recursive: true, force: true });
+      }
+    };
+
+    it('prints base=<sha> for a green head on the first-parent line', () => {
+      const result = ask(JSON.stringify({ workflow_runs: [{ head_sha: older }] }), `${head}\n${older}\n`);
+      expect(result.status).toBe(0);
+      expect(result.stdout.toString('utf8')).toBe(`base=${older}\n`);
+    });
+
+    it('prints every=no-green-run for an empty run list', () => {
+      const result = ask(JSON.stringify({ workflow_runs: [] }), `${head}\n`);
+      expect(result.stdout.toString('utf8')).toBe('every=no-green-run\n');
+    });
+
+    it('prints every=api-failed for a missing or unparseable answer', () => {
+      expect(ask(null, `${head}\n`).stdout.toString('utf8')).toBe('every=api-failed\n');
+      expect(ask('{"message":"Bad credentials"}', `${head}\n`).stdout.toString('utf8')).toBe('every=api-failed\n');
+      expect(ask('', `${head}\n`).stdout.toString('utf8')).toBe('every=api-failed\n');
+    });
+
+    it('prints every=not-on-line for a green head off the line', () => {
+      const result = ask(JSON.stringify({ workflow_runs: [{ head_sha: older }] }), `${head}\n`);
+      expect(result.stdout.toString('utf8')).toBe('every=not-on-line\n');
+    });
+
+    it('exits 2 with the usage line for a missing file argument', () => {
+      const result = spawnSync(process.execPath, [localChecksBundle, '--push-base', 'green.json'], { cwd: here });
+      expect(result.status).toBe(2);
+      expect(result.stderr.toString('utf8')).toBe('usage: plot-local-checks.mjs --push-base <green.json> <first-parent.txt>\n');
+    });
   });
 });
 
