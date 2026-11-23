@@ -21,6 +21,7 @@ import {
   planSlugOf,
   type PlanPrRefusal,
 } from '@plot-pm/domain/rules/plan-pr';
+import { planPrOf } from '@plot-pm/domain/rules/plan-pr';
 import { choosePlanPr, readHeadOf, unreadPrsLine, type UnreadPr } from './open-prs.js';
 import { approvalArm } from '@plot-pm/domain/rules/approval-arm';
 import { annotateSprintItem } from '@plot-pm/domain/rules/sprint-annotation';
@@ -518,6 +519,8 @@ const refusalText = (reason: ApproveRefusal, detail: string, c: RefusalContext):
       return c.unnamedMerge?.via === 'list'
         ? `the merge commit ${c.unnamedMerge.sha} added ${planFile}, and the host could only search its newest 100 merged PRs.\n  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`
         : `the merge commit ${c.unnamedMerge?.sha ?? ''} added ${planFile}, and the host could not name its PR.\n  Check the merge commit on the host, or approve in session: plot-approve-command.mjs --who <handle> ${slug}. Nothing was merged and the phase is unchanged.`;
+    case 'slice-on-plan-branch':
+      return `${detail}\n  Rename the slice's branch in the plan, then re-run. Nothing was merged and the phase is unchanged.`;
     case 'pr-absent':
       return `no PR found for branch '${c.prBranch}'.\n  Push the branch: git push -u origin ${c.prBranch}\n  Then open its PR — or run /plot-idea, which does both.`;
     case 'pr-copies-differ':
@@ -762,6 +765,48 @@ export const approveHostOf = (shell: Host, composed: Host): Host => ({
   ...shell,
   prsOfCommit: (sha) => composed.prsOfCommit(sha),
 });
+
+/**
+ * The plan PR of an in-session plan the default branch holds: the PR of the
+ * merge that added the plan file, asked by commit once.
+ *
+ * There is no list fallback and no `confirm`. The PR is the `MERGED` row whose
+ * head is the merge's second parent and whose merge commit is that merge.
+ *
+ * @param file - the plan file's path on the default branch.
+ * @param plansOnMain - the default branch's plan files, fetched once.
+ * @returns the PR's number and head branch; `undefined` where the default
+ *   branch does not hold the file, no merge added it, the host answers
+ *   `unaskable` or `failed`, or no row matches.
+ */
+const inSessionPlanPrOf = async (
+  ctx: Context,
+  slug: string,
+  planDir: string,
+  main: string,
+  file: string,
+  plansOnMain: () => Promise<string[]>,
+): Promise<{ number: number; branch: string } | undefined> => {
+  if (file === '' || !(await plansOnMain()).includes(file)) return undefined;
+  const added = await ctx.refs.firstParentAddition(`origin/${main}`, file);
+  const sha = added.ok ? added.value : '';
+  if (sha === '') return undefined;
+  const second = await ctx.refs.resolve(`${sha}^2`);
+  const secondParent = second.ok ? second.value : '';
+  if (secondParent === '') return undefined;
+  const asked = await ctx.host.prsOfCommit(secondParent);
+  if (!asked.ok) return undefined;
+  const answer = planPrOf({
+    slug,
+    planDir,
+    onMain: true,
+    named: null,
+    addition: { sha, secondParent },
+    byCommit: asked.value,
+  });
+  if (answer.outcome !== 'found' || answer.branch === '') return undefined;
+  return { number: answer.number, branch: answer.branch };
+};
 
 /**
  * Parses argv, reads the plan and the PR, and performs the approval.
@@ -1051,6 +1096,13 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
       pr = { number: null, state: 'OPEN', draft: false };
     }
   }
+  // An in-session plan the default branch holds may still have reached it
+  // through a plan PR. One commit answer names that PR's branch for the domain
+  // to compare with the slices; any other answer leaves it unnamed, because an
+  // in-session plan needs no PR.
+  const inSessionPr = !args.spike && plan !== undefined && inSession
+    ? await inSessionPlanPrOf(ctx, slug, dirs.planDir, main, inCheckout ? realPlanPath(ctx.repoRoot, planFile) ?? planFile : planFile, plansOnMain)
+    : undefined;
   const person = args.spike || approvalArm({ phase, review }) === 'person';
 
   const confirm =
@@ -1069,7 +1121,7 @@ export const perform = async (ctx: Context, args: Args, write: Printer, warn: Pr
     sprint,
     sprintFile: '',
     approvedRecord: plan?.approvedRaw ?? '',
-    pr: {
+    pr: inSessionPr !== undefined ? { number: inSessionPr.number, state: 'MERGED', draft: false, branch: inSessionPr.branch } : {
       // The domain's reading names no PR with 0, and its state says which.
       number: pr.number ?? 0,
       state: pr.state === 'MERGED' || pr.state === 'OPEN' || pr.state === 'CLOSED' ? pr.state : 'NONE',

@@ -34,6 +34,7 @@ export type ApproveRefusal =
   | 'pr-closed'
   | 'pr-merge-unnamed'
   | 'pr-absent'
+  | 'slice-on-plan-branch'
   | 'pr-ambiguous'
   | 'pr-copies-differ'
   | 'pr-head-unheld'
@@ -153,6 +154,29 @@ export interface ApprovePrReading {
 const unnamedMergeDetail = (sha: string, file: string): string =>
   `the merge commit ${sha} added ${file}, and the host named no PR for it.`;
 
+/**
+ * The slice branch that is also the plan PR's head branch, or `undefined`.
+ *
+ * Read only for a found plan PR: `MERGED` or `OPEN`, or `MERGED` alone for an
+ * in-session plan, whose PR reading is the adding merge's commit answer.
+ * `same-branch` is exempt, because there the plan PR is the implementation PR.
+ *
+ * @param readings - the plan's branches, implementation home and PR reading.
+ * @param inSession - whether the plan declares `Review: in-session`.
+ * @returns the branch both name; `undefined` where none does.
+ */
+const sliceOnPlanBranch = (readings: ApproveReadings, inSession: boolean): string | undefined => {
+  const { pr } = readings;
+  if (readings.impl === 'same-branch' || pr.branch === '') return undefined;
+  const found = inSession ? pr.state === 'MERGED' : pr.state === 'MERGED' || pr.state === 'OPEN';
+  if (!found) return undefined;
+  return readings.branches.find((branch) => branch === pr.branch);
+};
+
+/** The detail of `slice-on-plan-branch`: the branch and the plan PR. */
+const sliceOnPlanBranchDetail = (branch: string, pr: number): string =>
+  `slice ${branch} is the plan PR's head branch (#${pr}); its merge reads as this slice landing.`;
+
 /** What `approve` records beyond the plan. */
 export interface ApproveInput {
   /** The date to record, ISO-8601. */
@@ -228,8 +252,8 @@ export interface ApproveDetail {
  *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
  *   `state-unreadable`, `state-wrong`, `slice-unnamed`, `review-human`,
  *   `reviewer-undeclared`, `review-unrecognised`, `spike-unmerged`,
- *   `slices-unpushed`, `pr-closed`, `pr-merge-unnamed`, `pr-absent`, `pr-ambiguous`,
- *   `pr-copies-differ`, `pr-head-unheld`, `pr-carries-no-plan` or
+ *   `slices-unpushed`, `pr-closed`, `pr-merge-unnamed`, `pr-absent`,
+ *   `slice-on-plan-branch`, `pr-ambiguous`, `pr-copies-differ`, `pr-head-unheld`, `pr-carries-no-plan` or
  *   `checkout-copy-differs`.
  */
 export const approve = (
@@ -379,6 +403,12 @@ export const approve = (
           `no PR found for branch '${readings.pr.branch}'. Run /plot-idea first, or push the branch.`,
         );
     }
+    // Before every write, the open route's `pr-merge` included: merging first
+    // would land the PR whose branch the slice then reads as merged.
+    const onPlanBranch = sliceOnPlanBranch(readings, false);
+    if (onPlanBranch !== undefined) {
+      return no('slice-on-plan-branch', sliceOnPlanBranchDetail(onPlanBranch, readings.pr.number));
+    }
     const copies = readings.pr.copies;
     if (copies !== undefined && copies.checkout !== copies.head) {
       return no(
@@ -405,6 +435,13 @@ export const approve = (
         'pr-ambiguous',
         `the plan file of '${slug}' is changed by more than one open PR (${all}) — refusing rather than choosing one to merge.`,
       );
+    }
+  } else {
+    // An in-session plan on the default branch may still have reached it
+    // through a plan PR; the caller names that PR's branch where the host did.
+    const onPlanBranch = sliceOnPlanBranch(readings, true);
+    if (onPlanBranch !== undefined) {
+      return no('slice-on-plan-branch', sliceOnPlanBranchDetail(onPlanBranch, readings.pr.number));
     }
   }
 
