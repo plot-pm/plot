@@ -147,29 +147,6 @@ const cdOf = (words: readonly string[], base: string | null | undefined): string
 };
 
 /**
- * The shell keywords a git call can follow in the same simple command: an
- * `if`/`elif`/`while`/`until` test, a `for` loop's `do`, a `{` brace group, a
- * `!` negation, and a `time` prefix. One is stripped at a time, so `! time
- * git …` is read after two strips.
- */
-const LEADING_KEYWORDS: ReadonlySet<string> = new Set(['if', 'elif', 'while', 'until', 'do', '{', '!', 'time']);
-
-/**
- * `words` with every leading shell keyword removed, so a git call named right
- * after one is read the same as a bare call. Keeps stripping while the first
- * word is a keyword, so `! time git commit` and `{ ! git commit` both reach
- * `git` as word 0.
- *
- * @param words - one simple command, split on whitespace.
- * @returns `words` with its leading keyword run removed.
- */
-const withoutLeadingKeywords = (words: readonly string[]): readonly string[] => {
-  let i = 0;
-  while (i < words.length && LEADING_KEYWORDS.has(words[i])) i += 1;
-  return words.slice(i);
-};
-
-/**
  * The subcommand and arguments of one simple command, with git's global
  * options (and successive `-C` values, joined the way git joins them)
  * skipped first — `undefined` where the words are not a `git` call. Shared by
@@ -183,7 +160,7 @@ const subAndArgsOf = (
   words: readonly string[],
   base: string | null | undefined,
 ): { readonly sub: string; readonly args: readonly string[]; readonly dir: string | null | undefined } | undefined => {
-  const program = programWords(withoutLeadingKeywords(words));
+  const program = programWords(words);
   if (program.length === 0 || wordBasename(program[0]) !== 'git') return undefined;
   let i = 1;
   let dir = base;
@@ -386,7 +363,7 @@ export const commitCallsOf = (command: string): readonly GitCallEntry[] => gitCa
  * withoutHeredocBodies}), nor are quoted text and `#` comments. Each simple
  * command, split on `&&`, `||`, `;`, `|`, a single `&`, new lines, `$(`,
  * backticks and parentheses, is tested on its own, with a leading shell
- * keyword ({@link LEADING_KEYWORDS}) stripped first. Git global options
+ * keyword (`LEADING_KEYWORDS` in `ci-suite.ts`) stripped first. Git global options
  * before the subcommand are skipped, and successive `-C` paths are joined
  * the way git joins them.
  *
@@ -505,7 +482,7 @@ export const mutatesGitState = (command: string): boolean => gitWriteDirs(comman
 export const gitPushCalls = (command: string): readonly (readonly string[])[] => {
   const calls: string[][] = [];
   for (const part of withoutQuotes(withoutComments(withoutHeredocBodies(command))).split(SEPARATORS)) {
-    const program = programWords(withoutLeadingKeywords(part.trim().split(/\s+/).filter((word) => word !== '')));
+    const program = programWords(part.trim().split(/\s+/).filter((word) => word !== ''));
     if (program.length === 0 || wordBasename(program[0]) !== 'git') continue;
     let i = 1;
     while (i < program.length && program[i].startsWith('-')) i += GLOBAL_VALUE_OPTIONS.has(program[i]) ? 2 : 1;
