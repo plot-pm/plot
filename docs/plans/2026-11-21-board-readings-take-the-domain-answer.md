@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3388, #3122, #3159, #3163, #3140
 - **Review:** pr
@@ -19,6 +19,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-implement-asks-for-the-spike`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-quiet-invariant-reads-the-placement`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-escalation-reads-the-issue-once`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
