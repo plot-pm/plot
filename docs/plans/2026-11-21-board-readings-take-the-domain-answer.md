@@ -165,7 +165,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Quiet invariant
 
-- `bug/the-quiet-invariant-reads-the-placement` — the invariant over `withHandOver(rowsFromPulse(…))` across the pulse axes reading `quietKind`, a planted violator case, the two `fleet.ts` comments, and the QUIET table's `pr` row <!-- builds: the quiet-kind invariant over rowsFromPulse -->
+- `bug/the-quiet-invariant-reads-the-placement` — the invariant over `withHandOver(rowsFromPulse(…))` across the pulse axes reading `quietKind`, a planted violator case, the two `fleet.ts` comments, and the QUIET table's `pr` row <!-- builds: the quiet-kind invariant over rowsFromPulse --> → #3686
 
 ### Escalation post
 
