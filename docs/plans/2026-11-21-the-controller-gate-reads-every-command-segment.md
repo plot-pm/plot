@@ -105,7 +105,7 @@ A changeset `'plot': patch` names the plan; neither slice bumps a skill.
 
 ### Reserved word
 
-- `bug/a-reserved-word-hides-no-program` — one exported `LEADING_KEYWORDS` set that `programWords` skips with a glued `(` and `)`, `commandWords` for the assignment test, `isProcessRead` kept on `while`/`until`, the copies in `main-checkout-write.ts` and `poll-refusal.ts` folded in, and the HTTP, merge, CI-suite, read and poll rows above <!-- builds: LEADING_KEYWORDS, one shared set of shell keywords before a program --> <!-- waits: bug/the-controller-gate-reads-a-loop-body-as-a-segment -->
+- `bug/a-reserved-word-hides-no-program` — one exported `LEADING_KEYWORDS` set that `programWords` skips with a glued `(` and `)`, `commandWords` for the assignment test, `isProcessRead` kept on `while`/`until`, the copies in `main-checkout-write.ts` and `poll-refusal.ts` folded in, and the HTTP, merge, CI-suite, read and poll rows above <!-- builds: LEADING_KEYWORDS, one shared set of shell keywords before a program --> <!-- waits: bug/the-controller-gate-reads-a-loop-body-as-a-segment --> → #3680
 
 ## Notes
 
