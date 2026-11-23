@@ -16,6 +16,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `bug/the-spike-card-names-its-reason`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-plan-store-corpus-checks-both-lists`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-verdict-line-drops-the-spike-columns`
+- **Started:** 2026-11-23, Jan Wloka, `bug/plot-implement-asks-for-the-spike`
 
 ## Changelog
 
