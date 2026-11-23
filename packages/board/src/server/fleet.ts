@@ -5789,10 +5789,9 @@ function classifyGroup(
   // `quietKind`'s `abandoned` exactly: *real commits, no PR ever opened, nobody
   // on it*, the six rows measured on this estate 2026-09-03.
   //
-  // WAITING ON YOU, because it is the one kind that genuinely needs a person:
-  // revive it, or drop it. The plan says so and `quietPlacement` says so, and
-  // QUIET's own hint — *still thinking, or dead?* — is a question this row has
-  // already answered.
+  // QUIET, because `quietPlacement` answers `quiet` for this kind (operator
+  // decision B, 2026-11-03): the row keeps its kind word and its note, and the
+  // revive-or-drop call stays a person's to make from QUIET.
   //
   // THE AGE FOLLOWS THE STATE rather than replacing it, the same shape as the
   // orphaned claim above. *no commit for 126 days* was the whole note and it
@@ -5810,8 +5809,8 @@ function classifyGroup(
   const readings = wipReadings(pr, hasMergedPr, hostUnasked, tipAt, fetchAt);
   const abandoned = quietNote(readings);
   // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietPlacement`
-  // places `merged` as done, `closed-pr` and `quiet` as quiet, and `abandoned`
-  // and `orphaned-claim` as waiting on you. This arm is reached by a branch that
+  // places `merged` as done, and `closed-pr`, `quiet`, `abandoned` and
+  // `orphaned-claim` as quiet. This arm is reached by a branch that
   // squash-merged with its head ref deleted, which arrives `wip` with no open PR
   // and never meets the `state === 'merged'` arm above.
   // A MERGED PR IS DONE, NOT QUIET — the same answer the `state === 'merged'`
