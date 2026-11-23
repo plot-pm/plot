@@ -15,6 +15,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-jenkins-sha-refusal-names-its-cause`
 - **Started:** 2026-11-23, Jan Wloka, `bug/desk-dirt-excuses-the-fleets-own-files`
 - **Started:** 2026-11-23, Jan Wloka, `bug/a-plan-pr-runs-the-estate-tests`
+- **Started:** 2026-11-23, Jan Wloka, `bug/an-entry-source-selects-its-bundle-tests`
 
 ## Changelog
 
