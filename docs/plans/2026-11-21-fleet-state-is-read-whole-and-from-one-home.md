@@ -176,7 +176,7 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Partial-pulse readers
 
-- `bug/the-board-routes-read-a-partial-pulse` — `pulsePlanReading`, `startReadingFromPulses`, the worker log through `pulseBranchReading` with two new sentences, the bridge characterisation test and the corrected shell comment <!-- builds: pulsePlanReading, the plan-level partial-pulse lookup -->
+- `bug/the-board-routes-read-a-partial-pulse` — `pulsePlanReading`, `startReadingFromPulses`, the worker log through `pulseBranchReading` with two new sentences, the bridge characterisation test and the corrected shell comment <!-- builds: pulsePlanReading, the plan-level partial-pulse lookup --> → #3677
 
 ### Domain pulse lookup
 
