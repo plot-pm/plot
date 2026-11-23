@@ -352,7 +352,7 @@ const markedDir = (dir: string): string => dir.trim().replace(/^\.\//, '').repla
  * @returns the directories, without `./` or a trailing `/`, each once.
  */
 export const plotReads = (text: string): string[] => [
-  ...new Set([...text.matchAll(PLOT_READS)].map((match) => markedDir(match[1] ?? '')).filter((dir) => dir !== '')),
+  ...new Set([...text.matchAll(PLOT_READS)].map((match) => markedDir(match[1] as string)).filter((dir) => dir !== '')),
 ];
 
 /**
@@ -421,12 +421,12 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
   for (const check of checks) {
     if (check.command.includes(TESTS)) {
       const chosen = new Set<string>();
-      for (const path of changed) {
+      for (const [path, refs] of named) {
         if (check.pattern.test(path)) {
           chosen.add(path);
           reached.add(path);
         }
-        for (const test of named.get(path) ?? []) {
+        for (const test of refs) {
           if (check.pattern.test(test)) {
             chosen.add(test);
             reached.add(path);
@@ -441,13 +441,13 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
     } else if (check.command.includes(CHANGED)) {
       const chosen = new Set<string>();
       const naming = new Set<string>();
-      for (const path of changed) {
+      for (const [path, refs] of named) {
         if (check.pattern.test(path)) {
           chosen.add(path);
           reached.add(path);
         }
         if (IMPORTED.test(path)) continue;
-        for (const test of named.get(path) ?? []) {
+        for (const test of refs) {
           if (isTestFile(test) && check.pattern.test(test)) {
             chosen.add(test);
             naming.add(test);
