@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3145, #3146, #3165
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-controller-gate-reads-a-loop-body-as-a-segment`
 - **Started:** 2026-11-23, Jan Wloka, `bug/a-reserved-word-hides-no-program`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
