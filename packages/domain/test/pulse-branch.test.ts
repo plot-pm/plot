@@ -119,6 +119,14 @@ describe('lookupBranch', () => {
     });
   });
 
+  it('defaults an absent plan file and wave name to ""', () => {
+    const unnamed = { plans: [{ slices: [{ branches: [{ branch: 'feature/x' }] }] }] } as unknown as FleetReading;
+    expect(lookupBranch(unnamed, 'feature/x')).toEqual({
+      kind: 'found',
+      desk: { worktree: '', plan: '', wave: '', worker: 'elsewhere', pid: '' },
+    });
+  });
+
   it('finds a branch in the second wave of the second plan', () => {
     expect(lookupBranch(twoPlans, 'feature/b2')).toEqual({
       kind: 'found',
