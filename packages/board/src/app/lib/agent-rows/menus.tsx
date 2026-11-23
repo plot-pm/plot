@@ -1154,6 +1154,7 @@ export const FleetAgentMenu = ({ facts, agent, onActing, onOpenPlan, onRevealBra
 }) => {
   const [panelOpen, setPanelOpen] = useState(false);
   const view = rowMenuOf(facts);
+  if (view.kind !== 'items' || view.trigger === 'none') return null;
   const render = (item: RowMenuItem): ReactNode => {
     switch (item.action) {
       case 'worker-log':

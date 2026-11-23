@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
-import { openCatalogue, agent, board as buildBoard, fleet as buildFleet, scenario, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, board as buildBoard, fleet as buildFleet, scenario, type Catalogue } from '../catalogue/index.js';
 import { type Fleet } from '../../src/contract/schema.js';
 
 /**
  * The `⋯` column: every Delivery row's Do cell is its last cell and starts at one x in every section, as the shipped
- * artifact renders it. One Fleet agent has no pulse row and so no action; its Do cell is empty and still holds the x.
+ * artifact renders it. The scenario's free agent `s-free` has no branch and so no action; the test unfolds the free
+ * group, and that agent's Do cell is empty and still holds the x. Every agent with a branch lists the `fleet-agent` items.
  */
 const ME = 'gardener';
 const SECTIONS = ['you', 'work-items', 'release-delivery', 'fleet', 'tickets'];
@@ -28,7 +29,6 @@ describe('the ⋯ column (real browser renders the shipped artifact)', () => {
     const ticket = { kind: 'ticket' as const, number: '7', title: 'Prune the hedge', url: '', ageMinutes: 5, status: 'open', statusCategory: 'To Do', assignees: [ME] };
     const fleet = buildFleet({
       ...rest,
-      agents: [...envelope.agents, agent({ session: 's-norow01', branch: 'feature/no-pulse-row', worktree: '/wt/plot-wt-no-pulse-row', state: 'running' })],
       issueAnswer: 'answered',
       issues: [ticket],
       waiting: { tickets: [ticket], shown: 1, hidden: 0, unassigned: 0, assignedToOthers: 0, complete: true, notice: null, source: { service: 'github', match: 'host-login' } },
@@ -43,6 +43,8 @@ describe('the ⋯ column (real browser renders the shipped artifact)', () => {
     await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width, height: 900 });
     await page.locator('section#tickets [data-issue-row]').waitFor({ timeout: 15_000 });
+    const free = page.locator('[data-group-toggle="free"]');
+    if (await free.count() > 0 && (await free.getAttribute('aria-expanded')) === 'false') await free.click();
     return page;
   };
 
