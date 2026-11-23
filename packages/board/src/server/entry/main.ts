@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -22,6 +22,8 @@ import { finishContextFor, mergePortsFor } from './merge-ports.js';
 import { finishRelease } from './release-finish.js';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
+import { licensedSpike } from '@plot-pm/domain/rules/spike';
+import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/registry';
 
 /**
@@ -35,6 +37,7 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
+ * node skills/plot/scripts/board/plot-ask.mjs spike <slug> [<plan-file>]
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
@@ -68,7 +71,14 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * names the PR and 1 on a refusal. A person runs it: `PLOT_UNATTENDED=1` maps
  * to the `unattended` caller, which refuses before any read.
  *
- * The answer goes to stdout as JSON and nothing else does. Diagnostics go to
+ * **`spike` answers one line of words, not JSON.** It reads a plan through the
+ * plan store and answers `licensedSpike` over that one record: `licensed <branch> <date>`
+ * exits 0, `unlicensed <reason> <date or ->` exits 1, and `unaskable <why>`
+ * exits 2 where no plan file matches the slug or the file does not parse as a
+ * plan. `<plan-file>` names the file to read instead of the configured plan
+ * directory's, for a caller that parsed a plan from another commit.
+ *
+ * The other answers go to stdout as JSON and nothing else does. Diagnostics go to
  * stderr, so a caller can pipe stdout into a parser the way
  * `plot-sprint-candidates.sh` does — the precedent the plan cites, and the same
  * reason it gives: node is already required to run the board and every test
@@ -90,6 +100,42 @@ const planDirFor = (opts: BuildBoardOptions): string => {
   const answer = scriptsFor(opts).configSync('Plan directory', 'docs/plans/');
   if (!answer.ok) return 'docs/plans';
   return (answer.value.trim() || 'docs/plans/').replace(/\/$/, '');
+};
+
+/**
+ * The plan file a slug names in the plan directory: `<slug>.md` or `<date>-<slug>.md`.
+ *
+ * @param repoRoot - the repository root.
+ * @param planDir - the configured plan directory, relative to the root.
+ * @param slug - the plan's slug.
+ * @returns the path relative to the root, or null where no file matches.
+ */
+const planFileOfSlug = (repoRoot: string, planDir: string, slug: string): string | null => {
+  let entries: string[];
+  try {
+    entries = readdirSync(path.join(repoRoot, planDir));
+  } catch {
+    return null;
+  }
+  const hit = entries.find((e) => e === `${slug}.md` || (/^\d{4}-\d{2}-\d{2}-/.test(e) && e.slice(11) === `${slug}.md`));
+  return hit === undefined ? null : path.join(planDir, hit);
+};
+
+/**
+ * The `spike` answer line and exit code for one plan file.
+ *
+ * @param store - the plan store that reads the file.
+ * @param file - the plan file, absolute or relative to the repository root.
+ * @returns the line to print and the exit code: 0 licensed, 1 unlicensed, 2 unaskable.
+ */
+export const spikeAnswerOf = async (store: PlanStore, file: string): Promise<{ line: string; code: number }> => {
+  const read = await store.readPlan(file);
+  if (!read.ok || read.value.format === 'none') return { line: 'unaskable plan-unreadable', code: 2 };
+  const date = read.value.spikeApprovedRaw.split(',')[0]?.trim() || '-';
+  const answer = licensedSpike(read.value.spikeApprovedRaw, read.value.slices);
+  return answer.licensed
+    ? { line: `licensed ${answer.branch} ${date}`, code: 0 }
+    : { line: `unlicensed ${answer.reason} ${date}`, code: 1 };
 };
 
 /** Everything the entry point needs, assembled from the environment. */
@@ -232,6 +278,23 @@ export const run = async (
     return result.named ? 0 : 1;
   }
 
+  if (argv[0] === 'spike') {
+    const [, slug, given] = argv;
+    if (!slug || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug) || argv.length > 3) {
+      process.stderr.write('usage: plot-ask.mjs spike <slug> [<plan-file>]\n');
+      return 2;
+    }
+    const { opts, planDir } = contextFrom(here);
+    const file = given ?? planFileOfSlug(opts.repoRoot, planDir, slug);
+    if (file === null) {
+      write('unaskable plan-not-found\n');
+      return 2;
+    }
+    const { line, code } = await spikeAnswerOf(estateFromEnv(opts).planStore, file);
+    write(`${line}\n`);
+    return code;
+  }
+
   if (argv[0] === 'spawner' && argv[1] === '--from-board') {
     // The board's OWN spawn contract, reported through `/api/board` rather
     // than `fleetd-start.json` — `plot-boardctl.sh --status` is the one
@@ -359,7 +422,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spike <slug> [<plan-file>] | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main>\n',
     );
     return 2;
   }
