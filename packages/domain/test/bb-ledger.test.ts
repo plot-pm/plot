@@ -147,14 +147,14 @@ describe('the pause', () => {
   });
 
   it("prints bb's tail after a 429", () => {
-    expect(bbPauseTail({ end: NOW + 300, length: 300 }, '30', NOW)).toBe('Bitbucket asked to wait 30 s; bb paused until 10:47:03Z (in 300 s)');
-    expect(bbPauseTail({ end: NOW + 429, length: 429 }, 'soon', NOW)).toBe('bb paused until 10:49:13Z (in 430 s)');
+    expect(bbPauseTail({ end: NOW + 300, length: 300 }, '30', NOW, 'Bitbucket')).toBe('Bitbucket asked to wait 30 s; bb paused until 10:47:03Z (in 300 s)');
+    expect(bbPauseTail({ end: NOW + 429, length: 429 }, 'soon', NOW, 'Bitbucket')).toBe('bb paused until 10:49:13Z (in 430 s)');
   });
 });
 
 describe('the guard', () => {
   it('refuses during a pause first, whatever the count', () => {
-    expect(bbGuard({ now: NOW, ceiling: 800, pause: { end: NOW + 60, length: 300 }, texts: null })).toEqual({
+    expect(bbGuard({ now: NOW, ceiling: 800, pause: { end: NOW + 60, length: 300 }, texts: null, host: 'Bitbucket' })).toEqual({
       verdict: 'paused',
       waitSeconds: 60,
       said: 'rate limited — bb paused until 10:43:03Z after Bitbucket refused a request (in 60 s)',
@@ -163,18 +163,18 @@ describe('the guard', () => {
 
   it('refuses at the ceiling with the next free second, and sends below it', () => {
     const texts = ['', `${NOW - 10}\n${NOW - 5}\n`];
-    expect(bbGuard({ now: NOW, ceiling: 2, pause: null, texts })).toEqual({
+    expect(bbGuard({ now: NOW, ceiling: 2, pause: null, texts, host: 'Bitbucket' })).toEqual({
       verdict: 'ceiling',
       waitSeconds: 3590,
       requests: 2,
       said: 'rate limited — 2 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)',
     });
-    expect(bbGuard({ now: NOW, ceiling: 3, pause: null, texts })).toEqual({ verdict: 'send', requests: 2 });
-    expect(bbGuard({ now: NOW, ceiling: null, pause: null, texts })).toEqual({ verdict: 'send', requests: 2 });
+    expect(bbGuard({ now: NOW, ceiling: 3, pause: null, texts, host: 'Bitbucket' })).toEqual({ verdict: 'send', requests: 2 });
+    expect(bbGuard({ now: NOW, ceiling: null, pause: null, texts, host: 'Bitbucket' })).toEqual({ verdict: 'send', requests: 2 });
   });
 
   it('sends with an unknown count where a request file cannot be read', () => {
-    expect(bbGuard({ now: NOW, ceiling: 1, pause: null, texts: null })).toEqual({ verdict: 'send', requests: null });
+    expect(bbGuard({ now: NOW, ceiling: 1, pause: null, texts: null, host: 'Bitbucket' })).toEqual({ verdict: 'send', requests: null });
   });
 });
 
@@ -183,7 +183,7 @@ describe('the limit reading', () => {
 
   it('reads the ceiling, the declared limit under it, and what remains', () => {
     const fields = { requests: 10, ceiling: 800, pausedUntil: null, waitSeconds: 0 };
-    expect(bbLimitReading(fields, null, NOW_MS)).toEqual({
+    expect(bbLimitReading(fields, null, NOW_MS, 'bitbucket')).toEqual({
       connector: 'bitbucket',
       bucket: 'api',
       limit: 800,
@@ -191,27 +191,27 @@ describe('the limit reading', () => {
       resetAt: null,
       basis: 'predicted',
     });
-    expect(bbLimitReading(fields, 500, NOW_MS)).toMatchObject({ limit: 500, remaining: 490 });
+    expect(bbLimitReading(fields, 500, NOW_MS, 'bitbucket')).toMatchObject({ limit: 500, remaining: 490 });
   });
 
   it('carries a non-null reset where remaining is 0 and waitSeconds is 0', () => {
     const spent = { requests: 800, ceiling: 800, pausedUntil: null, waitSeconds: 0 };
-    expect(bbLimitReading(spent, null, NOW_MS)).toMatchObject({ remaining: 0, resetAt: NOW_MS + 3_600_000 });
-    expect(bbLimitReading({ ...spent, nextFreeAt: NOW + 50 }, null, NOW_MS)).toMatchObject({ remaining: 0, resetAt: (NOW + 50) * 1000 });
-    expect(bbLimitReading({ ...spent, waitSeconds: 20 }, null, NOW_MS)).toMatchObject({ remaining: 0, resetAt: NOW_MS + 20_000 });
+    expect(bbLimitReading(spent, null, NOW_MS, 'bitbucket')).toMatchObject({ remaining: 0, resetAt: NOW_MS + 3_600_000 });
+    expect(bbLimitReading({ ...spent, nextFreeAt: NOW + 50 }, null, NOW_MS, 'bitbucket')).toMatchObject({ remaining: 0, resetAt: (NOW + 50) * 1000 });
+    expect(bbLimitReading({ ...spent, waitSeconds: 20 }, null, NOW_MS, 'bitbucket')).toMatchObject({ remaining: 0, resetAt: NOW_MS + 20_000 });
   });
 
   it('reads 0 remaining until the pause ends, and no remaining where the count or the ceiling is unknown', () => {
-    expect(bbLimitReading({ requests: 3, ceiling: 800, pausedUntil: NOW + 90, waitSeconds: 90 }, null, NOW_MS)).toMatchObject({
+    expect(bbLimitReading({ requests: 3, ceiling: 800, pausedUntil: NOW + 90, waitSeconds: 90 }, null, NOW_MS, 'bitbucket')).toMatchObject({
       remaining: 0,
       resetAt: (NOW + 90) * 1000,
     });
-    expect(bbLimitReading({ requests: null, ceiling: 800, pausedUntil: null, waitSeconds: 0 }, null, NOW_MS)).toMatchObject({
+    expect(bbLimitReading({ requests: null, ceiling: 800, pausedUntil: null, waitSeconds: 0 }, null, NOW_MS, 'bitbucket')).toMatchObject({
       limit: 800,
       remaining: null,
       resetAt: null,
     });
-    expect(bbLimitReading({ requests: null, ceiling: null, pausedUntil: null, waitSeconds: 0 }, 2000, NOW_MS)).toMatchObject({
+    expect(bbLimitReading({ requests: null, ceiling: null, pausedUntil: null, waitSeconds: 0 }, 2000, NOW_MS, 'bitbucket')).toMatchObject({
       limit: 2000,
       remaining: null,
     });

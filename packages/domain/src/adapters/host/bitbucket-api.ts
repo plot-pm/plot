@@ -295,7 +295,7 @@ export const bitbucketApi = (options: BitbucketApiOptions): BitbucketApi => {
         if (fields === null) {
           return { bucket: BITBUCKET_BUCKET, limit: predicted, remaining: null, resetAt: null, basis: 'predicted' };
         }
-        const reading = bbLimitReading(fields, declared, now());
+        const reading = bbLimitReading(fields, declared, now(), BITBUCKET_CONNECTOR);
         return { bucket: BITBUCKET_BUCKET, limit: reading.limit, remaining: reading.remaining, resetAt: reading.resetAt, basis: 'predicted' };
       }
       const remaining = headerNumber(headers['x-ratelimit-remaining']);

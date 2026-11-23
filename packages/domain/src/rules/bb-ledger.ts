@@ -338,18 +338,19 @@ export const bbPauseMerge = (next: BbPause, stored: BbPause | null, now: number)
 
 /**
  * The tail of `bb`'s message after a 429: `bb paused until HH:MM:SSZ (in N s)`,
- * with `Bitbucket asked to wait <raw> s; ` in front where `Retry-After` is all
+ * with `<host> asked to wait <raw> s; ` in front where `Retry-After` is all
  * digits.
  *
  * @param pause - the pause that stayed in place.
  * @param retryAfter - the `Retry-After` header as sent, or null.
  * @param now - epoch seconds.
+ * @param host - the name `bb` gives its host in its words.
  * @returns the tail.
  */
-export const bbPauseTail = (pause: BbPause, retryAfter: string | null, now: number): string => {
+export const bbPauseTail = (pause: BbPause, retryAfter: string | null, now: number, host: string): string => {
   const shown = bbShownWait(pause.end - now);
   const tail = `bb paused until ${bbUtcHms(now + shown)} (in ${shown} s)`;
-  return retryAfter !== null && DIGITS.test(retryAfter) ? `Bitbucket asked to wait ${retryAfter} s; ${tail}` : tail;
+  return retryAfter !== null && DIGITS.test(retryAfter) ? `${host} asked to wait ${retryAfter} s; ${tail}` : tail;
 };
 
 /** What the guard reads before one request. */
@@ -365,6 +366,8 @@ export interface BbGuardInput {
    * could not be read: the count is then unknown and the request goes out.
    */
   readonly texts: readonly string[] | null;
+  /** The name `bb` gives its host in its words. */
+  readonly host: string;
 }
 
 /** The guard's verdict on one request. */
@@ -392,7 +395,7 @@ export const bbGuard = (input: BbGuardInput): BbGuardVerdict => {
     return {
       verdict: 'paused',
       waitSeconds: shown,
-      said: `rate limited — bb paused until ${bbUtcHms(now + shown)} after Bitbucket refused a request (in ${shown} s)`,
+      said: `rate limited — bb paused until ${bbUtcHms(now + shown)} after ${input.host} refused a request (in ${shown} s)`,
     };
   }
   if (input.texts === null) return { verdict: 'send', requests: null };
@@ -440,9 +443,15 @@ const UNNAMED_RESET_MS = BB_BUDGET_WINDOW_S * 1000;
  * @param fields - `bb rate-limit --json`'s fields, in epoch seconds.
  * @param declared - the declared `Host rate limit`, or null where none is declared.
  * @param now - epoch milliseconds.
- * @returns the reading for the `bitbucket` connector's `api` bucket.
+ * @param connector - the connector's backend word.
+ * @returns the reading for the connector's `api` bucket.
  */
-export const bbLimitReading = (fields: BbLimitFields, declared: number | null, now: number): LimitReading => {
+export const bbLimitReading = (
+  fields: BbLimitFields,
+  declared: number | null,
+  now: number,
+  connector: string,
+): LimitReading => {
   const ceiling = fields.ceiling !== null && fields.ceiling > 0 ? fields.ceiling : null;
   const limit =
     ceiling === null ? (declared ?? DEFAULT_PREDICTED_HOST_LIMIT) : declared === null ? ceiling : Math.min(ceiling, declared);
@@ -462,7 +471,7 @@ export const bbLimitReading = (fields: BbLimitFields, declared: number | null, n
           : fields.nextFreeAt != null
             ? fields.nextFreeAt * 1000
             : now + UNNAMED_RESET_MS;
-  return { connector: 'bitbucket', bucket: 'api', limit, remaining, resetAt, basis: 'predicted' };
+  return { connector, bucket: 'api', limit, remaining, resetAt, basis: 'predicted' };
 };
 
 /** Which limit a Bitbucket throttle hit. */
@@ -479,7 +488,7 @@ export type BbThrottleCause = 'ceiling' | 'paused' | 'host';
  */
 export const bbThrottleCause = (said: string): BbThrottleCause => {
   if (/requests in the last hour from this machine; next request at/.test(said)) return 'ceiling';
-  if (/bb paused until \S+ after Bitbucket refused a request/.test(said)) return 'paused';
+  if (/bb paused until \S+ after \S+ refused a request/.test(said)) return 'paused';
   return 'host';
 };
 

@@ -108,7 +108,7 @@ const rateLimitOf = (one: Outputs['cases'][number]): string => {
   const texts = files.some((text) => text === null) ? null : files.map((text) => text ?? '');
   const pause = bbPauseParse(fileOf(`pause-${outputs.key}`) ?? null);
   const left = bbPauseLeft(pause, outputs.now);
-  const verdict = bbGuard({ now: outputs.now, ceiling, pause, texts });
+  const verdict = bbGuard({ now: outputs.now, ceiling, pause, texts, host: 'Bitbucket' });
   const requests = texts === null ? null : bbBudgetCount(outputs.now, ceiling, texts).requests;
   const wait = verdict.verdict === 'send' ? 0 : verdict.waitSeconds;
   const fields = {
@@ -216,7 +216,7 @@ describe("the ledger rules agree with the recorded bb's functions", () => {
       const subject = `${JSON.stringify(one.stored)}|${one.retryAfter}`;
       const pause = bbPauseAfter429(bbPauseParse(one.stored), one.retryAfter, one.now);
       compareField(found, subject, 'file', bbPauseLine(pause), String(one.file));
-      compareField(found, subject, 'tail', bbPauseTail(pause, one.retryAfter, one.now), one.tail);
+      compareField(found, subject, 'tail', bbPauseTail(pause, one.retryAfter, one.now, 'Bitbucket'), one.tail);
     }
     expect(found.map(report)).toEqual([]);
   });
@@ -251,6 +251,7 @@ describe('the ledger rules agree with the recorded bb commands', () => {
         ceiling: hourly.ok && hourly.limit > 0 ? hourly.limit : null,
         pause: bbPauseParse(one.files[`pause-${outputs.key}`] ?? null),
         texts: [one.files[`requests-${outputs.key}-${prev}.log`] ?? '', one.files[`requests-${outputs.key}-${stamp}.log`] ?? ''],
+        host: 'Bitbucket',
       });
       compareField(found, name, 'stderr', verdict.verdict === 'send' ? 'send' : `error: ${verdict.said}\n`, one.stderr);
     }
@@ -259,7 +260,7 @@ describe('the ledger rules agree with the recorded bb commands', () => {
 
   it("names a 429 and a 429 on a later page in bb's words", () => {
     const found: Disagreement[] = [];
-    const tail = (retryAfter: string | null) => bbPauseTail(bbPauseAfter429(null, retryAfter, outputs.now), retryAfter, outputs.now);
+    const tail = (retryAfter: string | null) => bbPauseTail(bbPauseAfter429(null, retryAfter, outputs.now), retryAfter, outputs.now, 'Bitbucket');
     compareField(found, 'refused-429', 'stderr', `error: rate limited — ${tail('30')}\n`, caseNamed('refused-429').stderr);
     compareField(found, 'refused-429-later-page', 'stderr', `error: rate limited after 50 rows — ${tail(null)}\n`, caseNamed('refused-429-later-page').stderr);
     expect(found.map(report)).toEqual([]);

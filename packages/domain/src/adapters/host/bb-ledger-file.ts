@@ -63,6 +63,9 @@ export interface BbLedgerFileOptions {
   log?: (line: string) => void;
 }
 
+/** The name `bb` gives its host in its refusal words. */
+export const BB_HOST_NAME = 'Bitbucket';
+
 /**
  * The account key of an email: the first 12 hex characters of the SHA-256 of
  * the email with ASCII letters lowercased (`bb_account_key`).
@@ -184,7 +187,7 @@ export const bbLedgerFile = (options: BbLedgerFileOptions): BbLedger => {
         ? []
         : await Promise.all([readRequests(join(dir, bbRequestFileName(key, prev))), readRequests(curFile)]);
     const known = texts.every((text) => text !== null) ? (texts as string[]) : null;
-    const verdict = bbGuard({ now, ceiling, pause, texts: known });
+    const verdict = bbGuard({ now, ceiling, pause, texts: known, host: BB_HOST_NAME });
     if (verdict.verdict !== 'send') return verdict;
     if (known === null) {
       warn('a request file cannot be read');
