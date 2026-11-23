@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { placeDelivery } from '@plot-pm/domain';
 import { placeMapping } from '../../src/app/lib/agent-rows/delivery-view.js';
-import type { AgentRow, Slice } from '../../src/contract/schema.js';
+import { RoleRunSchema, type AgentRow, type Slice } from '../../src/contract/schema.js';
+import { agentRowFactsOf } from '../../src/app/lib/agent-rows/delivery-row-facts.js';
 import {
   deliveryMapping,
   sliceItemId,
@@ -478,6 +479,17 @@ describe('deliveryMapping: agent roles', () => {
     const m = deliveryMapping(input({ roleRuns: [{ id: 'agent:verify:pv', role: 'verify', plan: 'pv', startedAt: null, stopped }] }));
     expect(m.readings.agents.map((a) => [a.id, a.process, a.blockedOn])).toEqual([['agent:verify:pv', 'stopped', 'person']]);
     expect(place(m).agents.map((a) => a.id)).toEqual(['agent:verify:pv']);
+  });
+
+  it('gives a stopped run with no matching row its own branch as facts.branch', () => {
+    const stopped = { reason: 'r', restart: '/plot-design pd', log: '/l' };
+    const m = deliveryMapping(input({ roleRuns: [{ id: 'agent:design:pd', role: 'design', plan: 'pd', branch: 'idea/pd-spec', startedAt: null, stopped }] }));
+    expect(agentRowFactsOf(m, 'agent:design:pd').branch).toBe('idea/pd-spec');
+  });
+
+  it('accepts a run from an older server that carries no branch', () => {
+    const parsed = RoleRunSchema.parse({ id: 'agent:verify:pv', role: 'verify', plan: 'pv', startedAt: null });
+    expect(parsed.branch).toBeUndefined();
   });
 
   it('adds no agent when the payload carries no runs', () => {

@@ -1,4 +1,5 @@
 import {
+  agentActsOnBranch,
   boundSecondsOf,
   deliveryRowForms,
   groupHeader,
@@ -14,7 +15,7 @@ import {
 import { resolvePerson } from '@plot-pm/domain/entities/person';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
-import { agentLabel, ciOf, reviewOf, type DeliveryMapping } from './delivery-readings.js';
+import { agentLabel, ciOf, itemIdOfRow, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 import { shortSessionId, worktreeName } from '../tuple-row.js';
 import { activityPace } from './activity.js';
 
@@ -104,18 +105,31 @@ const itemNameOf = (mapping: DeliveryMapping, itemId: string | null): string | u
   return first === undefined ? undefined : first.wave !== '' ? first.wave : first.branch || undefined;
 };
 
+/** What a Fleet row reads beyond the mapping: the placed item ids, and the sprint mark of a payload row. */
+export interface AgentRowContext {
+  /** The ids of the placed work items; absent reads every item as placed. */
+  placed?: ReadonlySet<string>;
+  /** `rowSprintMembership`'s answer for a row; absent marks no row `no sprint`. */
+  sprintOf?: (row: { kind: string; plan: string }) => 'no sprint' | null;
+}
+
 /**
  * The names and readings one agent's Fleet row is built from, read from its
  * registry entry or state-file run and the payload row of its branch or PR.
  *
- * A reading the payload does not carry stays absent: the cell it feeds is then
- * `null` or shorter, never a default word.
+ * The branch is `agentActsOnBranch`'s answer for a registry entry and the run's
+ * `branch` for a state-file run. The payload row of that branch gives the plan,
+ * the slice, the sprint mark and, where the placement names no item, the
+ * `actsOnItem` the Acting on cell links. A reading the payload does not carry
+ * stays absent: the cell it feeds is then `null` or shorter, never a default
+ * word, and a branch with no payload row gives no plan and no sprint mark.
  *
  * @param mapping - the readings and the registry entries by agent id.
  * @param id - the agent's id.
  * @param now - epoch milliseconds the Time left cell is measured at.
+ * @param context - the placed item ids and the sprint mark rule.
  */
-export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: number): AgentRowFacts => {
+export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: number, context: AgentRowContext = {}): AgentRowFacts => {
   const entry = mapping.agentsById[id];
   const run = mapping.runsById[id];
   const facts: AgentRowFacts = { rateLimit: mapping.rateLimit };
@@ -148,12 +162,25 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   const itemName = itemNameOf(mapping, reading?.actsOn ?? null);
   if (itemName !== undefined) facts.itemName = itemName;
   const all = Object.values(mapping.rowsByItem).flat();
-  const row = entry !== undefined
-    ? all.find((r) => r.branch === entry.branch && entry.branch !== '')
-    : run?.pr !== undefined ? all.find((r) => r.pr?.number === run.pr) : undefined;
-  if (entry?.branch) facts.branch = entry.branch;
+  const branch = entry !== undefined ? agentActsOnBranch(entry) : run?.branch || null;
+  const row = branch !== null
+    ? all.find((r) => r.branch === branch)
+    : entry === undefined && run?.pr !== undefined ? all.find((r) => r.pr?.number === run.pr) : undefined;
+  if (branch !== null) facts.branch = branch;
   if (row === undefined) return facts;
   if (row.branch !== '') facts.branch = row.branch;
+  if (row.plan !== '') facts.plan = row.plan;
+  if (row.wave !== '') facts.slice = row.wave;
+  if (context.sprintOf?.({ kind: row.kind, plan: row.plan }) === 'no sprint') facts.noSprint = true;
+  else if (row.sprint !== '') facts.sprint = row.sprint;
+  if (reading?.actsOn === null) {
+    const item = itemIdOfRow(row);
+    if (context.placed === undefined || context.placed.has(item)) {
+      facts.actsOnItem = item;
+      const name = itemNameOf(mapping, item);
+      if (name !== undefined) facts.itemName = name;
+    }
+  }
   facts.pace = activityPace(row);
   if (row.question !== null && row.question !== undefined) facts.question = row.branch;
   if (row.localAhead > 0) facts.commits = row.localAhead;
@@ -172,13 +199,27 @@ export const agentRowFactsOf = (mapping: DeliveryMapping, id: string, now?: numb
   return facts;
 };
 
-/** Every row's cells for one placement: the work-item and agent forms the tab renders. */
-export const rowFormsOf = (mapping: DeliveryMapping, placement: DeliveryPlacement, now: number): DeliveryRowForms =>
-  deliveryRowForms(
+/**
+ * Every row's cells for one placement: the work-item and agent forms the tab renders.
+ *
+ * @param mapping - the readings and the payload rows each subject id stands for.
+ * @param placement - what `placeDelivery` returned for `mapping`.
+ * @param now - epoch milliseconds the Time left cell is measured at.
+ * @param sprintOf - `rowSprintMembership` for a Fleet row's payload row; absent marks no row `no sprint`.
+ */
+export const rowFormsOf = (
+  mapping: DeliveryMapping,
+  placement: DeliveryPlacement,
+  now: number,
+  sprintOf?: (row: { kind: string; plan: string }) => 'no sprint' | null,
+): DeliveryRowForms => {
+  const placed = new Set(placement.items.map((p) => p.id));
+  return deliveryRowForms(
     placement,
     (id) => itemRowFactsOf(mapping, id),
-    (id) => agentRowFactsOf(mapping, id, now),
+    (id) => agentRowFactsOf(mapping, id, now, sprintOf === undefined ? { placed } : { placed, sprintOf }),
   );
+};
 
 /** The four switches as the fleet payload carried them; a switch the payload did not state reads on, so no group claims to be held by it. */
 export const switchesOf = (fleet: {
