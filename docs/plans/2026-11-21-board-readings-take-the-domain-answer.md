@@ -160,7 +160,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Spike implement
 
-- `bug/plot-implement-asks-for-the-spike` — `plot-ask.mjs spike <slug>` with the record date and exit codes 0, 1 and 2; `skills/plot-implement/SKILL.md:71,:87,:49` call it; the README row and CLAUDE.md list; one unit cell per answer <!-- builds: plot-ask.mjs spike, the licensed spike as a bundle question -->
+- `bug/plot-implement-asks-for-the-spike` — `plot-ask.mjs spike <slug>` with the record date and exit codes 0, 1 and 2; `skills/plot-implement/SKILL.md:71,:87,:49` call it; the README row and CLAUDE.md list; one unit cell per answer <!-- builds: plot-ask.mjs spike, the licensed spike as a bundle question --> → #3678
 
 ### Quiet invariant
 
