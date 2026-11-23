@@ -93,6 +93,19 @@ describe('mainHoldStatus', () => {
     expect(mainHoldStatus(null, undefined, pr(), NOW, WAIT, 'main')).toMatchObject({ state: 'success' });
   });
 
+  it('passes every PR on a reading with no settled commit', () => {
+    const unsettled = redOn(RED, { head: 'pending' });
+    delete (unsettled as { settled?: unknown }).settled;
+    expect(mainHoldStatus(unsettled, undefined, pr(), NOW, WAIT, 'main')).toEqual({ state: 'success', description: 'main is not red' });
+  });
+
+  it('names the default branch it was given where no reading exists', () => {
+    expect(mainHoldStatus(null, undefined, pr({ base: 'trunk' }), NOW, WAIT, 'trunk')).toEqual({ state: 'success', description: 'trunk is not red' });
+    expect(mainHoldStatus(null, undefined, pr(), NOW, WAIT, 'unaskable')).toEqual({ state: 'success', description: 'main is not red' });
+    expect(mainHoldStatus(null, undefined, pr(), NOW, WAIT, undefined)).toEqual({ state: 'success', description: 'main is not red' });
+    expect(mainHoldStatus(null, undefined, pr(), NOW, WAIT, '')).toEqual({ state: 'success', description: 'main is not red' });
+  });
+
   it('writes no status for a PR into a sprint base', () => {
     expect(mainHoldStatus(redOn(RED), open(), pr({ base: 'sprint/2026-w48' }), NOW, WAIT, 'main')).toBe('none');
   });
