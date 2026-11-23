@@ -17,6 +17,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `bug/merge-refuses-an-unfound-state-home`
 - **Started:** 2026-11-23, Jan Wloka, `bug/every-state-reader-asks-one-state-home`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-board-routes-read-a-partial-pulse`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-pulse-lookup-moves-into-the-domain`
 
 ## Changelog
 
