@@ -10,6 +10,8 @@ import {
   parseLocalChecks,
   searchTerms,
   shellWord,
+  testsNaming,
+  type BundleEntry,
   type LocalChecksReadings,
   type SelectionReadings,
   type TestFile,
@@ -297,5 +299,59 @@ describe('estate readers', () => {
     const selected = ci([PLAN], TESTS);
     expect(selected.checks.every((check) => check.tests.length === 0)).toBe(true);
     expect(selected.corpus).toBe(true);
+  });
+});
+
+describe('bundle entries', () => {
+  const ENTRY = 'packages/board/src/server/entry/needs-design.ts';
+  const PAIR: BundleEntry = { entry: ENTRY, shipped: 'skills/plot/scripts/board/plot-needs-design.mjs' };
+  const BUNDLE_TEST: TestFile = {
+    path: 'test/reconcile/needs-design-entry.test.mjs',
+    text: "const bundle = path.join(repoRoot, 'skills/plot/scripts/board/plot-needs-design.mjs');\n",
+  };
+  const OTHER: TestFile = { path: 'test/reconcile/other.test.mjs', text: "spawnSync('plot-ask.mjs');\n" };
+  const TESTS = [BUNDLE_TEST, OTHER];
+  const BOARD_CHECKS = parseLocalChecks('test/reconcile/*.test.mjs = node --test {tests}; packages/board/** = vitest related --run {changed}');
+
+  const local = (changed: readonly string[], bundles?: readonly BundleEntry[]) =>
+    localChecks({ ...readings({ changed, checks: BOARD_CHECKS }), references: testsNaming(changed, TESTS), tests: TESTS, bundles });
+  const ci = (changed: readonly string[], bundles?: readonly BundleEntry[]) =>
+    ciSelection({
+      changed,
+      generated: [],
+      checks: BOARD_CHECKS,
+      tests: TESTS,
+      corpus: [],
+      corpusFiles: [],
+      sync: { planDir: 'docs/plans/', activeIndex: 'docs/plans/active/', deliveredIndex: 'docs/plans/delivered/', sprintDir: 'docs/sprints/', releaseDir: 'docs/releases/' },
+      bundles,
+    } satisfies SelectionReadings);
+
+  it('adds the shipped basename to the search terms of an entry source', () => {
+    expect(searchTerms(ENTRY, [PAIR])).toEqual(['needs-design.ts', 'needs-design.js', 'plot-needs-design.mjs']);
+  });
+
+  it('a path that is not an entry gains no term', () => {
+    expect(searchTerms('packages/domain/src/workflows/needs-design.ts', [PAIR])).toEqual(['needs-design.ts', 'needs-design.js']);
+    expect(ci(['packages/board/src/server/entry/approve.ts'], [PAIR]).tests).toEqual([]);
+  });
+
+  it('a changed entry source selects a test that names its bundle', () => {
+    expect(ci([ENTRY], [PAIR]).tests).toEqual([BUNDLE_TEST.path]);
+    expect(local([ENTRY], [PAIR]).tests).toEqual([BUNDLE_TEST.path]);
+    expect(local([ENTRY], [PAIR]).commands).toContain(`node --test ${BUNDLE_TEST.path}`);
+  });
+
+  it('with no pairs it selects nothing new', () => {
+    expect(ci([ENTRY]).tests).toEqual([]);
+    expect(ci([ENTRY], []).tests).toEqual([]);
+    expect(local([ENTRY]).tests).toEqual([]);
+    expect(local([ENTRY], []).tests).toEqual([]);
+  });
+
+  it('localChecks and ciSelection answer the same tests for one input', () => {
+    const changed = [ENTRY, 'packages/board/src/server/entry/approve.ts'];
+    expect(local(changed, [PAIR]).tests).toEqual(ci(changed, [PAIR]).tests);
+    expect(local(changed).tests).toEqual(ci(changed).tests);
   });
 });

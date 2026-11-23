@@ -19,6 +19,14 @@ export interface LocalCheck {
   readonly command: string;
 }
 
+/** One shipped bundle and the entry source its build names, both relative to the repository root. */
+export interface BundleEntry {
+  /** The source file the bundle's build names as its entry point. */
+  readonly entry: string;
+  /** The path the bundle ships at. */
+  readonly shipped: string;
+}
+
 /** What the caller read about the branch. */
 export interface LocalChecksReadings {
   /** Every path the branch changes, committed or not, relative to the repository root. */
@@ -32,8 +40,10 @@ export interface LocalChecksReadings {
   readonly references: ReadonlyMap<string, readonly string[]>;
   /** Path globs whose paths are plan data (see {@link corpusGlobs}); absent reads as none. */
   readonly corpus?: readonly string[];
-  /** The test files the caller read, with their text, for {@link estateReaders}; absent reads as none. */
+  /** The test files the caller read, with their text, for {@link estateReaders} and `bundles`; absent reads as none. */
   readonly tests?: readonly TestFile[];
+  /** The bundle entry pairs (see {@link searchTerms}); absent reads as none. */
+  readonly bundles?: readonly BundleEntry[];
   /** The declared checks, in declaration order. */
   readonly checks: readonly LocalCheck[];
   /** The most test files one path may select before it is reported instead. */
@@ -131,19 +141,25 @@ export const globToRegExp = (glob: string): RegExp => {
   return new RegExp(`^${source}$`);
 };
 
+const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
+
 /**
- * The words a test file uses to name a path: its basename, and for a
- * TypeScript source its `.js` form, which is how an import names it.
+ * The words a test file uses to name a path: its basename, for a TypeScript
+ * source its `.js` form, which is how an import names it, and for a bundle's
+ * entry source the basename of each bundle built from it, which is how a test
+ * that runs the bundle names it.
  *
  * @param path - a changed path.
+ * @param bundles - the bundle entry pairs; a path that is no pair's `entry` gains no term.
  * @returns the search terms, without duplicates.
  */
-export const searchTerms = (path: string): string[] => {
-  const base = path.slice(path.lastIndexOf('/') + 1);
+export const searchTerms = (path: string, bundles: readonly BundleEntry[] = []): string[] => {
+  const base = basename(path);
   const terms = [base];
   const ts = /^(.*)\.(?:ts|tsx|mts)$/.exec(base);
   if (ts) terms.push(`${ts[1]}.js`);
-  return terms;
+  for (const pair of bundles) if (pair.entry === path) terms.push(basename(pair.shipped));
+  return [...new Set(terms)];
 };
 
 /**
@@ -204,6 +220,8 @@ export interface SelectionReadings {
   readonly sync: SyncPathKeys;
   /** The repository root; when given, placeholders are filled with absolute paths. */
   readonly root?: string;
+  /** The bundle entry pairs (see {@link searchTerms}); absent reads as none. */
+  readonly bundles?: readonly BundleEntry[];
 }
 
 /** The answer a CI job reads. */
@@ -295,15 +313,17 @@ export const candidateTests = (paths: readonly string[], checks: readonly LocalC
  *
  * @param changed - the changed paths.
  * @param tests - the test files and their text.
+ * @param bundles - the bundle entry pairs; none when absent.
  * @returns for each changed path, the paths of the test files naming it, sorted.
  */
 export const testsNaming = (
   changed: readonly string[],
   tests: readonly TestFile[],
+  bundles: readonly BundleEntry[] = [],
 ): Map<string, readonly string[]> =>
   new Map(
     changed.map((path) => {
-      const terms = searchTerms(path);
+      const terms = searchTerms(path, bundles);
       const naming = tests.filter((test) => terms.some((term) => test.text.includes(term))).map((test) => test.path);
       return [path, [...new Set(naming)].sort()] as const;
     }),
@@ -494,6 +514,8 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
  *   selects the test files {@link estateReaders} answers for it, which the
  *   checks run like named test files, whatever their number; they are listed
  *   in `estateTests`.
+ * - A changed path that is a `bundles` pair's `entry` also selects the test
+ *   files in `tests` that name the pair's shipped basename.
  * - A path no check reaches is reported in `untested`.
  *
  * @param readings - what the caller read.
@@ -501,8 +523,16 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
  */
 export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer => {
   const patterns = (readings.corpus ?? []).map(globToRegExp);
-  const references = new Map([...readings.references].filter(([path]) => !patterns.some((pattern) => pattern.test(path))));
   const generated = new Set(readings.generated);
+  const entries = readings.changed.filter(
+    (path) => !generated.has(path) && (readings.bundles ?? []).some((pair) => pair.entry === path),
+  );
+  const bundled = testsNaming(entries, readings.tests ?? [], readings.bundles);
+  const references = new Map(
+    [...new Set([...readings.references.keys(), ...bundled.keys()])]
+      .filter((path) => !patterns.some((pattern) => pattern.test(path)))
+      .map((path) => [path, [...new Set([...(readings.references.get(path) ?? []), ...(bundled.get(path) ?? [])])]]),
+  );
   const declared = estateReaders(
     readings.changed.filter((path) => !generated.has(path)),
     readings.corpus ?? [],
@@ -539,7 +569,8 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  *   request only where this is true.
  *
  * The references are derived here from the test files' text by
- * {@link testsNaming}, so CI and the local run read one map.
+ * {@link testsNaming}, with the `bundles` pairs, so CI and the local run read
+ * one map.
  *
  * @param readings - what the caller read.
  * @returns the suites, the checks and the report.
@@ -554,7 +585,7 @@ export const ciSelection = (readings: SelectionReadings): Selection => {
     {
       changed: code,
       generated: [],
-      references: testsNaming(code, readings.tests),
+      references: testsNaming(code, readings.tests, readings.bundles),
       checks: readings.checks,
       limit: Number.POSITIVE_INFINITY,
       root: readings.root,
