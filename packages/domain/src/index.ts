@@ -138,6 +138,7 @@ export * from './rules/supervisor-reading.js';
 export * from './rules/supervision-debt.js';
 export * from './rules/checks-reading.js';
 export * from './rules/default-branch.js';
+export * from './rules/main-hold-status.js';
 export * from './rules/state-home.js';
 export * from './rules/snapshot-record.js';
 export * from './rules/snapshot-change.js';
