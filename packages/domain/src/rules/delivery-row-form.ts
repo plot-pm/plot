@@ -14,6 +14,8 @@ import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
 import { TICKETS_ANCHOR } from './tickets-section.js';
+import { NO_SPRINT_WORD } from './sprint-selection.js';
+import { pill, type StatusPill } from './status-pill.js';
 
 /** The seven columns of a Delivery row, in the order they render. */
 export const ROW_COLUMNS = ['kind', 'item', 'where', 'status', 'by', 'age', 'do'] as const;
@@ -168,6 +170,19 @@ export interface AgentRowFacts {
   idleMinutes?: number;
   /** The name of the work item the agent acts on. */
   itemName?: string;
+  /**
+   * The placed work item the agent's displayed branch belongs to, where the placement names none: a desk
+   * agent whose branch the registry left empty acts on nothing, and its row still names this item.
+   */
+  actsOnItem?: string;
+  /** The plan slug of the payload row of the agent's branch. */
+  plan?: string;
+  /** The slice name of the payload row of the agent's branch. */
+  slice?: string;
+  /** The Active sprint the payload row of the agent's branch belongs to. */
+  sprint?: string;
+  /** `rowSprintMembership`'s `no sprint` for the payload row of the agent's branch. */
+  noSprint?: true;
   /** The branch the agent works on. */
   branch?: string;
   /** Commits the local branch carries beyond its base. */
@@ -575,6 +590,10 @@ export interface AgentRowCells extends Record<AgentColumn, Cell | null> {
   doingPace: AgentPace | null;
   /** The branch the agent works on, shown beneath the Acting on cell; `null` where none is read. */
   branch: Cell | null;
+  /** The plan of the agent's branch, linked to its slice, shown beneath the branch; `null` where none is read. */
+  plan: Cell | null;
+  /** The sprint mark: the sprint's name, or a grey `no sprint`; `null` where the row says nothing about a sprint. */
+  sprint: StatusPill | null;
   /** The last commit subject shown after a loop agent's Doing now value. */
   doingDetail: string | null;
   /** The header word of the `doing` column for this row. */
@@ -645,7 +664,9 @@ const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' 
 
 /** What an agent does now, as a value; `null` for an agent that holds no work. */
 const doingValue = (placement: AgentPlacement, facts: AgentRowFacts): string | null => {
-  if (placement.actsOn === null) return placement.role === 'loop' && facts.running === true ? 'waiting for a slice' : null;
+  if (placement.actsOn === null && facts.actsOnItem === undefined) {
+    return placement.role === 'loop' && facts.running === true ? 'waiting for a slice' : null;
+  }
   switch (placement.role) {
     case 'loop':
       return facts.commits !== undefined && facts.commits > 0
@@ -700,7 +721,10 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  * Doing now is the activity the role names. A running loop agent that acts on
  * no item reads `waiting for a slice`. A blocked agent's Doing now cell holds
  * the gate it waits on instead ({@link agentWaitsOn}). Acting on names the
- * agent's desk while it acts on no item.
+ * agent's desk while it acts on no item. Where the placement names no item and
+ * `facts.actsOnItem` does, Acting on links that item instead, for display only.
+ * The plan line names `facts.plan`, and the sprint mark is a grey `no sprint`
+ * where `facts.noSprint` holds, else a quiet pill with `facts.sprint`.
  *
  * A working agent's Doing now cell leads with a spinner at `doingPace`
  * ({@link agentPace}); the cell keeps its slot while the pace is `null`.
@@ -719,7 +743,7 @@ const tokensTitle = (facts: AgentRowFacts): string | null => {
  */
 export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): AgentRowCells => {
   const blocked = placement.group === 'blocked';
-  const on = placement.linked ? placement.actsOn : null;
+  const on = placement.linked ? placement.actsOn : placement.actsOn === null ? facts.actsOnItem ?? null : null;
   const left = facts.now === undefined ? null : timeLeft(facts.startedAt, facts.boundSeconds, facts.now);
   const doing = blocked ? agentWaitsOn(placement, facts)?.cell ?? null : ((): Cell | null => {
     const value = doingValue(placement, facts);
@@ -732,6 +756,8 @@ export const agentRowCells = (placement: AgentPlacement, facts: AgentRowFacts): 
       ? link(facts.itemName ?? on, { to: 'item', id: on })
       : placement.actsOn === null && facts.desk !== undefined ? link(facts.desk) : null,
     branch: facts.branch !== undefined ? link(facts.branch, { to: 'branch', branch: facts.branch }) : null,
+    plan: facts.plan === undefined ? null : link(facts.plan, { to: 'plan', plan: facts.plan, slice: facts.slice ?? null }),
+    sprint: facts.noSprint === true ? pill(NO_SPRINT_WORD, 'grey') : facts.sprint === undefined ? null : pill(facts.sprint, 'quiet'),
     doing,
     doingDetail: !blocked && facts.lastCommit !== undefined && placement.role === 'loop' ? facts.lastCommit : null,
     doingLabel: blocked ? 'Waits on' : 'Doing now',

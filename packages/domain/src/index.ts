@@ -697,6 +697,7 @@ export * from './rules/delivery-scope.js';
 export * from './rules/sprint-delivery.js';
 export * from './rules/tickets-section.js';
 export * from './rules/agent-roles.js';
+export * from './rules/agent-acts-on-branch.js';
 export * from './rules/agent-time-left.js';
 export * from './rules/agent-run-tokens.js';
 export * from './rules/delivery-row-form.js';

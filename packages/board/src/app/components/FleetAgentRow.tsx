@@ -74,6 +74,12 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
           <RowCell cell={cells.branch} handlers={handlers} />
         </span>
       )}
+      {(cells.plan !== null || cells.sprint !== null) && (
+        <span data-agent-plan={cells.plan?.value ?? ''} className="delivery-truncate delivery-text-muted block">
+          {cells.plan !== null && <RowCell cell={cells.plan} handlers={handlers} />}
+          {cells.sprint !== null && <span data-agent-sprint={cells.sprint.word} className="ml-1 inline-flex"><StatusPills pills={[cells.sprint]} handlers={handlers} /></span>}
+        </span>
+      )}
     </span>
     <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="delivery-truncate">
       {/* The slot is reserved while the agent is idle, so the Doing now text keeps its place when the spinner comes. */}

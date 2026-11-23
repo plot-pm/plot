@@ -1324,7 +1324,8 @@ export function AgentList({
           releases: releaseCardView.cards, releaseRows: releaseCardView.rows, passkey,
         });
         // THE SEVEN COLUMNS' BY CELL AND THE HELD-GROUP HEADERS — domain properties, rendered here.
-        const forms = rowFormsOf(mapping, placement, Date.now());
+        const sprintView = { scope: sprintScope.kind === 'my-sprint' ? 'my-sprint' as const : 'release' as const, mine: mode === 'all' ? 'off' as const : mode === 'mine' ? 'strict' as const : 'mine' as const };
+        const forms = rowFormsOf(mapping, placement, Date.now(), (row) => rowSprintMembership(row, membership, sprintView));
         const switches = switchesOf(fleet);
         // THE LOOKUP READS THE PAYLOAD AND BUILDS NO ADDRESS: an empty `url` stays empty and the mark renders as text.
         const cardPrOf = (pr: number) => {
@@ -1349,7 +1350,6 @@ export function AgentList({
           onJump: (anchor) => jump(anchor),
           hiddenReason: (anchor) => hiddenReason(anchor),
         };
-        const sprintView = { scope: sprintScope.kind === 'my-sprint' ? 'my-sprint' as const : 'release' as const, mine: mode === 'all' ? 'off' as const : mode === 'mine' ? 'strict' as const : 'mine' as const };
         // THE WORK ITEMS CELLS ARE A DOMAIN PROPERTY: `workItemCells` decides the status pills, their links and By; this renders them.
         const workCellsOf = (item: PlacedItemView) => {
           const placed = item.placement;

@@ -174,7 +174,7 @@ import {
 } from './supervision-report-reading.js';
 import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
-import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
+import { designBranch, readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
 import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
 import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
@@ -8799,7 +8799,13 @@ const pidAnswers = (pid: number): boolean => {
 const planRunsRead = (
   running: readonly string[],
   stopped: readonly { plan: string; reason: string; restart: string; log: string }[],
-): PlanRunsRead => ({ running, stopped });
+  branchOf?: (plan: string) => string,
+): PlanRunsRead => {
+  if (branchOf === undefined) return { running, stopped };
+  const branches: Record<string, string> = {};
+  for (const plan of [...running, ...stopped.map((row) => row.plan)]) branches[plan] = branchOf(plan);
+  return { running, stopped, branches };
+};
 
 const machineReaders = new Map<string, ReturnType<typeof machineReaderFor>>();
 
@@ -8815,6 +8821,8 @@ const machineReadingOf = (repoRoot: string, connector: string | null) => {
 
 /**
  * The reviewer, fixer, design and verify agents, each read once from its own state file.
+ * A design run carries the branch its spec run claims (`designBranch`); a verify run
+ * judges a delivery commit on the default branch and carries none.
  *
  * @param repoRoot - the repository the fleet serves.
  * @param now - epoch milliseconds.
@@ -8826,7 +8834,7 @@ export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleR
   return roleRuns({
     reviews: readReviewRuns(repoRoot, pidAnswers),
     fixers: await listFixerAttempts(repoRoot),
-    design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan }))),
+    design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan })), designBranch),
     verify: verify === null ? null : planRunsRead(verify.running, verify.rows.map((row) => ({ ...row, plan: row.slug }))),
     now,
   });

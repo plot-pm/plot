@@ -4520,6 +4520,8 @@ export const RoleRunSchema = z.object({
   pr: z.number().optional(),
   /** The plan the run acts on; absent for a reviewer or fixer run. */
   plan: z.string().optional(),
+  /** The branch a design run claims; absent for every other run and from an older server. */
+  branch: z.string().optional(),
   /** Epoch milliseconds; `null` where the source carries no start. */
   startedAt: z.number().nullable(),
   /** Present on a design or verify run that stopped or failed. */

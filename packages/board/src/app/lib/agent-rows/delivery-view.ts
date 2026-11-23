@@ -1,4 +1,5 @@
 import {
+  agentActsOnBranch,
   headerCountParts,
   headerCounts,
   type HeaderCountPart,
@@ -64,7 +65,7 @@ import { armedLabel as dropConfirm } from '../../components/DropAgentButton.js';
 import { restartOffered } from '@plot-pm/domain/rules/restart-offer';
 import { startRefusal } from '../../components/StartWorkButton.js';
 import { changedFilesLabel } from './actions.js';
-import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
+import { agentLabel, draftItemId, itemIdOfRow, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -959,13 +960,23 @@ export const deliveryView = (
   planIndex: PlanIndex = new Map(),
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
+  // DISPLAY READS `checkout`, PLACEMENT DOES NOT: a desk agent with `branch: ''` names its checkout's row here.
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
-    if (entry === null || entry.branch === '') return null;
+    const branch = entry === null ? null : agentActsOnBranch(entry);
+    if (branch === null) return null;
     for (const rows of Object.values(mapping.rowsByItem)) {
-      const own = rows.find((r) => r.branch === entry.branch);
+      const own = rows.find((r) => r.branch === branch);
       if (own !== undefined) return own;
     }
     return null;
+  };
+  const placedIds = new Set(placement.items.map((i) => i.id));
+  /** The placed item a Fleet row links: the placement's own, else the item of the agent's displayed branch. */
+  const linkedItem = (p: AgentPlacement, row: AgentRow | null): string | null => {
+    if (p.actsOn !== null) return p.linked ? p.actsOn : null;
+    if (row === null) return null;
+    const item = itemIdOfRow(row);
+    return placedIds.has(item) ? item : null;
   };
   const labelOfItem = (id: string): string =>
     itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null, planIndex);
@@ -992,18 +1003,20 @@ export const deliveryView = (
     if (run === undefined) return 'unknown';
     return run.stopped == null ? 'running' : 'failed';
   };
-  const agentViews = placement.agents.map((p): PlacedAgentView => ({
-    placement: p,
-    entry: mapping.agentsById[p.id] ?? null,
-    state: stateOf(p.id),
-    pills: agentPills(stateOf(p.id)),
-    row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
-    label: labelOfAgent(p.id),
-    anchor: agentAnchor(p.id),
-    links: p.actsOn !== null && p.linked
-      ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn), icon: kindOfItem(p.actsOn) }]
-      : [],
-  }));
+  const agentViews = placement.agents.map((p): PlacedAgentView => {
+    const row = ownRow(mapping.agentsById[p.id] ?? null) ?? (p.actsOn === null ? null : rowOf(p.actsOn));
+    const item = linkedItem(p, row);
+    return {
+      placement: p,
+      entry: mapping.agentsById[p.id] ?? null,
+      state: stateOf(p.id),
+      pills: agentPills(stateOf(p.id)),
+      row,
+      label: labelOfAgent(p.id),
+      anchor: agentAnchor(p.id),
+      links: item === null ? [] : [{ label: labelOfItem(item), anchor: itemAnchor(item), icon: kindOfItem(item) }],
+    };
+  });
 
   // A plan's own row (its idea-branch PR) heads the plan beside its slices, so a
   // plan row the rule put in Work items follows the plan's first slice there.
