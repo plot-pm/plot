@@ -18,6 +18,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-verdict-line-drops-the-spike-columns`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-implement-asks-for-the-spike`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-quiet-invariant-reads-the-placement`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-escalation-reads-the-issue-once`
 
 ## Changelog
 
