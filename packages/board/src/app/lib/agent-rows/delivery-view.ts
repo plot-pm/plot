@@ -1,4 +1,5 @@
 import {
+  agentActsOnBranch,
   headerCountParts,
   headerCounts,
   type HeaderCountPart,
@@ -9,26 +10,29 @@ import {
   planRowFacts,
   releaseBlocks,
   releaseDeliveryHeader,
+  stripStateCounts,
   type ReleaseDeliveryCount,
+  type ReleaseDeliveryHeader,
   releasePersonCards,
   sprintDeliveryGroups,
   sprintDeliveryTitle,
   sprintGroupHeader,
   type DeliveryScopeKind,
-  type CountedSlice,
   type PersonCard,
+  notStartedHold,
   sliceStateIn,
   type PlanRowFacts,
+  type PlanLine,
   type PlanSliceFact,
   type ReleaseCarried,
   DELIVERY_LAYOUT,
   deliveryGroupAnchor,
   looseActions,
+  looseGroupRow,
+  type LooseGroupRow,
   oldestWaitsClause,
-  WORK_GROUP_COLUMN,
   fleetCountText,
   workGroupCountText,
-  type WorkItemGroup,
   placeDelivery,
   type AgentPlacement,
   type DeliveryPlacement,
@@ -42,9 +46,26 @@ import {
   type PlanIndex,
   type PlanLinkKey,
   TICKETS_ANCHOR,
+  agentPills,
+  type StatusPill,
 } from '@plot-pm/domain';
-import type { AgentRow, DraftPlan, FleetSprint, IssueRow, Slice } from '../../../contract/schema.js';
-import { agentLabel, draftItemId, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
+import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer, IssueRow, Slice } from '../../../contract/schema.js';
+import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
+import { countedSlicesByPlan, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
+import { createFromIssueVerdict } from '@plot-pm/domain/rules/create-from-issue';
+import { NO_TICKET_ROW_REASON, type ScopeRowMenu } from '@plot-pm/domain/rules/scope-tickets';
+import { createPlanRefusal } from '../card-presentation.js';
+import { armedLabel as approveConfirm } from '../../components/ApproveButton.js';
+import { armedLabel as deliverConfirm } from '../../components/DeliverButton.js';
+import { armedLabel as createPlanConfirm } from '../../components/CreatePlanButton.js';
+import { armedLabel as createStoryConfirm } from '../../components/CreateStoryButton.js';
+import { armedLabel as needsDesignConfirm } from '../../components/NeedsDesignButton.js';
+import { armedLabel as resliceConfirm } from '../../components/ResliceButton.js';
+import { armedLabel as dropConfirm } from '../../components/DropAgentButton.js';
+import { restartOffered } from '@plot-pm/domain/rules/restart-offer';
+import { startRefusal } from '../../components/StartWorkButton.js';
+import { changedFilesLabel } from './actions.js';
+import { agentLabel, draftItemId, itemIdOfRow, sliceItemId, type DeliveryMapping, type RegistryAgent } from './delivery-readings.js';
 import { itemRowFactsOf } from './delivery-row-facts.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 import { groupBySlice, type SliceGroup } from './slices.js';
@@ -67,7 +88,7 @@ const SECTION_LABELS: Record<DeliverySection, { icon: GlyphKind; label: string; 
 const GROUP_LABELS: Record<string, { label: string; hint: string }> = {
   'blocks-delivery': { label: 'Blocks delivery', hint: 'delivery waits for you' },
   'input-to-the-fleet': { label: 'Input to the fleet', hint: 'a plan waits for your input' },
-  unblock: { label: 'Clean up', hint: 'branches no plan names and nobody works on' },
+  unblock: { label: 'Unblock', hint: 'branches no plan names and nobody works on' },
   'at-a-gate': { label: 'At a gate', hint: 'CI, review or another gate holds it' },
   'being-built': { label: 'Being built', hint: 'an agent works on it' },
   queued: { label: 'Queued', hint: 'nobody has taken it' },
@@ -90,47 +111,435 @@ export interface PlacedItemView {
   anchor: string;
   /** The agents acting on the item, as links. */
   links: LinkView[];
-  /** The `⋯` menu of the item's row: the clean-up menu for a loose item, the branch row's own menu otherwise. */
+  /** The `⋯` menu of the item's row: the loose items for a loose item, the branch row's own menu otherwise. */
   menu: RowMenuView;
 }
 
 /**
- * The `⋯` menu a row of an item carries. A loose item's row carries only the clean-up menu, built from
- * `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release.
+ * The `⋯` menu a row of an item carries. A loose item carries `items`: Open, Release claim and Delete branch,
+ * built from `looseActions`, so no Quiet-section reading of the row (`quietKind`) can add a second Release. A plan,
+ * slice, branch or Tickets row carries `items`: the fixed item set of its kind. The grouped Unblock row carries
+ * `branches`: the loose item set of each branch it counts.
  */
 export type RowMenuView =
+  | { kind: 'row' }
   | {
-    kind: 'clean-up';
-    branch: string;
-    /** The PR page or the branch on the host; `''` where the host gave no address. */
-    open: string;
-    release: LooseActions['release'];
-    delete: boolean;
+    kind: 'branches';
+    branches: { branch: string; items: RowMenuItem[] }[];
+    /** `enabled` while a branch is listed, `none` for no branch. */
+    trigger: 'enabled' | 'none';
   }
-  | { kind: 'row' };
+  | {
+    kind: 'items';
+    items: RowMenuItem[];
+    /** `enabled` while the list holds an item, `none` for an empty list: the trigger never shows disabled. */
+    trigger: 'enabled' | 'none';
+  };
 
-/**
- * The menu of one placed item's row.
- *
- * @param placement - what the rule placed.
- * @param rows - the payload rows of the item.
- * @param actions - what `looseActions` offers for the item.
- * @returns the clean-up menu for an item under You with the reason `loose`, else the row's own menu.
- */
-export const rowMenuOf = (placement: ItemPlacement | null, rows: readonly AgentRow[], actions: LooseActions): RowMenuView => {
-  const first = rows[0];
-  if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
-  return { kind: 'clean-up', branch: first.branch, open: first.pr?.url || first.branchUrl || '', release: actions.release, delete: actions.delete };
+/** The actions a plan, slice, branch or Tickets row's `⋯` lists. */
+export type RowMenuAction =
+  | 'approve' | 'needs-design' | 'deliver' | 'implement' | 'dispatch' | 'start-work' | 'reslice'
+  | 'open' | 'release-claim' | 'resolve-conflict' | 'write-brief' | 'open-run' | 'worker-log' | 'status' | 'changed-files'
+  | 'create-plan' | 'create-story' | 'open-issue' | 'delete-branch'
+  | 'continue' | 'restart' | 'drop-agent' | 'open-plan' | 'reveal-branch';
+
+/** One item of a row's `⋯` menu. */
+export interface RowMenuItem {
+  action: RowMenuAction;
+  label: string;
+  /** Whether the item acts on a click; a disabled item stays listed with its `reason`. */
+  enabled: boolean;
+  /** The missing criterion in words; `null` where the item is enabled. */
+  reason: string | null;
+  /** The sentence the item shows before it acts; `null` for an item that acts on one click. */
+  confirm: string | null;
+}
+
+/** The plan row's facts, read by the renderer from the card and the board's bindings. */
+export interface PlanMenuFacts {
+  kind: 'plan';
+  plan: string;
+  /** The plan's card; `null` where the row's plan has none. */
+  card: Card | null;
+  /** `isDraft(card)`. */
+  isDraft: boolean;
+  /** `card.controls.needsDesign`. */
+  needsDesign: boolean;
+  /** `card.deliverable`. */
+  deliverable: boolean;
+  /** `hasEligibleWork(card)`. */
+  hasEligible: boolean;
+  /** The one slice folded into the row; `null` where the plan has none to start alone. */
+  soleSlice: string | null;
+  approve?: DispatchInfo;
+  deliver?: DispatchInfo;
+  implement?: DispatchInfo;
+  dispatch?: DispatchInfo;
+}
+
+/** The branch row's facts: the flags `menuState` reads, with the words and addresses of each item. */
+export interface BranchMenuFacts {
+  kind: 'branch';
+  branch: string;
+  card: Card | null;
+  /** `openTarget(row)`: the PR page or the branch on the host; `''` where the host gave none. */
+  openUrl: string;
+  /** `openLabel(row)`. */
+  openLabel: string;
+  /** `offersReleaseClaim(row.quietKind)` on a Quiet row. */
+  releaseClaim: boolean;
+  /** `isStartable(row)`. */
+  startable: boolean;
+  /** `row.stuck.state === 'conflict'`. */
+  conflict: boolean;
+  /** `needsBrief(row)`. */
+  needsBrief: boolean;
+  /** The last run's address; `''` where the row carries none. */
+  runUrl: string;
+  /** `runLinkLabel(row)`. */
+  runLabel: string;
+  /** `showsWorkerLog(row)`. */
+  hasLog: boolean;
+  /** `card.hasDispatchLog`. */
+  hasStatus: boolean;
+  /** The count of changed files a failing check lists; `null` where `offersChangedFiles` is false. */
+  changedFiles: number | null;
+  dispatch?: DispatchInfo;
+  implement?: DispatchInfo;
+}
+
+/** The slice row's facts: its own two acts, and the branch items of its one branch. */
+export interface SliceMenuFacts {
+  kind: 'slice';
+  wave: string;
+  /** The plan's slug, which a reslice names. */
+  slug: string;
+  card: Card | null;
+  /** Whether the fleet reads the slice as eligible to start. */
+  eligible: boolean;
+  /** Whether the board reports the slice `unsliced-wave`. */
+  unsliced: boolean;
+  dispatch?: DispatchInfo;
+  reslice?: DispatchInfo;
+  /** The facts of the slice's one branch; `null` where the slice holds several or none. */
+  branch: Omit<BranchMenuFacts, 'kind' | 'card' | 'dispatch' | 'startable'> | null;
+}
+
+/** A Release delivery slice line's facts: what its one item, Start work, reads. */
+export interface SliceLineMenuFacts {
+  kind: 'slice-line';
+  /** The line's slice state, or `unread` where a reading it needs is absent. */
+  state: PlanLine['state'];
+  /** Whether the line carries Start (`PlanLine.start`). */
+  start: boolean;
+  /** The slice the line waits on, or `''` where it waits on none. */
+  waitsFor: string;
+  /** The slice's one branch, which Start work posts; `null` where the line names none. */
+  branch: string | null;
+  card: Card | null;
+  dispatch?: DispatchInfo;
+}
+
+/** A Fleet agent row's facts: the agent's state and identity, the addresses its items open, and the bindings. */
+export interface FleetAgentMenuFacts {
+  kind: 'fleet-agent';
+  /** The agent's state word, from the registry or the role run. */
+  state: string;
+  /** `isBrokenState(state)` on a registry agent. */
+  broken: boolean;
+  /** The branch the agent works on; `''` where it holds none. */
+  branch: string;
+  /** The registry manifest's session id, which Drop agent removes; `''` where the agent has none. */
+  session: string;
+  /** `openTarget(row)` of the agent's branch row; `''` where the row or the host gives no address. */
+  openUrl: string;
+  /** `openLabel(row)`. */
+  openLabel: string;
+  /** The plan file of the agent's branch row; `''` where the agent acts on no plan. */
+  planFile: string;
+  /** Whether the view can open a plan and reveal a branch. */
+  canOpenPlan: boolean;
+  canReveal: boolean;
+  continueWith?: DispatchInfo;
+  restartWith?: DispatchInfo;
+  drop?: DispatchInfo;
+}
+
+/** The Tickets row's facts. */
+export interface TicketMenuFacts {
+  kind: 'ticket';
+  issue: IssueRow;
+  idea: DispatchInfo;
+  story: DispatchInfo;
+  issueAnswer: IssueAnswer | null;
+  /** The ticket's card facts; `undefined` where the row carries none. */
+  facts?: CardFacts;
+}
+
+/** A scope group row's facts: the arms `scopeTickets` decided, and the Tickets facts its `tickets` arms read. */
+export interface ScopeTicketMenuFacts {
+  kind: 'scope-ticket';
+  /** The ticket's row; `null` for a key-only row, whose Create plan and Create story `menu` disables. */
+  issue: IssueRow | null;
+  menu: ScopeRowMenu;
+  idea: DispatchInfo;
+  story: DispatchInfo;
+  issueAnswer: IssueAnswer | null;
+  facts?: CardFacts;
+}
+
+/** What `rowMenuOf` reads: a placed item, or the facts of one plan, slice, Release slice line, branch, Tickets or scope group row. */
+export type RowMenuInput =
+  | { kind: 'placed'; placement: ItemPlacement | null; rows: readonly AgentRow[]; actions: LooseActions }
+  | PlanMenuFacts
+  | SliceMenuFacts
+  | SliceLineMenuFacts
+  | BranchMenuFacts
+  | FleetAgentMenuFacts
+  | TicketMenuFacts
+  | ScopeTicketMenuFacts;
+
+const item = (action: RowMenuAction, label: string, reason: string | null, confirm: string | null = null): RowMenuItem =>
+  ({ action, label, enabled: reason === null, reason, confirm });
+
+/** The first refusal of `reasons`, or `null` where none refuses. */
+const firstReason = (...reasons: (string | null | undefined | false)[]): string | null =>
+  reasons.find((r): r is string => typeof r === 'string' && r !== '') ?? null;
+
+/** Why a binding will not act, or `null` where it will. */
+const bindingReason = (binding: DispatchInfo | undefined, act: string): string | null => {
+  if (binding === undefined) return `this board has not said whether it can ${act}`;
+  return binding.available ? null : binding.reason || `this board will not ${act}`;
 };
 
-/** The words a clean-up action shows: its menu label and the confirmation it asks before it acts. */
+const NO_CARD = 'no plan card for this row';
+const NO_BRANCH = 'the slice has no single branch';
+
+const planItems = (f: PlanMenuFacts): RowMenuItem[] => {
+  const { card } = f;
+  const noCard = card === null ? NO_CARD : null;
+  const eligible = f.hasEligible ? null : 'no branch is eligible to start';
+  return [
+    item('approve', 'Approve', firstReason(noCard, !f.isDraft && 'the plan is not a Draft', bindingReason(f.approve, 'approve')),
+      card === null ? null : approveConfirm(card)),
+    item('needs-design', 'Needs design',
+      firstReason(noCard, !f.needsDesign && 'only a Draft plan goes to design', bindingReason(f.approve, 'move a plan to design')),
+      card === null ? null : needsDesignConfirm(card)),
+    item('deliver', 'Deliver', firstReason(noCard, !f.deliverable && 'not every slice has merged', bindingReason(f.deliver, 'deliver')),
+      deliverConfirm(f.plan)),
+    item('implement', 'Implement', firstReason(noCard, eligible, bindingReason(f.implement, 'implement'))),
+    item('dispatch', 'Dispatch', firstReason(noCard, eligible, bindingReason(f.dispatch, 'dispatch'))),
+    item('start-work', f.soleSlice === null ? 'Start work' : `Start work on ${f.soleSlice}`,
+      firstReason(noCard, f.soleSlice === null && 'the plan has no single slice to start', startReason(card, f.dispatch))),
+  ];
+};
+
+/** Why Start work refuses for a card, or `null` where it acts. */
+const startReason = (card: Card | null, dispatch: DispatchInfo | undefined): string | null => {
+  if (card === null) return NO_CARD;
+  return bindingReason(dispatch, 'dispatch') ?? startRefusal(card, dispatch as DispatchInfo) ?? null;
+};
+
+/** The branch items after Start work, in menu order. */
+const branchTail = (f: SliceMenuFacts['branch'], card: Card | null, implement: DispatchInfo | undefined, dispatch: DispatchInfo | undefined): RowMenuItem[] => {
+  const none = f === null ? NO_BRANCH : null;
+  return [
+    item('resolve-conflict', 'Resolve conflict',
+      firstReason(none, f !== null && !f.conflict && 'the branch has no merge conflict', card === null ? NO_CARD : null, bindingReason(dispatch, 'dispatch'))),
+    item('write-brief', 'Write brief',
+      firstReason(none, f !== null && !f.needsBrief && 'the branch needs no brief', card === null ? NO_CARD : null, bindingReason(implement, 'implement'))),
+    item('open-run', f?.runLabel || 'Open last run', firstReason(none, f !== null && f.runUrl === '' && 'no run to open')),
+    item('worker-log', 'Show the agent', firstReason(none, f !== null && !f.hasLog && 'no agent works on this branch')),
+    item('status', 'Status', firstReason(none, f !== null && !f.hasStatus && 'no dispatcher log for this plan')),
+    item('changed-files', f?.changedFiles == null ? 'Changed files' : changedFilesLabel(f.changedFiles),
+      firstReason(none, f !== null && f.changedFiles === null && 'no failing check lists changed files')),
+  ];
+};
+
+/** The branch items before Start work: Open and Release claim. */
+const branchHead = (f: SliceMenuFacts['branch']): RowMenuItem[] => {
+  const none = f === null ? NO_BRANCH : null;
+  return [
+    item('open', f?.openLabel || 'Open', firstReason(none, f !== null && f.openUrl === '' && 'no address')),
+    item('release-claim', 'Release claim', firstReason(none, f !== null && !f.releaseClaim && 'the branch holds no orphaned claim'),
+      f === null ? null : releaseWords(f.branch, 'here').confirm),
+  ];
+};
+
+const branchItems = (f: BranchMenuFacts): RowMenuItem[] => [
+  ...branchHead(f),
+  item('start-work', 'Start work', firstReason(!f.startable && 'the branch is not startable', startReason(f.card, f.dispatch))),
+  ...branchTail(f, f.card, f.implement, f.dispatch),
+];
+
+const sliceItems = (f: SliceMenuFacts): RowMenuItem[] => [
+  item('start-work', 'Start work', firstReason(!f.eligible && 'the slice is not eligible to start', startReason(f.card, f.dispatch))),
+  item('reslice', 'Slice this plan', firstReason(!f.unsliced && 'the slice holds one branch', bindingReason(f.reslice, 'reslice')),
+      resliceConfirm(f.slug)),
+  ...branchHead(f.branch),
+  ...branchTail(f.branch, f.card, f.branch?.implement, f.dispatch),
+];
+
+/** Why a slice line's state keeps Start work from acting, or `null` where the state lets it act. */
+const sliceLineReason = (f: SliceLineMenuFacts): string | null => {
+  switch (f.state) {
+    case 'unread': return 'the slice\'s state is not read';
+    case 'not-started':
+      if (f.start) return null;
+      return f.waitsFor === '' ? 'the slice is not eligible to start' : `the slice waits for ${f.waitsFor}`;
+    default: return 'the slice is already under way';
+  }
+};
+
+/** A merged slice has no act left, so its line lists no item; every other line lists Start work. */
+const sliceLineItems = (f: SliceLineMenuFacts): RowMenuItem[] => (f.state === 'delivered' ? [] : [
+  item('start-work', 'Start work', firstReason(sliceLineReason(f), f.branch === null && NO_BRANCH, startReason(f.card, f.dispatch))),
+]);
+
+const NO_AGENT_BRANCH = 'the agent holds no branch';
+
+/** Why Restart refuses for an agent, or `null` where it acts. */
+const restartReason = (f: FleetAgentMenuFacts): string | null => firstReason(
+  f.branch === '' && NO_AGENT_BRANCH,
+  !restartOffered(f.state) && (f.state === 'running' || f.state === 'waiting' ? 'the worker still runs' : `a worker in state ${f.state} is not restarted`),
+  bindingReason(f.restartWith, 'restart a worker'),
+);
+
+/**
+ * The fixed item set of a Fleet agent row. A broken agent lists Restart and Drop agent; any other agent with a
+ * branch lists Show the agent, Open, Continue, Restart, Open plan and Reveal branch; an agent with neither lists none.
+ */
+const fleetAgentItems = (f: FleetAgentMenuFacts): RowMenuItem[] => {
+  const restart = item('restart', 'Restart', restartReason(f));
+  if (f.broken) {
+    return [
+      restart,
+      item('drop-agent', 'Drop agent',
+        firstReason(f.session === '' && 'the agent has no manifest to drop', bindingReason(f.drop, 'drop an agent')),
+        f.session === '' ? null : dropConfirm(f.session)),
+    ];
+  }
+  if (f.branch === '') return [];
+  return [
+    item('worker-log', 'Show the agent', null),
+    item('open', f.openLabel || 'Open', f.openUrl === '' ? 'no address' : null),
+    item('continue', 'Continue', firstReason(f.state !== 'waiting' && 'the agent asks no question', bindingReason(f.continueWith, 'continue a worker'))),
+    restart,
+    item('open-plan', 'Open plan', firstReason(f.planFile === '' && 'the agent acts on no plan', !f.canOpenPlan && 'this view opens no plan')),
+    item('reveal-branch', 'Reveal branch', f.canReveal ? null : 'this view reveals no branch'),
+  ];
+};
+
+const ticketItems = (f: TicketMenuFacts): RowMenuItem[] => {
+  const verdict = createFromIssueVerdict(f.idea, f.issueAnswer, 'plan');
+  const story = createFromIssueVerdict(f.story, f.issueAnswer, 'story');
+  const refused = (v: typeof verdict) => (v.kind === 'refused' ? v.reason : null);
+  const pending = f.issueAnswer === null ? 'the tracker has not been read yet' : null;
+  return [
+    item('create-plan', 'Create plan',
+      firstReason(refused(verdict), createPlanRefusal(f.facts), pending),
+      createPlanConfirm(f.issue)),
+    item('create-story', 'Create story', firstReason(refused(story), pending), createStoryConfirm(f.issue)),
+    item('open-issue', 'Open on host', f.issue.url === '' ? 'no address' : null),
+  ];
+};
+
+/**
+ * The items of a scope group row: Create plan and Create story by `scopeTickets`' arm, where a `tickets` arm takes
+ * the Tickets row's answer, and Open on host at the arm's address.
+ */
+const scopeTicketItems = (f: ScopeTicketMenuFacts): RowMenuItem[] => {
+  const tickets = f.issue === null ? null : ticketItems({ kind: 'ticket', issue: f.issue, idea: f.idea, story: f.story, issueAnswer: f.issueAnswer, facts: f.facts });
+  const arm = (action: 'create-plan' | 'create-story', label: string, chosen: ScopeRowMenu['createPlan']): RowMenuItem =>
+    chosen.kind === 'disabled' || tickets === null
+      ? item(action, label, chosen.kind === 'disabled' ? chosen.reason : NO_TICKET_ROW_REASON)
+      : tickets.find((i) => i.action === action) as RowMenuItem;
+  return [
+    arm('create-plan', 'Create plan', f.menu.createPlan),
+    arm('create-story', 'Create story', f.menu.createStory),
+    item('open-issue', 'Open on host', f.menu.openOnHost.reason),
+  ];
+};
+
+const itemsView = (items: RowMenuItem[]): RowMenuView => ({ kind: 'items', items, trigger: items.length > 0 ? 'enabled' : 'none' });
+
+/**
+ * The fixed item set of one loose branch: Open, Release claim and Delete branch, each disabled with the reason
+ * `looseActions` gives.
+ *
+ * @param branch - the branch the items act on.
+ * @param open - the PR page or the branch on the host; `''` where the host gave no address.
+ * @param actions - what `looseActions` answered for the branch.
+ */
+export const looseItems = (branch: string, open: string, actions: LooseActions): RowMenuItem[] => {
+  const release = releaseWords(branch, actions.release.where ?? 'here');
+  const remove = deleteWords(branch);
+  return [
+    item('open', 'Open', open === '' ? 'no address' : null),
+    { action: 'release-claim', label: release.label, enabled: actions.release.enabled, reason: actions.release.reason, confirm: release.confirm },
+    { action: 'delete-branch', label: remove.label, enabled: actions.delete.enabled, reason: actions.delete.reason, confirm: remove.confirm },
+  ];
+};
+
+/**
+ * The menu of one row.
+ *
+ * @param input - a placed item (`placement`, its payload `rows`, and what `looseActions` offers), or the facts of a
+ *   plan, slice, branch, Tickets or scope group row.
+ * @returns for a placed item, the loose item set under You with the reason `loose`, else `{ kind: 'row' }`; for a plan,
+ *   slice, Release slice line, branch or Tickets row, the fixed item set of its kind, each item enabled or disabled with
+ *   its reason. A Release slice line lists Start work alone, which posts the line's branch, and a merged
+ *   slice's line lists none.
+ */
+export const rowMenuOf = (input: RowMenuInput): RowMenuView => {
+  switch (input.kind) {
+    case 'plan': return itemsView(planItems(input));
+    case 'slice': return itemsView(sliceItems(input));
+    case 'slice-line': return itemsView(sliceLineItems(input));
+    case 'branch': return itemsView(branchItems(input));
+    case 'fleet-agent': return itemsView(fleetAgentItems(input));
+    case 'ticket': return itemsView(ticketItems(input));
+    case 'scope-ticket': return itemsView(scopeTicketItems(input));
+    case 'placed': {
+      const { placement, rows, actions } = input;
+      const first = rows[0];
+      if (placement?.section !== 'you' || placement.reason !== 'loose' || first === undefined) return { kind: 'row' };
+      return itemsView(looseItems(first.branch, first.pr?.url || first.branchUrl || '', actions));
+    }
+  }
+};
+
+/** The row a You item renders as, which fixes its `⋯` item set; `null` where the item reaches no You row. */
+export type YouRowKind = 'plan' | 'slice' | 'branch' | 'ticket' | 'loose-group' | null;
+
+/**
+ * The row kind of a placed item under You, and so the fixed item set its `⋯` lists.
+ *
+ * @param placement - what `placeDelivery` returned for the item.
+ * @returns `loose-group` for the reason `loose`, `null` for `release-approval` and a release item (the header's
+ *   Release group holds them), the item's own kind otherwise, with a PR rendered as its branch row; `null` outside You.
+ */
+export const youRowKindOf = (placement: ItemPlacement): YouRowKind => {
+  if (placement.section !== 'you' || placement.reason === 'release-approval') return null;
+  if (placement.reason === 'loose') return 'loose-group';
+  switch (placement.kind) {
+    case 'plan': return 'plan';
+    case 'slice': return 'slice';
+    case 'pr':
+    case 'branch': return 'branch';
+    case 'ticket': return 'ticket';
+    case 'release': return null;
+  }
+};
+
+/** The words a loose-branch action shows: its menu label and the confirmation it asks before it acts. */
 export interface CleanUpWords {
   label: string;
   confirm: string;
 }
 
 /**
- * The words of Release claim for one clean-up row.
+ * The words of Release claim for one loose branch.
  *
  * @param branch - the branch whose claim is released.
  * @param where - `elsewhere` where this machine holds no worktree for the claim.
@@ -152,30 +561,6 @@ export const deleteWords = (branch: string): CleanUpWords => ({
   confirm: `Delete origin/${branch}? Its tip is pinned first at refs/plot/reaped/${branch}/<sha>, and that ref restores it.`,
 });
 
-/**
- * The words of the group-wide delete.
- *
- * @param branches - the branches it deletes, from {@link cleanUpBranches}.
- * @returns the label and the confirmation that lists every branch; `null` for no branch.
- */
-export const bulkDeleteWords = (branches: readonly string[]): CleanUpWords | null => {
-  if (branches.length === 0) return null;
-  const n = branches.length;
-  return {
-    label: `Delete ${n} quiet branch${n === 1 ? '' : 'es'}…`,
-    confirm: `Delete ${n === 1 ? 'this branch' : `these ${n} branches`} from origin? Each tip is pinned first at refs/plot/reaped/<branch>/<sha>: ${branches.join(', ')}`,
-  };
-};
-
-/**
- * The branches a group-wide delete asks `loose-delete` about: the rows whose clean-up menu offers Delete.
- *
- * @param items - the items of one group.
- * @returns the branch names, sorted.
- */
-export const cleanUpBranches = (items: readonly PlacedItemView[]): string[] =>
-  items.flatMap((i) => (i.menu.kind === 'clean-up' && i.menu.delete ? [i.menu.branch] : [])).sort();
-
 /** One agent the rule placed, with its registry entry. */
 export interface PlacedAgentView {
   placement: AgentPlacement;
@@ -186,6 +571,13 @@ export interface PlacedAgentView {
   anchor: string;
   /** The item the agent acts on, as a link; `null` while it holds none or the item is unknown. */
   links: LinkView[];
+  /**
+   * The agent's state word: the registry entry's state, else `running` for a live role run, `failed` for one a
+   * pass recorded as stopped, and `unknown` where neither is read.
+   */
+  state: string;
+  /** `agentPills(state)`: the status pills of the agent's Doing now cell. */
+  pills: StatusPill[];
 }
 
 export interface LinkView {
@@ -243,12 +635,22 @@ export interface ItemBlockView {
   item: PlacedItemView;
 }
 
-export type BlockView = PlanBlockView | ItemBlockView;
+/**
+ * The loose items of the You section as one row: the verb, the count of branches as the object, the age range as the
+ * consequence, and each branch's loose item set in the row's `⋯`.
+ */
+export interface LooseGroupBlockView {
+  kind: 'loose-group';
+  key: string;
+  items: PlacedItemView[];
+  row: LooseGroupRow;
+  menu: RowMenuView;
+}
+
+export type BlockView = PlanBlockView | ItemBlockView | LooseGroupBlockView;
 
 export interface GroupView {
   key: string;
-  /** The Work items column name of this group (`Gates`, `Progress`, `Waits on`); `null` for the other sections. */
-  column: string | null;
   label: string;
   hint: string;
   items: PlacedItemView[];
@@ -365,6 +767,9 @@ export interface ReleaseHeaderView {
   /** The one block's full header wording, ticket wording included, or `''` where the section holds several blocks or none. */
   title: string;
   counts: ReleaseHeaderCountView[];
+  /** `releaseDeliveryHeader`'s five-state bar and the plans with a blocked slice, for the folded summary. */
+  bar: ReleaseDeliveryHeader['bar'];
+  blockedPlans: number;
 }
 
 /** One target release's block. */
@@ -478,7 +883,7 @@ export const nestItems = (scope: string, rawItems: readonly PlacedItemView[], sl
 
 /** How long a block has waited: its oldest row's age, or its plan clock in minutes where no branch has an age. */
 const blockWait = (block: BlockView): number => {
-  const rows = block.kind === 'plan' ? block.rows : block.item.rows;
+  const rows = block.kind === 'plan' ? block.rows : block.kind === 'loose-group' ? block.items.flatMap((i) => i.rows) : block.item.rows;
   return rows.reduce((n, r) => Math.max(n, r.ageMinutes ?? 0, (r.waitingDays ?? 0) * 1440), 0);
 };
 
@@ -487,6 +892,29 @@ const oldestFirst = (blocks: BlockView[]): BlockView[] =>
   blocks.map((b, i) => ({ b, i, wait: blockWait(b) }))
     .sort((a, b) => b.wait - a.wait || a.i - b.i)
     .map((x) => x.b);
+
+const isLoose = (item: PlacedItemView): boolean => item.placement?.section === 'you' && item.placement.reason === 'loose';
+
+/**
+ * Groups the lone loose items of a list of blocks into one row, at the place of the first; every other block keeps
+ * its place. No plan block nests a loose item, so only lone items are read.
+ *
+ * @param scope - prefix for the grouped row's key, unique per group.
+ * @param blocks - the blocks `nestItems` returned.
+ * @returns the blocks with the loose items as one `loose-group` block; the blocks unchanged where none is loose.
+ */
+export const groupLooseItems = (scope: string, blocks: readonly BlockView[]): BlockView[] => {
+  const loose = blocks.flatMap((b) => (b.kind === 'item' && isLoose(b.item) ? [b.item] : []));
+  const row = looseGroupRow(loose.map((i) => ({ id: i.placement?.id ?? i.anchor, ageMinutes: i.rows[0]?.ageMinutes ?? undefined })));
+  if (row === null) return [...blocks];
+  const branches = loose.flatMap((i) => (i.menu.kind === 'items' && i.rows[0] !== undefined ? [{ branch: i.rows[0].branch, items: i.menu.items }] : []));
+  const group: LooseGroupBlockView = {
+    kind: 'loose-group', key: `${scope}\u0000loose`, items: loose, row,
+    menu: { kind: 'branches', branches, trigger: branches.length > 0 ? 'enabled' : 'none' },
+  };
+  const at = blocks.findIndex((b) => b.kind === 'item' && isLoose(b.item));
+  return blocks.flatMap((b, i) => (i === at ? [group] : b.kind === 'item' && isLoose(b.item) ? [] : [b]));
+};
 
 /**
  * Whether a plan head's slices are on the page, or `null` where the head has no fold.
@@ -532,13 +960,23 @@ export const deliveryView = (
   planIndex: PlanIndex = new Map(),
 ): DeliveryView => {
   const rowOf = (item: string): AgentRow | null => mapping.rowsByItem[item]?.[0] ?? null;
+  // DISPLAY READS `checkout`, PLACEMENT DOES NOT: a desk agent with `branch: ''` names its checkout's row here.
   const ownRow = (entry: RegistryAgent | null): AgentRow | null => {
-    if (entry === null || entry.branch === '') return null;
+    const branch = entry === null ? null : agentActsOnBranch(entry);
+    if (branch === null) return null;
     for (const rows of Object.values(mapping.rowsByItem)) {
-      const own = rows.find((r) => r.branch === entry.branch);
+      const own = rows.find((r) => r.branch === branch);
       if (own !== undefined) return own;
     }
     return null;
+  };
+  const placedIds = new Set(placement.items.map((i) => i.id));
+  /** The placed item a Fleet row links: the placement's own, else the item of the agent's displayed branch. */
+  const linkedItem = (p: AgentPlacement, row: AgentRow | null): string | null => {
+    if (p.actsOn !== null) return p.linked ? p.actsOn : null;
+    if (row === null) return null;
+    const item = itemIdOfRow(row);
+    return placedIds.has(item) ? item : null;
   };
   const labelOfItem = (id: string): string =>
     itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null, planIndex);
@@ -556,18 +994,29 @@ export const deliveryView = (
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),
-    menu: rowMenuOf(p, mapping.rowsByItem[p.id] ?? [], looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' })),
+    menu: rowMenuOf({ kind: 'placed', placement: p, rows: mapping.rowsByItem[p.id] ?? [], actions: looseActions(mapping.readings.items.find((i) => i.id === p.id) ?? { kind: 'slice' }) }),
   }));
-  const agentViews = placement.agents.map((p): PlacedAgentView => ({
-    placement: p,
-    entry: mapping.agentsById[p.id] ?? null,
-    row: p.actsOn === null ? null : ownRow(mapping.agentsById[p.id] ?? null) ?? rowOf(p.actsOn),
-    label: labelOfAgent(p.id),
-    anchor: agentAnchor(p.id),
-    links: p.actsOn !== null && p.linked
-      ? [{ label: labelOfItem(p.actsOn), anchor: itemAnchor(p.actsOn), icon: kindOfItem(p.actsOn) }]
-      : [],
-  }));
+  const stateOf = (id: string): string => {
+    const entry = mapping.agentsById[id];
+    if (entry !== undefined) return entry.state;
+    const run = mapping.runsById[id];
+    if (run === undefined) return 'unknown';
+    return run.stopped == null ? 'running' : 'failed';
+  };
+  const agentViews = placement.agents.map((p): PlacedAgentView => {
+    const row = ownRow(mapping.agentsById[p.id] ?? null) ?? (p.actsOn === null ? null : rowOf(p.actsOn));
+    const item = linkedItem(p, row);
+    return {
+      placement: p,
+      entry: mapping.agentsById[p.id] ?? null,
+      state: stateOf(p.id),
+      pills: agentPills(stateOf(p.id)),
+      row,
+      label: labelOfAgent(p.id),
+      anchor: agentAnchor(p.id),
+      links: item === null ? [] : [{ label: labelOfItem(item), anchor: itemAnchor(item), icon: kindOfItem(item) }],
+    };
+  });
 
   // A plan's own row (its idea-branch PR) heads the plan beside its slices, so a
   // plan row the rule put in Work items follows the plan's first slice there.
@@ -596,17 +1045,18 @@ export const deliveryView = (
       const agents = agentViews.filter((v) => section === 'fleet' && v.placement.group === group);
       const meta = GROUP_LABELS[group] ?? { label: group, hint: '' };
       const rows = [...items.flatMap((v) => v.rows), ...agents.flatMap((v) => (v.row === null ? [] : [v.row]))];
-      const blocks = nestItems(group, items, slices, section === 'you');
+      const nested = nestItems(group, items, slices, section === 'you');
+      const blocks = section === 'you' ? groupLooseItems(group, nested) : nested;
       const heads = blocks.flatMap((b) => (b.kind === 'plan' ? [b] : []));
       const sliceCount = heads.reduce((n, b) => n + b.slices.length, 0);
-      const loose = blocks.length - heads.length;
+      const loose = nested.length - heads.length;
       const count = items.length + agents.length;
       const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
       const tally = heads.length > 0 && (heads.length !== sliceCount || loose > 0)
         ? [plural(heads.length, 'plan'), plural(sliceCount, 'slice'), ...(loose > 0 ? [`${loose} ${loose === 1 ? 'branch' : 'branches'}`] : [])].join(' · ')
         : String(count);
       return {
-        key: group, column: section === 'work-items' ? WORK_GROUP_COLUMN[group as WorkItemGroup].name : null, ...meta, items, agents, blocks, rows, count,
+        key: group, ...meta, items, agents, blocks, rows, count,
         tally,
       };
     });
@@ -636,9 +1086,11 @@ export const deliveryView = (
     const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
     const merge = slice.merge === 'none' ? 'open' : slice.merge ?? (slice.complete || delivered ? 'merged' : 'open');
     const state = sliceStateIn({ id, merge }, mapping.wholeReadings, mapping.input);
+    const hold = notStartedHold(state, mapping.wholeReadings.items.find((i) => i.id === id));
     const rows = mapping.rowsByItem[id] ?? [];
     const first = rows.find((r) => r.blockedBy !== null && r.blockedBy !== undefined);
     const open = rows.find((r) => r.pr !== null && r.state !== 'merged' && r.pr.state !== 'closed' && r.pr.open !== false);
+    const named = slice.branches.length > 0 ? slice.branches : [...new Set(rows.map((r) => r.branch).filter((b) => b !== ''))];
     return {
       name: slice.name,
       state,
@@ -648,6 +1100,8 @@ export const deliveryView = (
       waitsFor: first?.blockedBy ?? '',
       begun: rows.some((r) => !(isUnbegun(r) && r.branch === '')),
       ...(open?.pr ? { pr: open.pr.number } : {}),
+      ...(named.length === 1 ? { branch: named[0]! } : {}),
+      ...(hold === null ? {} : { hold }),
     };
   };
   // A delivered slice the pulse did not carry is still a slice of its plan: its row names both.
@@ -682,37 +1136,34 @@ export const deliveryView = (
   // A plan with a row, a Draft card or a slice the pulse carries has an entry, `[]` where it holds no counted
   // slice. A plan the payload read nothing for has no entry, so its bar reads missing.
   const draftPlans = mapping.wholeReadings.items.filter((i) => i.id.startsWith(DRAFT_ID_PREFIX)).map((i) => i.id.slice(DRAFT_ID_PREFIX.length));
-  const slicesByPlan = new Map<string, CountedSlice[]>();
-  for (const plan of [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)]) {
-    if (plan !== '' && !slicesByPlan.has(plan)) slicesByPlan.set(plan, []);
-  }
-  for (const s of counted) {
-    const id = sliceItemId(s.plan, s.name);
-    const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
-    const list = slicesByPlan.get(s.plan) ?? [];
-    list.push({ id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') });
-    slicesByPlan.set(s.plan, list);
-  }
+  const slicesByPlan = countedSlicesByPlan({
+    seen: [...Object.values(mapping.rowsByItem).flat().map((r) => r.plan), ...draftPlans, ...(slices ?? []).map((s) => s.plan)],
+    slices: counted.map((s): PlanCountedSlice => {
+      const id = sliceItemId(s.plan, s.name);
+      const delivered = mapping.wholeReadings.items.find((i) => i.id === id)?.delivered === true;
+      return { plan: s.plan, id, merge: s.merge === 'none' ? 'open' : s.merge ?? (s.complete || delivered ? 'merged' : 'open') };
+    }),
+    plans: mapping.plans,
+  });
   const scopeFacts = { kind: scope.kind, sprints: scope.sprints.map((sp) => ({ slug: sp.slug, title: sp.title, members: (sp.members ?? []).map((m) => m.slug) })) };
   const sprintGroups = sprintDeliveryGroups(scopeFacts, approved);
   const sectionTitle = sprintDeliveryTitle(scopeFacts);
   for (const section of sections) if (section.key === 'release-delivery') section.label = sectionTitle;
-  const blockedOf = (plans: readonly PlanRowView[]): number => plans.reduce((n, p) => n + (p.strip.find((x) => x.state === 'blocked')?.count ?? 0), 0);
   const sprintBlocks = sprintGroups.map((g): ReleaseBlockView => {
     const plans = g.plans.map(planRow);
-    const strip = { blocked: blockedOf(plans) };
+    const strip = stripStateCounts(plans);
     const header = sprintGroupHeader(g.name, sprintGroups.length > 1, headerText(headerCounts(plans), '', strip));
     return { release: '', sprint: g.sprint, name: sprintGroups.length > 1 ? g.name : '', header, counts: headerCountParts(headerCounts(plans), strip), plans, cards: [] };
   });
   const releaseScoped = releaseBlocks(sprints.map((sp) => ({ release: sp.release, members: sp.members.map((m) => m.slug) })), approved).map((b): ReleaseBlockView => {
     const plans = b.plans.filter((p) => approved.includes(p)).map(planRow);
-    const blocked = blockedOf(plans);
+    const strip = stripStateCounts(plans);
     const target = mapping.releases.targets.find((t) => t.release === b.release);
     const tickets = mapping.releases.tickets;
     const wording = target === undefined || tickets === null ? null : releaseTicketWording(tickets, target.release, target.started);
-    const header = headerText(headerCounts(plans), b.release, { blocked });
+    const header = headerText(headerCounts(plans), b.release, strip);
     const cards = releasePersonCards(sprints.map((sp) => ({ slug: sp.slug, title: sp.title ?? '', release: sp.release ?? '', ownerHandle: sp.ownerHandle ?? '', members: sp.members ?? [] })), b.release, mapping.directory ?? {}, slicesByPlan, mapping.wholeReadings, mapping.input);
-    return { release: b.release, sprint: '', name: '', plans, counts: headerCountParts(headerCounts(plans), { blocked }), header: wording === null ? header : `${header} · ${wording}`, cards };
+    return { release: b.release, sprint: '', name: '', plans, counts: headerCountParts(headerCounts(plans), strip), header: wording === null ? header : `${header} · ${wording}`, cards };
   });
   const blocks = scope.kind === 'my-sprint' ? sprintBlocks : releaseScoped;
   const releasePlanCount = new Set(blocks.flatMap((b) => b.plans.map((p) => p.plan))).size;
@@ -721,6 +1172,8 @@ export const deliveryView = (
     scope: head.scope,
     title: blocks.length === 1 ? blocks[0]!.header : '',
     counts: head.counts.map((c) => ({ ...c, anchor: c.target === null ? null : releasePlanAnchor(c.target) })),
+    bar: head.bar,
+    blockedPlans: head.blockedPlans,
   };
   const releaseRows = blocks.flatMap((b) => b.plans.flatMap((p) => Object.values(p.itemIds).flatMap((id) => mapping.rowsByItem[id] ?? [])));
 

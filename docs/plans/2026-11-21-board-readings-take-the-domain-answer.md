@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3388, #3122, #3159, #3163, #3140
 - **Review:** pr
@@ -12,6 +12,14 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3613 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/an-approval-with-no-pr-writes-no-pr-key`
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-delivery-row-carries-its-plan-state`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-spike-card-names-its-reason`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-plan-store-corpus-checks-both-lists`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-verdict-line-drops-the-spike-columns`
+- **Started:** 2026-11-23, Jan Wloka, `bug/plot-implement-asks-for-the-spike`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-quiet-invariant-reads-the-placement`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-escalation-reads-the-issue-once`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -139,31 +147,31 @@ All evidence is on origin/main `b21961602`.
 
 ### Plan state
 
-- `bug/a-delivery-row-carries-its-plan-state` — `AgentRow.planState` from `planStateOf`, filled at `fleet.ts:7613` and `:8004`; `delivery-readings.ts` drops `PHASE_OF`; every row fixture and `mock-fleet.ts` row carries `planState`; the six phase-word tests restated; tracer and custom-map tests; two browser tests that a blocker mark and an `← agents:` link open a closed group <!-- builds: AgentRow.planState, the plan's lifecycle state on a Delivery row -->
+- `bug/a-delivery-row-carries-its-plan-state` — `AgentRow.planState` from `planStateOf`, filled at `fleet.ts:7613` and `:8004`; `delivery-readings.ts` drops `PHASE_OF`; every row fixture and `mock-fleet.ts` row carries `planState`; the six phase-word tests restated; tracer and custom-map tests; two browser tests that a blocker mark and an `← agents:` link open a closed group <!-- builds: AgentRow.planState, the plan's lifecycle state on a Delivery row --> → #3652
 
 ### Spike card
 
-- `bug/the-spike-card-names-its-reason` — `spikeCardState` answers the `SpikeUnlicensed` reason; `CardFacts.progress.design.spikeUnlicensed` with its `plot-state:` declaration; the card wording per reason with the *Approve spike* pointer; the pulse plan's `spikeUnlicensed` and `/plot-pulse` line; the named test updates <!-- builds: SpikeUnlicensedSchema, the spike reason on the card and the pulse -->
+- `bug/the-spike-card-names-its-reason` — `spikeCardState` answers the `SpikeUnlicensed` reason; `CardFacts.progress.design.spikeUnlicensed` with its `plot-state:` declaration; the card wording per reason with the *Approve spike* pointer; the pulse plan's `spikeUnlicensed` and `/plot-pulse` line; the named test updates <!-- builds: SpikeUnlicensedSchema, the spike reason on the card and the pulse --> → #3658
 
 ### Spike corpus
 
-- `bug/the-plan-store-corpus-checks-both-lists` — the proxy-recorded key list of `planOf`; `spike_approved_raw`, `design_raw` and `verified_raw` move to `FIELDS`; `COMPARED_APART` for `issues`, `rounds`, `error`, `slices` and `waves` with their own tests; the three list checks <!-- builds: the corpus key-list check over planOf -->
+- `bug/the-plan-store-corpus-checks-both-lists` — the proxy-recorded key list of `planOf`; `spike_approved_raw`, `design_raw` and `verified_raw` move to `FIELDS`; `COMPARED_APART` for `issues`, `rounds`, `error`, `slices` and `waves` with their own tests; the three list checks <!-- builds: the corpus key-list check over planOf --> → #3670
 
 ### Spike verdicts
 
-- `bug/the-verdict-line-drops-the-spike-columns` — `slicesFrom` parses three columns and rejects more; the `:40` and `:67-86` describes of `a-slice-is-marked-spike.test.ts` and the skipped column tests of `scan-spike-readings.test.mjs` go <!-- builds: slicesFrom without spike columns -->
+- `bug/the-verdict-line-drops-the-spike-columns` — `slicesFrom` parses three columns and rejects more; the `:40` and `:67-86` describes of `a-slice-is-marked-spike.test.ts` and the skipped column tests of `scan-spike-readings.test.mjs` go <!-- builds: slicesFrom without spike columns --> → #3674
 
 ### Spike implement
 
-- `bug/plot-implement-asks-for-the-spike` — `plot-ask.mjs spike <slug>` with the record date and exit codes 0, 1 and 2; `skills/plot-implement/SKILL.md:71,:87,:49` call it; the README row and CLAUDE.md list; one unit cell per answer <!-- builds: plot-ask.mjs spike, the licensed spike as a bundle question -->
+- `bug/plot-implement-asks-for-the-spike` — `plot-ask.mjs spike <slug>` with the record date and exit codes 0, 1 and 2; `skills/plot-implement/SKILL.md:71,:87,:49` call it; the README row and CLAUDE.md list; one unit cell per answer <!-- builds: plot-ask.mjs spike, the licensed spike as a bundle question --> → #3678
 
 ### Quiet invariant
 
-- `bug/the-quiet-invariant-reads-the-placement` — the invariant over `withHandOver(rowsFromPulse(…))` across the pulse axes reading `quietKind`, a planted violator case, the two `fleet.ts` comments, and the QUIET table's `pr` row <!-- builds: the quiet-kind invariant over rowsFromPulse -->
+- `bug/the-quiet-invariant-reads-the-placement` — the invariant over `withHandOver(rowsFromPulse(…))` across the pulse axes reading `quietKind`, a planted violator case, the two `fleet.ts` comments, and the QUIET table's `pr` row <!-- builds: the quiet-kind invariant over rowsFromPulse --> → #3686
 
 ### Escalation post
 
-- `bug/the-escalation-reads-the-issue-once` — `planIssueValue` shared by `planIssueId` and `planIssue`, one answer-record store per `workerQuestions` call with a counting test, the `trackerFixture` stub, and the browser note from the exported `questionNote` <!-- builds: planIssueValue, the shared Issue field parse -->
+- `bug/the-escalation-reads-the-issue-once` — `planIssueValue` shared by `planIssueId` and `planIssue`, one answer-record store per `workerQuestions` call with a counting test, the `trackerFixture` stub, and the browser note from the exported `questionNote` <!-- builds: planIssueValue, the shared Issue field parse --> → #3692
 
 ## Notes
 

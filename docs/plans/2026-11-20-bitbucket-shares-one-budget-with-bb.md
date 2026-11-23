@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Review:** pr
 - **Impl:** own branches
@@ -13,6 +13,8 @@
 - **Started:** 2026-11-20, Jan Wloka, `bug/bitbucket-lists-all-states-in-one-request`
 - **Started:** 2026-11-20, Jan Wloka, `bug/bitbucket-predicts-800-an-hour`
 - **Started:** 2026-11-21, Jan Wloka, `bug/fleetd-counts-in-the-bb-ledger`
+- **Started:** 2026-11-23, Jan Wloka, `bug/plot-host-reads-bb-rate-limit`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -141,11 +143,11 @@ Counted from the code on `origin/main` at `21ae2c638`, for a repository with N =
 
 ### Shared ledger
 
-- `bug/fleetd-counts-in-the-bb-ledger` <!-- waits: bug/bitbucket-predicts-800-an-hour --> — fleetd's in-process client appends each request to `bb`'s per-account ledger under the ceiling `bbCeiling` decides, sends nothing while `bb`'s pause holds, writes the pause after a 429 with `bb`'s rule, records `bbLimitReading`, refuses in `bb`'s words, and the board's quota sentences name the cause; needs `bb` 1.15.0 to record the corpus; tests run with a temp `BB_STATE_DIR` <!-- builds: rules/bb-ledger.ts and adapters/host/bb-ledger-file.ts, the bb ledger rule and its file adapter -->
+- `bug/fleetd-counts-in-the-bb-ledger` <!-- waits: bug/bitbucket-predicts-800-an-hour --> — fleetd's in-process client appends each request to `bb`'s per-account ledger under the ceiling `bbCeiling` decides, sends nothing while `bb`'s pause holds, writes the pause after a 429 with `bb`'s rule, records `bbLimitReading`, refuses in `bb`'s words, and the board's quota sentences name the cause; needs `bb` 1.15.0 to record the corpus; tests run with a temp `BB_STATE_DIR` <!-- builds: rules/bb-ledger.ts and adapters/host/bb-ledger-file.ts, the bb ledger rule and its file adapter --> → #3682
 
 ### Shell reading
 
-- `bug/plot-host-reads-bb-rate-limit` <!-- waits: bug/fleetd-counts-in-the-bb-ledger, bug/bitbucket-lists-all-states-in-one-request --> — `plot-host.sh` maps `bb` exit 75 to exit 5 by its code, the `limit` op hands `command bb rate-limit --json`'s fields to `bbLimitReading`, and one identity check on `command bb --version` replaces the craftamap probe, with a net reduction on the shell-lines ratchet <!-- builds: the bb rate-limit reading in plot-host.sh limit -->
+- `bug/plot-host-reads-bb-rate-limit` <!-- waits: bug/fleetd-counts-in-the-bb-ledger, bug/bitbucket-lists-all-states-in-one-request --> — `plot-host.sh` maps `bb` exit 75 to exit 5 by its code, the `limit` op hands `command bb rate-limit --json`'s fields to `bbLimitReading`, and one identity check on `command bb --version` replaces the craftamap probe, with a net reduction on the shell-lines ratchet <!-- builds: the bb rate-limit reading in plot-host.sh limit --> → #3688
 
 ## Notes
 

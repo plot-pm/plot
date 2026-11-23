@@ -186,7 +186,7 @@ const runStream = async (
   const unread = branchesOf(assembly.plans).filter((b) => !conflicts.has(b.branch));
   for (const [branch, paths] of await readConflicts(unread)) conflicts.set(branch, paths);
   const chosen = new Set(order.map((record) => record.file));
-  const document = fleetReading(assembly, { ...header, host: hostWord(header, stage.value), mergeDetect: stageMergeDetect(stage.value, chosen) }, conflicts);
+  const document = fleetReading(assembly, { ...header, host: hostWord(header, stage.value), ...(stage.value.hostCause === undefined ? {} : { hostCause: stage.value.hostCause }), mergeDetect: stageMergeDetect(stage.value, chosen) }, conflicts);
   if (process.env.PLOT_SCAN_RECORD !== '0') recordBridge(root, document, Date.now(), false);
   process.stdout.write(`${JSON.stringify({ kind: 'reading', reading: document })}\n`);
   return 0;
@@ -363,7 +363,7 @@ const main = async (): Promise<number> => {
     return answer.exit;
   }
   const chosen = new Set(chosenPlans(estate.value, { slug, offer }).map(({ record }) => record.file));
-  const read = { ...header, host: hostWord(header, branches.value), mergeDetect: stageMergeDetect(branches.value, chosen) };
+  const read = { ...header, host: hostWord(header, branches.value), ...(branches.value.hostCause === undefined ? {} : { hostCause: branches.value.hostCause }), mergeDetect: stageMergeDetect(branches.value, chosen) };
   const document = fleetReading(assembly, read, await readBranchConflicts(refs, mainBranch, branchesOf(assembly.plans)));
   if (mode === 'log-pulse' || mode === 'prose') {
     const summary = document.summary as Record<string, number>;

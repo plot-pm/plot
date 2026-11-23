@@ -14,6 +14,7 @@ import {
   prNumberOf,
   redMainPicker,
   redMainStep,
+  repairBoundReached,
   type RedMainCandidate,
   type RedMainPickerAnswer,
 } from '@plot-pm/domain/rules/repair';
@@ -119,8 +120,13 @@ const moved = async (
   return written.ok;
 };
 
-const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): Promise<RevertTickOutcome> => {
-  if (!(await moved(world, record, 'exhausted', {}))) return 'held';
+const exhaust = async (
+  world: RevertWorld,
+  record: RepairRecord,
+  why: string,
+  patch: Partial<RepairRecord> = {},
+): Promise<RevertTickOutcome> => {
+  if (!(await moved(world, record, 'exhausted', patch))) return 'held';
   await world.notify(`plot-fleetd: main repair exhausted — ${why}. Nothing more is tried for this episode.`);
   return 'exhausted';
 };
@@ -154,7 +160,9 @@ const exhaust = async (world: RevertWorld, record: RepairRecord, why: string): P
  *   commit, or an ancestry answer of `unknown`, closes nothing.
  * - `hold`: `held`. `await-repair`: `awaiting-rerun` for a `reverting` record,
  *   `awaiting-repair` otherwise. Every other step: `none`.
- * - `exhausted`: records it and notifies once.
+ * - `exhausted`: records it and notifies once. Where the picker named a
+ *   candidate whose CI run was cancelled, the record carries it as
+ *   `cancelledSha` and the notification names its first 12 hex.
  *
  * A candidate whose host, CI or git read failed holds the pass: the picker
  * never reads a failed call as a fact.
@@ -180,7 +188,7 @@ export const repairRevertTick = async (
     descends = asked.ok ? asked.value : 'unknown';
   }
 
-  const boundReached = now - Date.parse(record.redSince) >= world.mainRepairBoundMs;
+  const boundReached = repairBoundReached(record, now, world.mainRepairBoundMs);
   const inRevertWindow =
     boundReached &&
     (record.state === 'repairing' || record.state === 'reverting') &&
@@ -189,8 +197,8 @@ export const repairRevertTick = async (
 
   let pickerAnswer: RedMainPickerAnswer = 'unknown';
   if (inRevertWindow) {
-    // Oldest first, stopping at the first candidate that is not green: the
-    // picker never looks past it, so reading further costs calls for nothing.
+    // Oldest first, stopping at the first candidate the picker does not skip:
+    // it never looks past that one, so reading further costs calls for nothing.
     const read: RedMainCandidate[] = [];
     for (const commit of [...record.candidates].reverse()) {
       const found = await world.candidate(commit);
@@ -199,7 +207,8 @@ export const repairRevertTick = async (
         return 'held';
       }
       read.unshift(found);
-      if (found.runs !== 'green') break;
+      const skipped = found.runs === 'green' || (found.runs === 'cancelled' && found.plotDataOnly);
+      if (!skipped) break;
     }
     pickerAnswer = redMainPicker(read);
   }
@@ -234,8 +243,9 @@ export const repairRevertTick = async (
   }
 
   if (step === 'exhausted') {
-    const why = record.revertPr !== undefined ? 'the revert PR is already recorded' : lastGreenRerunSettled === 'red' ? 'the last green SHA reads red on a re-run' : 'no single breaking merge could be named';
-    return exhaust(world, record, why);
+    const cancelled = record.revertPr === undefined && lastGreenRerunSettled !== 'red' && typeof pickerAnswer === 'object' && 'cancelled' in pickerAnswer ? pickerAnswer.cancelled : undefined;
+    const why = record.revertPr !== undefined ? 'the revert PR is already recorded' : lastGreenRerunSettled === 'red' ? 'the last green SHA reads red on a re-run' : cancelled !== undefined ? `no single breaking merge could be named: ${cancelled.slice(0, 12)} has a cancelled CI run` : 'no single breaking merge could be named';
+    return exhaust(world, record, why, cancelled === undefined ? {} : { cancelledSha: cancelled });
   }
 
   if (step === 'close-prs') {
@@ -263,7 +273,7 @@ export const repairRevertTick = async (
     return (await moved(world, record, 'reverting', { preRevertRerun: 'asked' })) ? 'rerun-asked' : 'held';
   }
 
-  if (pickerAnswer === 'unknown' || pickerAnswer === 'hold') return 'held';
+  if (typeof pickerAnswer !== 'object' || !('pr' in pickerAnswer)) return 'held';
   return makeRevert(world, record, reading, pickerAnswer.pr, warn);
 };
 

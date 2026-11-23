@@ -145,6 +145,19 @@ describe('agentRunSdk: the options it passes', () => {
     expect(options.pathToClaudeCodeExecutable).toBe('/usr/local/bin/claude');
     expect(options.permissionMode).toBe('bypassPermissions');
     expect('detached' in options).toBe(false);
+    expect('strictMcpConfig' in options).toBe(false);
+  });
+
+  it('sets strictMcpConfig on a non-role request that asks for strictMcp', async () => {
+    captured.messages = [resultMessage()];
+    await ended({ strictMcp: true });
+    expect((captured.options as Record<string, unknown>).strictMcpConfig).toBe(true);
+  });
+
+  it('leaves strictMcpConfig unset on a non-role request with strictMcp false', async () => {
+    captured.messages = [resultMessage()];
+    await ended({ strictMcp: false });
+    expect('strictMcpConfig' in (captured.options as Record<string, unknown>)).toBe(false);
   });
 
   it('spawns through the injected spawner', async () => {
@@ -484,7 +497,7 @@ describe('a role run', () => {
     return { name: 'fixer' as const, agentsFile, settingsFile };
   };
 
-  it('maps the role to agent, agents, settings and user settings only', async () => {
+  it('maps the role to agent, agents, settings, user settings only and no MCP server', async () => {
     captured.messages = [resultMessage()];
     await ended({ roleAgent: await role() });
     const options = captured.options as Record<string, unknown>;
@@ -492,6 +505,7 @@ describe('a role run', () => {
     expect(options.agents).toEqual({ fixer: { description: 'd', prompt: 'p' } });
     expect(options.settings).toBe(join(dir, 'fixer-settings.json'));
     expect(options.settingSources).toEqual(['user']);
+    expect(options.strictMcpConfig).toBe(true);
   });
 
   it('keeps the hand-back protocol on request.role, not the role agent', async () => {

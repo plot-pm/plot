@@ -277,6 +277,18 @@ describe('prStatus — the composed decision', () => {
     expect(status.cause).toBe(OUTAGE_ERROR);
   });
 
+  it("names the cause and the time of a spent quota from bb's words, and none for another kind", () => {
+    const of = (error: string) => prStatus({ error, ageSeconds: 300, nextInSeconds: 60, spenders: null, intervalSeconds: INTERVAL_S });
+    expect(of('rate limited — 800 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)')).toMatchObject({
+      kind: 'quota', throttleCause: 'ceiling', throttleTime: '11:41:53Z',
+    });
+    expect(of('rate limited — bb paused until 10:43:03Z after Bitbucket refused a request (in 60 s)')).toMatchObject({
+      kind: 'quota', throttleCause: 'paused', throttleTime: '10:43:03Z',
+    });
+    expect(of(QUOTA_ERROR)).toMatchObject({ kind: 'quota', throttleCause: 'host', throttleTime: null });
+    expect(of(OUTAGE_ERROR)).toMatchObject({ throttleCause: null, throttleTime: null });
+  });
+
   /** A quota refusal's backoff end survives into the value unchanged. */
   it('a spent quota carries its backoff end through unchanged', () => {
     const status = prStatus({

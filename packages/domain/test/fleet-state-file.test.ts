@@ -1,10 +1,13 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { bridgePath, BRIDGE_MAX_AGE_MS, fleetStateFile } from '../src/adapters/fleet-state/fleet-state-file.js';
+import { bridgePath, BRIDGE_MAX_AGE_MS, fleetStateFile, fleetStateIn, fleetStateVouched } from '../src/adapters/fleet-state/fleet-state-file.js';
+import { stateHomeAtSync } from '../src/adapters/main-checkout.js';
+import type { StateHome } from '../src/entities/state-home.js';
 import { isAnswered } from '../src/port-result.js';
 import type { FleetReading } from '../src/entities/fleet.js';
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '../src/entities/fleetd-heartbeat.js';
@@ -42,6 +45,7 @@ const PULSE: FleetReading = {
     tracer: false,
     slices: SLICES,
     unreadBranchItems: [],
+    spikeUnlicensed: null,
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,
@@ -60,10 +64,10 @@ const bridged = (at: number): BridgedPulse => ({
   prError: null,
 });
 
-let repo: string;
+let repo: StateHome;
 
 beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-state-unit-'));
+  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-state-unit-')) as StateHome;
 });
 
 afterEach(() => {
@@ -72,7 +76,7 @@ afterEach(() => {
 
 describe('the fleet state port round-trips what a restart needs', () => {
   it('restores the pulse and every map beside it', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const now = Date.now();
     await state.write(bridged(now));
     const result = await state.read();
@@ -88,7 +92,7 @@ describe('the fleet state port round-trips what a restart needs', () => {
   });
 
   it('round-trips the fleet\'s last PR error, null included', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const now = Date.now();
     await state.write({ ...bridged(now), prError: 'gh: HTTP 502' });
     const failing = await state.read();
@@ -99,34 +103,34 @@ describe('the fleet state port round-trips what a restart needs', () => {
   });
 
   it('answers readSync with what read answers, and null past the expiry', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const now = Date.now();
     await state.write(bridged(now));
     const sync = state.readSync();
     expect(sync.ok && sync.value?.pulse).toEqual(PULSE);
     expect(sync.ok && sync.value?.ages.get('feature/a')).toBe(7);
-    const aged = fleetStateFile({ repoRoot: repo, now: () => now + BRIDGE_MAX_AGE_MS + 1 });
+    const aged = fleetStateFile({ home: repo, now: () => now + BRIDGE_MAX_AGE_MS + 1 });
     const expired = aged.readSync();
     expect(expired.ok && expired.value).toBeNull();
   });
 
   it('keeps the SCAN time rather than the write time', async () => {
     const scannedAt = Date.now() - 90_000;
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     await state.write(bridged(scannedAt));
     const result = await state.read();
     expect(result.ok && result.value?.at).toBe(scannedAt);
   });
 
   it('writes under .plot/state, machine-local by construction', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     await state.write(bridged(Date.now()));
     expect(fs.existsSync(bridgePath(repo))).toBe(true);
     expect(bridgePath(repo)).toBe(path.join(repo, '.plot', 'state', 'last-pulse.json'));
   });
 
   it('leaves no temp file behind', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     await state.write(bridged(Date.now()));
     const dir = path.dirname(bridgePath(repo));
     expect(fs.readdirSync(dir)).toEqual(['last-pulse.json']);
@@ -136,7 +140,7 @@ describe('the fleet state port round-trips what a restart needs', () => {
 describe('the fleet state port expires — it is a bridge, not a store', () => {
   it('serves a pulse just inside the window', async () => {
     const now = Date.now();
-    const state = fleetStateFile({ repoRoot: repo, now: () => now });
+    const state = fleetStateFile({ home: repo, now: () => now });
     await state.write(bridged(now - (BRIDGE_MAX_AGE_MS - 1_000)));
     const result = await state.read();
     expect(result.ok && result.value).not.toBeNull();
@@ -144,7 +148,7 @@ describe('the fleet state port expires — it is a bridge, not a store', () => {
 
   it('refuses one just outside it', async () => {
     const now = Date.now();
-    const state = fleetStateFile({ repoRoot: repo, now: () => now });
+    const state = fleetStateFile({ home: repo, now: () => now });
     await state.write(bridged(now - (BRIDGE_MAX_AGE_MS + 1_000)));
     const result = await state.read();
     expect(result.ok && result.value).toBeNull();
@@ -152,7 +156,7 @@ describe('the fleet state port expires — it is a bridge, not a store', () => {
 
   it('refuses one stamped in the FUTURE', async () => {
     const now = Date.now();
-    const state = fleetStateFile({ repoRoot: repo, now: () => now });
+    const state = fleetStateFile({ home: repo, now: () => now });
     await state.write(bridged(now + 60_000));
     const result = await state.read();
     expect(result.ok && result.value).toBeNull();
@@ -161,7 +165,7 @@ describe('the fleet state port expires — it is a bridge, not a store', () => {
 
 describe('the fleet state port refuses anything it cannot trust, but never as a failure', () => {
   it('answers null when there is no file at all', async () => {
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const result = await state.read();
     expect(result).toEqual({ ok: true, value: null });
   });
@@ -169,7 +173,7 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
   it('answers null for a truncated file rather than failing', async () => {
     fs.mkdirSync(path.dirname(bridgePath(repo)), { recursive: true });
     fs.writeFileSync(bridgePath(repo), '{"version":1,"at":', 'utf8');
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const result = await state.read();
     expect(result).toEqual({ ok: true, value: null });
   });
@@ -177,7 +181,7 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
   it('answers null for a payload from another version', async () => {
     fs.mkdirSync(path.dirname(bridgePath(repo)), { recursive: true });
     fs.writeFileSync(bridgePath(repo), JSON.stringify({ version: 99, at: Date.now() }), 'utf8');
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const result = await state.read();
     expect(result).toEqual({ ok: true, value: null });
   });
@@ -187,7 +191,7 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
     fs.writeFileSync(bridgePath(repo), JSON.stringify({
       version: 1, at: Date.now(), pulse: { plans: 'not an array' },
     }), 'utf8');
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateFile({ home: repo });
     const result = await state.read();
     expect(result).toEqual({ ok: true, value: null });
   });
@@ -204,7 +208,7 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
       approvedAt: null,
       ideaPlans: [['idea/x', 'x.md']],
     }), 'utf8');
-    const state = fleetStateFile({ repoRoot: repo, now: () => now });
+    const state = fleetStateFile({ home: repo, now: () => now });
     const result = await state.read();
     expect(result.ok).toBe(true);
     const value = result.ok ? result.value : null;
@@ -218,7 +222,7 @@ describe('the fleet state port refuses anything it cannot trust, but never as a 
   it('fails the write rather than throwing when the repo cannot be written to', async () => {
     const blocked = path.join(repo, 'not-a-directory');
     fs.writeFileSync(blocked, 'this is a file', 'utf8');
-    const state = fleetStateFile({ repoRoot: blocked });
+    const state = fleetStateFile({ home: blocked as StateHome });
     const writeResult = await state.write(bridged(Date.now()));
     expect(writeResult.ok).toBe(false);
     const readResult = await state.read();
@@ -235,8 +239,8 @@ describe('a bridge older than the bound while fleetd vouches for it', () => {
   const old = T - 20 * 60_000;
 
   it('reads a 20-minute-old bridge while the live heartbeat names its at', async () => {
-    await fleetStateFile({ repoRoot: repo }).write(bridged(old));
-    const state = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: () => beat(old) });
+    await fleetStateFile({ home: repo }).write(bridged(old));
+    const state = fleetStateFile({ home: repo, now: () => T, heartbeat: () => beat(old) });
     const read = state.readSync();
     expect(read.ok && read.value?.at).toBe(old);
     const asyncRead = await state.read();
@@ -244,17 +248,53 @@ describe('a bridge older than the bound while fleetd vouches for it', () => {
   });
 
   it('refuses the same bridge with a stale heartbeat, a mismatched at or no heartbeat', async () => {
-    await fleetStateFile({ repoRoot: repo }).write(bridged(old));
+    await fleetStateFile({ home: repo }).write(bridged(old));
     for (const heartbeat of [beat(old, T - 31_000), beat(old + 1), beat(null), () => null]) {
       const fn = typeof heartbeat === 'function' ? heartbeat : () => heartbeat;
-      const read = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: fn }).readSync();
+      const read = fleetStateFile({ home: repo, now: () => T, heartbeat: fn }).readSync();
       expect(read.ok && read.value).toBeNull();
     }
   });
 
   it('refuses a bridge from the future even when the heartbeat names it', async () => {
-    await fleetStateFile({ repoRoot: repo }).write(bridged(T + 5_000));
-    const read = fleetStateFile({ repoRoot: repo, now: () => T, heartbeat: () => beat(T + 5_000) }).readSync();
+    await fleetStateFile({ home: repo }).write(bridged(T + 5_000));
+    const read = fleetStateFile({ home: repo, now: () => T, heartbeat: () => beat(T + 5_000) }).readSync();
     expect(read.ok && read.value).toBeNull();
+  });
+});
+
+describe('the bridge under a resolved state home', () => {
+  it('is the main checkout bridge when read from a linked worktree', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-state-linked-')));
+    try {
+      const main = path.join(root, 'main');
+      const linked = path.join(root, 'linked');
+      fs.mkdirSync(main);
+      const git = (...args: string[]): void => {
+        execFileSync('git', args, { cwd: main, stdio: 'ignore' });
+      };
+      git('init', '--quiet', '-b', 'main');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '--allow-empty', '-m', 'seed');
+      git('worktree', 'add', '--quiet', linked, '-b', 'side');
+      const at = Date.now();
+      expect((await fleetStateIn(stateHomeAtSync(main)).write(bridged(at))).ok).toBe(true);
+      const read = fleetStateVouched(linked).readSync();
+      expect(read.ok && read.value?.at).toBe(at);
+      expect(fs.existsSync(path.join(main, '.plot', 'state', 'last-pulse.json'))).toBe(true);
+      expect(fs.existsSync(path.join(linked, '.plot'))).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads no pulse and writes nothing where the home is unread', async () => {
+    fs.mkdirSync(path.join(repo, '.plot', 'state'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.plot', 'state', 'last-pulse.json'), JSON.stringify({ version: 1, at: Date.now(), pulse: PULSE }), 'utf8');
+    expect(stateHomeAtSync(repo)).toEqual({ unread: true });
+    const state = fleetStateVouched(repo);
+    expect(await state.read()).toEqual({ ok: true, value: null });
+    expect(state.readSync()).toEqual({ ok: true, value: null });
+    expect((await state.write(bridged(Date.now()))).ok).toBe(false);
+    expect(fs.readdirSync(path.join(repo, '.plot', 'state'))).toEqual(['last-pulse.json']);
   });
 });

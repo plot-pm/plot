@@ -7,6 +7,7 @@ import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
 import { holdsApply } from '../rules/default-branch.js';
 import { EPISODE_LINE_DEPTH, mainRepairBranchOf, repairEpisode, sprintRepairBranchOf, type EpisodeReading, type RepairScope } from '../rules/repair-pr.js';
+import type { StateHomeRead } from '../rules/state-home.js';
 import type { Caller } from './decision.js';
 
 /** Why recording a repair PR refused. Each ends the action: the record is unchanged. */
@@ -18,7 +19,8 @@ export type NameRepairPrRefusal =
   | 'pr-not-open'
   | 'repair-branch-mismatch'
   | 'repair-pr-already-named'
-  | 'record-moved';
+  | 'record-moved'
+  | 'state-home-unread';
 
 /** What recording a repair PR reads. */
 export interface NameRepairPrReadings {
@@ -103,6 +105,11 @@ export interface NameRepairPrPorts {
   readonly baseRepair?: (base: string) => RepairRecordStore;
   /** Who is asking; an unattended caller is refused before any read. */
   readonly caller: Caller;
+  /**
+   * Whether the state home the stores read under was found. `'unaskable'`
+   * refuses `state-home-unread` before any read. Absent reads as `'read'`.
+   */
+  readonly stateHome?: StateHomeRead;
 }
 
 /** What `plot-ask.mjs repair-pr` prints, as one JSON line. */
@@ -129,7 +136,9 @@ const episodeOf = async (
  * asks {@link nameRepairPr}. Immediately before the write it reads the record
  * again and refuses `record-moved` where the record changed since the first
  * read, so a record fleetd replaced in between is not overwritten. A failed
- * default-branch read, re-read or write refuses as `unaskable`.
+ * default-branch read, re-read or write refuses as `unaskable`. Where
+ * `ports.stateHome` is `'unaskable'` it refuses `state-home-unread` after the
+ * caller check and before it reads the PR or any store, and writes nothing.
  *
  * @param ports - the host, refs, the default-branch store, the record store and the caller.
  * @param pr - the PR number to record.
@@ -140,6 +149,9 @@ export const nameRepairPrAt = async (ports: NameRepairPrPorts, pr: number): Prom
   if (ports.caller === 'unattended') {
     // nameRepairPr refuses an unattended caller before it looks at any other reading.
     return refused(nameRepairPr({ caller: 'unattended', record: null, episode: 'closed', pr: null }, pr) as NameRepairPrRefused);
+  }
+  if (ports.stateHome === 'unaskable') {
+    return refused({ reason: 'state-home-unread', detail: `git could not name the main checkout, so the repair record PR #${pr} would be recorded on cannot be found. An unfound home is not an empty one; nothing was written.` });
   }
   // With base stores wired, the PR is asked first, only to learn its base.
   const early = ports.baseRepair !== undefined && ports.baseBranch !== undefined ? await ports.host.prState(pr) : undefined;

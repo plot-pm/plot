@@ -2,8 +2,9 @@
 // design's "Links by Row" table. One test per row of the table: a test that
 // checks only the slice-at-a-gate row passes with every other row wrong.
 import { describe, it, expect } from 'vitest';
-import { youCaseOf, type AgentPlacement, type ItemPlacement, type PrReading } from '../src/rules/delivery-placement.js';
+import { youCaseOf, type AgentPlacement, type ItemPlacement, type PrReading, type YouReason } from '../src/rules/delivery-placement.js';
 import {
+  youFooter,
   ROW_COLUMNS,
   ageValue,
   AGENT_COLUMNS,
@@ -13,7 +14,13 @@ import {
   groupHeader,
   itemRowCells,
   gatesCell,
-  progressCell,
+  REASON_DO,
+  YOU_COLUMNS,
+  ageRangeValue,
+  looseGroupRow,
+  reasonVerb,
+  youRowCells,
+  youStatusText,
   type DeliverySwitches,
   type ItemRowFacts,
 } from '../src/rules/delivery-row-form.js';
@@ -25,8 +32,8 @@ const you = (reason: Extract<ItemPlacement, { section: 'you' }>['reason'], group
 const facts: ItemRowFacts = { plan: 'the-plan', slice: 'first', branch: 'feature/x', pr: 12, ciRun: '#901', ageMinutes: 125 };
 
 describe('the seven columns', () => {
-  it('are KIND, ITEM, WHERE, STATUS, DO, BY, AGE in that order', () => {
-    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+  it('are KIND, ITEM, WHERE, STATUS, BY, AGE, DO in that order', () => {
+    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
     const cells = itemRowCells(work('queued'), facts)!;
     expect(Object.keys(cells)).toEqual([...ROW_COLUMNS]);
   });
@@ -35,7 +42,7 @@ describe('the seven columns', () => {
     expect(itemRowCells(work('being-built'), facts)!.do).toBeNull();
     expect(itemRowCells(work('at-a-gate'), facts)!.do).toBeNull();
     expect(itemRowCells(you('plan-approval', 'blocks-delivery', [], 'plan'), facts)!.do).toEqual({
-      value: 'approve ›', links: [{ to: 'action', action: 'approve', id: 'slice:a' }],
+      value: 'Approve ›', links: [{ to: 'action', action: 'approve', id: 'slice:a' }],
     });
   });
 });
@@ -82,7 +89,7 @@ describe('links by row', () => {
     expect(c.where!.links).toEqual([{ to: 'branch', branch: 'feature/x' }, { to: 'pr', pr: 12 }]);
     expect(c.status).toEqual({ value: 'blocked · question', links: [{ to: 'question', id: 'q-7' }] });
     expect(c.by).toEqual({ value: 'agent-2', links: [{ to: 'agent', id: 'agent-2' }] });
-    expect(c.do).toEqual({ value: 'answer ›', links: [{ to: 'action', action: 'continue', id: 'slice:a' }] });
+    expect(c.do).toEqual({ value: 'Answer ›', links: [{ to: 'action', action: 'continue', id: 'slice:a' }] });
   });
 
   it('slice, stuck by a failed build: STATUS links to the failed CI run', () => {
@@ -300,10 +307,10 @@ describe('the STATUS gate readings', () => {
     expect(itemRowCells(you('agent-died', 'blocks-delivery', ['a']), { plan: 'p' })!.status).toEqual({ value: 'agent died', links: [] });
   });
 
-  it('shows a loose branch as loose, with its last commit, and offers to plan it', () => {
+  it('shows a loose branch as loose, with its last commit, and offers to release or delete it', () => {
     const cells = itemRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x', lastCommit: 'abc1234' })!;
     expect(cells.status).toEqual({ value: 'loose · abc1234', links: [] });
-    expect(cells.do).toEqual({ value: 'plan ›', links: [{ to: 'action', action: 'create-plan', id: 'slice:a' }] });
+    expect(cells.do).toEqual({ value: 'Release or delete ›', links: [{ to: 'action', action: 'release-or-delete', id: 'slice:a' }] });
   });
 });
 
@@ -332,6 +339,42 @@ describe('agent rows, the other readings', () => {
       expect(agentRowCells(agent({ role: role as never, actsOn: 'x' }), {}).doing!.value).toBe(word);
     }
     expect(agentRowCells(agent({ actsOn: 'x' }), { commits: 1 }).doing!.value).toBe('writing code · 1 commit');
+  });
+
+  it('names the plan of the agent branch, linked to its slice where one is read', () => {
+    expect(agentRowCells(agent({}), { plan: 'the-plan', slice: 'first' }).plan)
+      .toEqual({ value: 'the-plan', links: [{ to: 'plan', plan: 'the-plan', slice: 'first' }] });
+    expect(agentRowCells(agent({}), { plan: 'the-plan' }).plan)
+      .toEqual({ value: 'the-plan', links: [{ to: 'plan', plan: 'the-plan', slice: null }] });
+    expect(agentRowCells(agent({}), {}).plan).toBeNull();
+  });
+
+  it('marks the sprint: a grey no sprint wins over a named sprint, and no reading gives no mark', () => {
+    expect(agentRowCells(agent({}), { noSprint: true, sprint: 's-1' }).sprint).toEqual({ word: 'no sprint', tone: 'grey', href: null });
+    expect(agentRowCells(agent({}), { sprint: 's-1' }).sprint).toEqual({ word: 's-1', tone: 'quiet', href: null });
+    expect(agentRowCells(agent({}), {}).sprint).toBeNull();
+  });
+
+  it('links actsOnItem in Acting on where the placement names no item', () => {
+    const c = agentRowCells(agent({ role: 'reviewer' }), { actsOnItem: 'item-7' });
+    expect(c.actingOn).toEqual({ value: 'item-7', links: [{ to: 'item', id: 'item-7' }] });
+    expect(c.doing!.value).toBe('reviewing');
+  });
+
+  it.each([
+    ['high', 'fixing review ✗'],
+    ['ci', 'fixing CI ✗'],
+    ['conflict', 'fixing conflict ✗'],
+  ] as const)('names a fixer on a %s finding, with and without its attempt', (fixerFinding, word) => {
+    const fixer = agent({ role: 'fixer', actsOn: 'x' });
+    expect(agentRowCells(fixer, { fixerFinding }).doing!.value).toBe(word);
+    expect(agentRowCells(fixer, { fixerFinding, fixerAttempt: 2 }).doing!.value).toBe(`${word} · attempt 2 of 2`);
+  });
+
+  it('names a fixer with no finding by the bare word, with and without its attempt', () => {
+    const fixer = agent({ role: 'fixer', actsOn: 'x' });
+    expect(agentRowCells(fixer, {}).doing!.value).toBe('fixing');
+    expect(agentRowCells(fixer, { fixerAttempt: 1 }).doing!.value).toBe('fixing · attempt 1 of 2');
   });
 
   it('shows no Doing now for an agent with no item', () => {
@@ -451,43 +494,105 @@ describe('the remaining branches', () => {
   });
 });
 
-describe('the You column set', () => {
-  it('is KIND, ITEM, STATUS, DO, AGE, and ROW_COLUMNS stays the seven', async () => {
-    const { YOU_COLUMNS, youRowCells } = await import('../src/rules/delivery-row-form.js');
-    expect([...YOU_COLUMNS]).toEqual(['kind', 'item', 'status', 'do', 'age']);
-    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'do', 'by', 'age']);
+describe('the You row', () => {
+  const all: readonly YouReason[] = [
+    'draft-plan', 'plan-approval', 'spike-approval', 'release-approval', 'test-delivered-plan', 'review-pr',
+    'blocked-marker', 'fleet-stuck', 'merge-conflict', 'person-comment', 'agent-died', 'loose',
+  ];
+  const kindOf = (r: YouReason): ItemPlacement['kind'] =>
+    r === 'loose' ? 'branch' : ['draft-plan', 'plan-approval', 'spike-approval', 'test-delivered-plan'].includes(r) ? 'plan' : 'slice';
+
+  it('is VERB, OBJECT, CONSEQUENCE, MENU, and ROW_COLUMNS stays the seven with DO last', () => {
+    expect([...YOU_COLUMNS]).toEqual(['verb', 'object', 'consequence', 'menu']);
+    expect([...ROW_COLUMNS]).toEqual(['kind', 'item', 'where', 'status', 'by', 'age', 'do']);
     const cells = youRowCells(you('draft-plan', 'input-to-the-fleet', [], 'plan'), { plan: 'p', ageMinutes: 60 })!;
     expect(Object.keys(cells)).toEqual([...YOU_COLUMNS]);
-    expect(cells.do?.value).toBe('open ›');
   });
-  it('words a draft plan and a loose branch in the Status column', async () => {
-    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
-    const draft = you('draft-plan', 'input-to-the-fleet', [], 'plan');
-    expect(youRowCells(draft, { plan: 'p' })!.status?.value).toBe('Draft · not interrogated');
-    expect(youRowCells(draft, { plan: 'p', rounds: 2 })!.status?.value).toBe('Draft · 2 rounds');
-    expect(youRowCells(draft, { plan: 'p', rounds: 1, phase: 'design' })!.status?.value).toBe('Design · 1 round');
-    expect(youRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x' })!.status?.value).toBe('loose · no plan, nobody works on it');
+
+  it('gives every reason the verb, tone and consequence of the plan table', () => {
+    const table: Record<YouReason, [string, string, string | null]> = {
+      'draft-plan': ['Interrogate', 'amber', '3 slices wait'],
+      'plan-approval': ['Approve', 'red', '3 slices wait'],
+      'spike-approval': ['Approve spike', 'red', 'the spike waits'],
+      'release-approval': ['Approve release', 'red', null],
+      'test-delivered-plan': ['Test', 'red', 'the release waits'],
+      'review-pr': ['Review', 'red', 'the merge waits'],
+      'blocked-marker': ['Answer', 'red', 'the agent waits'],
+      'fleet-stuck': ['Unblock', 'red', 'the fleet waits'],
+      'merge-conflict': ['Resolve', 'red', 'the merge waits'],
+      'person-comment': ['Answer', 'red', 'the merge waits'],
+      'agent-died': ['Restart', 'red', 'the slice stopped'],
+      loose: ['Release or delete', 'grey', null],
+    };
+    for (const r of all) {
+      const d = REASON_DO[r];
+      expect([d.verb, d.tone, d.consequence({ slices: 3 })], r).toEqual(table[r]);
+      expect(reasonVerb(r)).toBe(d.verb);
+    }
   });
-  it('keeps the other reasons\' status text and any link the base cell carries', async () => {
-    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
-    const review = youRowCells(you('review-pr', 'unblock', [], 'slice'), facts)!;
-    expect(review.status?.value).toContain('review');
-    const gated = youRowCells(you('review-pr', 'unblock', [], 'slice'), { ...facts, prReading: { ci: 'passed', review: 'passed' } } as ItemRowFacts)!;
-    expect(gated.status?.value).toContain('review');
+
+  it('links the verb of every reason to the row menu, never to an action', () => {
+    for (const r of all) {
+      const cells = youRowCells(you(r, 'blocks-delivery', [], kindOf(r)), { ...facts, slices: 2 })!;
+      expect(cells.verb, r).toEqual({ value: REASON_DO[r].verb, links: [{ to: 'menu', id: 'slice:a' }] });
+      expect(cells.menu!.links, r).toEqual([{ to: 'menu', id: 'slice:a' }]);
+    }
   });
-  it('words a person comment: status "comment", and a slice at a gate, not a stuck one', async () => {
-    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
-    const cells = youRowCells(you('person-comment', 'blocks-delivery', [], 'slice'), facts)!;
-    expect(cells.status?.value).toContain('comment');
-    expect(cells.do?.value).toBe('answer ›');
+
+  it('words the consequence with the slice count and the age, and with no number where nobody counted', () => {
+    const plan = you('plan-approval', 'blocks-delivery', [], 'plan');
+    expect(youRowCells(plan, { plan: 'p', slices: 1, ageMinutes: 120 })!.consequence?.value).toBe('1 slice waits · 2h');
+    expect(youRowCells(plan, { plan: 'p', slices: 4, ageMinutes: 120 })!.consequence?.value).toBe('4 slices wait · 2h');
+    expect(youRowCells(plan, { plan: 'p' })!.consequence?.value).toBe('the slices wait');
   });
-  it('is null for a You item with no row shape', async () => {
-    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
+
+  it('appends no sprint to the consequence where rowSprintMembership says so', () => {
+    const review = you('review-pr', 'blocks-delivery');
+    expect(youRowCells(review, facts, 'no sprint')!.consequence?.value).toBe('the merge waits · 2h · no sprint');
+    expect(youRowCells(review, facts)!.consequence?.value).toBe('the merge waits · 2h');
+  });
+
+  it('keeps the item tuple as the object', () => {
+    const cells = youRowCells(you('review-pr', 'blocks-delivery'), facts)!;
+    expect(cells.object).toEqual(itemRowCells(you('review-pr', 'blocks-delivery'), facts)!.item);
+  });
+
+  it('words a draft plan and a loose branch in the Status text', () => {
+    const draft = 'draft-plan';
+    expect(youStatusText(draft, { plan: 'p' })).toBe('Draft · not interrogated');
+    expect(youStatusText(draft, { plan: 'p', rounds: 2 })).toBe('Draft · 2 rounds');
+    expect(youStatusText(draft, { plan: 'p', rounds: 1, phase: 'design' })).toBe('Design · 1 round');
+    expect(youStatusText('loose', { branch: 'feature/x' })).toBe('loose · no plan, nobody works on it');
+    expect(youStatusText('person-comment', facts)).toContain('comment');
+    expect(youStatusText('review-pr', facts)).toContain('review');
+  });
+
+  it('has no consequence where the reason names none and nothing aged or left the sprint', () => {
+    expect(youRowCells(you('loose', 'unblock', [], 'branch'), { branch: 'feature/x' })!.consequence).toBeNull();
+  });
+
+  it('is null for a You item with no row shape, and outside You', () => {
     expect(youRowCells(you('review-pr', 'unblock', [], 'ticket'), facts)).toBeNull();
-  });
-  it('is null outside You', async () => {
-    const { youRowCells } = await import('../src/rules/delivery-row-form.js');
     expect(youRowCells(work('queued'), facts)).toBeNull();
+  });
+});
+
+describe('the grouped Unblock row', () => {
+  it('counts the loose branches as its object and shows the age span alone as its consequence', () => {
+    const day = 1440;
+    expect(looseGroupRow([{ id: 'a', ageMinutes: 36 * day }, { id: 'b', ageMinutes: 37 * day + 5 }])).toEqual({
+      verb: 'Release or delete', tone: 'grey', object: '2 loose branches', consequence: '36–37 days old', ids: ['a', 'b'],
+    });
+    expect(looseGroupRow([{ id: 'a', ageMinutes: day }])!.object).toBe('1 loose branch');
+    expect(looseGroupRow([])).toBeNull();
+  });
+
+  it('spans ages below a day in their own units and leaves an unaged item out', () => {
+    expect(ageRangeValue([300, 3 * 1440])).toBe('5h–3d old');
+    expect(ageRangeValue([1440])).toBe('1 day old');
+    expect(ageRangeValue([2 * 1440, 2 * 1440 + 30])).toBe('2 days old');
+    expect(ageRangeValue([undefined, 90, 90])).toBe('1h old');
+    expect(ageRangeValue([undefined])).toBeNull();
   });
 });
 
@@ -513,8 +618,26 @@ describe('the gate-mark outcome', () => {
     expect(gatesCell({ ci: 'passed', review: 'unread' }, 7)!.parts!.map((p) => p.value)).toEqual(['CI ✓']);
     expect(gatesCell({ ci: 'unread', review: 'unread' }, 7)).toBeNull();
   });
-  it('leaves the outcome absent on the Progress cell parts, which are no gate marks', () => {
-    const cell = progressCell({ pr: 3, unpushed: 2 } as never);
-    expect(cell.parts!.map((p) => 'outcome' in p)).toEqual([false, false]);
+});
+
+describe('the You footer', () => {
+  it('links the unplanned tickets assigned to the reader to the Tickets section', () => {
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 3, note: null })).toEqual({
+      kind: 'triage', count: 3, text: '3 tickets assigned to you have no plan', anchor: 'tickets',
+    });
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 1, note: null })!.kind === 'triage'
+      && youFooter({ issueAnswer: 'answered', unplanned: 1, note: null })).toMatchObject({ text: '1 ticket assigned to you has no plan' });
+  });
+
+  it('shows the unread notice with its note while the tracker read failed, never a count', () => {
+    expect(youFooter({ issueAnswer: 'failed', unplanned: 0, note: 'last good 2h ago' })).toEqual({
+      kind: 'unread', sentence: 'The tracker gave no answer.', note: 'last good 2h ago',
+    });
+  });
+
+  it('shows nothing where every assigned ticket has a plan, or no tracker is configured', () => {
+    expect(youFooter({ issueAnswer: 'answered', unplanned: 0, note: null })).toBeNull();
+    expect(youFooter({ issueAnswer: 'unsupported', unplanned: 2, note: null })).toBeNull();
+    expect(youFooter({ issueAnswer: null, unplanned: 2, note: null })).toBeNull();
   });
 });

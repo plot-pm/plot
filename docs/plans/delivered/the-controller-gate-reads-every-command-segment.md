@@ -1,0 +1,1 @@
+../2026-11-21-the-controller-gate-reads-every-command-segment.md

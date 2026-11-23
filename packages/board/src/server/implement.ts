@@ -29,11 +29,12 @@ export {
   startImplement,
   type ImplementStartFailure,
 };
-import { bodyBranch, briefBranchOf, nothingStartableDetail, startReadingFromPulse } from '@plot-pm/fleet/shared/dispatch-command';
+import { bodyBranch, briefBranchOf, nothingStartableDetail, startReadingFromPulses } from '@plot-pm/fleet/shared/dispatch-command';
 import type { DispatchReadingFor, NamedBranchRefusal } from '@plot-pm/domain/rules/auto-dispatch';
 import { originPlanHome } from '@plot-pm/fleet/shared/origin-desk';
+import { readAllBriefSpent, removeBriefSpent } from '@plot-pm/fleet/shared/brief-spent';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import { pulseFor } from './fleet.js';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
 import { localCapability } from './controllers/caller.js';
@@ -173,7 +174,7 @@ export const implementStatus = (opts: BuildBoardOptions, slug: string): Implemen
 export interface ImplementDeps {
   /** The configured `Implement command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
+  /** What to do about starting a plan; `startReadingFromPulses` over the board's pulses where absent. */
   startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
   /** The sprint branch the plan lives on, `''` for the default branch; {@link planHomeOf} where absent. */
   home?: (opts: BuildBoardOptions, slug: string, branch: string | null) => Promise<string>;
@@ -281,7 +282,13 @@ export async function handleImplement(
   // copy; the two drifted in the one way that mattered — only this one wrote
   // the state file the status route reads — so the child belongs to
   // `startImplement` and both callers get the same log, bound and recording.
-  const reading = (deps.startReading ?? ((o, s, b) => startReadingFromPulse(pulseFor(o), s, b)))(opts, slug, named.branch);
+  const reading = (
+    deps.startReading ?? ((o, s, b) => startReadingFromPulses(pulseFor(o), pulseCompleteFor(o), lastCompletePulseFor(o), s, b))
+  )(opts, slug, named.branch);
+  if (reading.kind === 'pulse-partial') {
+    refuse(409, 'pulse-partial', slug, reading.detail);
+    return;
+  }
   if (reading.kind === 'branch-refused') {
     refuse(409, reading.reason, slug, reading.detail);
     return;
@@ -291,6 +298,11 @@ export async function handleImplement(
     return;
   }
   const branch = briefBranchOf(reading);
+  // A PERSON'S WRITE BRIEF CLEARS FLEETD'S HOLD: the spent file goes before the
+  // brief starts, and fleetd reads the branch `free` on its next pass. A run
+  // that names no branch clears every spent file of the plan.
+  if (branch !== null) removeBriefSpent(opts.repoRoot, branch);
+  else for (const r of readAllBriefSpent(opts.repoRoot)) if (r.slug === slug) removeBriefSpent(opts.repoRoot, r.branch);
   const home = await (deps.home ?? planHomeOf)(opts, slug, branch);
   const started = startImplement(opts, slug, usable, undefined, readCfg, branch, {}, true, home);
   if ('failure' in started) {

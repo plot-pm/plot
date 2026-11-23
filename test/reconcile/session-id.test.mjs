@@ -180,7 +180,10 @@ for (const { sh, version } of shells()) {
         'and no stray empty argument — bash 3.2 expands an empty array to one');
       // The run is otherwise untouched: omitting the id costs attribution and
       // nothing else.
-      assert.equal(got[0], '-p', 'the prompt is still the first argument');
+      // `.plot/worker-prompt.sh` puts `--strict-mcp-config` before the prompt
+      // for the claude harness, so the prompt follows it.
+      assert.deepEqual(got.slice(0, 2), ['--strict-mcp-config', '-p'],
+        'the prompt still opens the run, after the MCP flag');
       assert.deepEqual(got.slice(-2), ['--permission-mode', 'bypassPermissions'],
         'and the permission mode still arrives last');
     });

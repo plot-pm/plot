@@ -58,6 +58,7 @@ const ports = (over: Partial<WorkerLoopPorts> = {}): WorkerLoopPorts => ({
   recordRun: async () => null,
   recordLimits: async () => 0,
   sliceCostUsd: async () => null,
+  resumeHandleReadings: () => ({ roleSessions: new Set<string>(), head: null }),
   ...over,
 });
 
@@ -294,6 +295,25 @@ describe('readPass — ROW 4, a continuation answer waiting on the desk', () => 
     const clock = { since: null as number | null };
     const readings = await readPass(ports(), file, RUNNING_NONE, CONFIG, clock);
     expect(readings.continuation).toBeNull();
+  });
+});
+
+describe('readPass — the manifest\'s resumeId', () => {
+  const ROLE_HEAD = { firstLine: '{"type":"agent-setting","agentSetting":"unblocker"}', gitBranch: '' };
+  const roleReadings = ports({
+    resumeHandleReadings: (_wt: string, handle: string) => ({ roleSessions: new Set<string>(), head: handle === 'h-role' ? ROLE_HEAD : null }),
+  });
+
+  it('answers an empty resumeId where the manifest names a role transcript', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk', resumeId: 'h-role' });
+    const readings = await readPass(roleReadings, file, RUNNING_NONE, CONFIG, { since: null });
+    expect(readings.resumeId).toBe('');
+  });
+
+  it('keeps the implementer\'s handle', async () => {
+    const file = writeManifest({ session: 'sess-1', branch: 'infra/x', worktree: '/tmp/desk', resumeId: 'h-1' });
+    const readings = await readPass(roleReadings, file, RUNNING_NONE, CONFIG, { since: null });
+    expect(readings.resumeId).toBe('h-1');
   });
 });
 

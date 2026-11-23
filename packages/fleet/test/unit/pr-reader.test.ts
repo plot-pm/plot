@@ -7,7 +7,8 @@ import { pathToFileURL } from 'node:url';
 
 import { HEARTBEAT_STALE_MS } from '@plot-pm/domain/rules/reader-election';
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { clockManual, fleetdHeartbeatFile, hostFixture, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { clockManual, fleetdHeartbeatIn, hostFixture, readerLockFile, readerLockFixture } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 
 import { run, scriptDirFor, stillFollowed } from '../../src/server/entry/pr-reader.js';
 import { removeTree } from '../rm-tree.mjs';
@@ -138,7 +139,7 @@ describe('run — the reader hands its role back to fleetd', () => {
       const now = Date.now();
       // A board that still follows, and a restarted fleetd that read `held` and heartbeat.
       await lock.heartbeat('github', `board.${process.pid}`, now);
-      await fleetdHeartbeatFile({ repoRoot: repo }).write(fleetdBeat(now));
+      await fleetdHeartbeatIn(stateHomeAtSync(repo)).write(fleetdBeat(now));
       const before = process.env.PLOT_PR_INDEX_HOME;
       process.env.PLOT_PR_INDEX_HOME = lockDir;
       try {
@@ -384,7 +385,7 @@ describe('run — a board that stops following ends the reader on its next beat'
         const r = await startFollowed(box);
         const passes = box.prLists();
         passDue();
-        await fleetdHeartbeatFile({ repoRoot: box.repo }).write(fleetdBeat(Date.now()));
+        await fleetdHeartbeatIn(stateHomeAtSync(box.repo)).write(fleetdBeat(Date.now()));
         await r.lock.heartbeat('github', `board.${process.pid}`, Date.now());
         r.clock.advance(1);
         expect(await r.result).toBe(0);

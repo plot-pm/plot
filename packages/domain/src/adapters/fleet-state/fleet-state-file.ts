@@ -7,7 +7,9 @@ import { FleetReadingSchema } from '../../entities/fleet.js';
 import type { FleetdHeartbeat } from '../../entities/fleetd-heartbeat.js';
 import { bridgeVouched } from '../../rules/fleetd-live.js';
 import { readFleetdHeartbeatSync } from '../fleetd-heartbeat/fleetd-heartbeat-file.js';
-import { mainRootOf } from '../main-checkout.js';
+import { stateHomeAtSync } from '../main-checkout.js';
+import type { StateHome } from '../../entities/state-home.js';
+import type { StateHomeAnswer } from '../../rules/state-home.js';
 import type { BridgedPulse, FleetState, ScanAttempt } from '../../ports/fleet-state.js';
 
 /**
@@ -28,11 +30,13 @@ export const BRIDGE_MAX_AGE_MS = 15 * 60_000;
 const BRIDGE_VERSION = 1;
 
 /**
- * Where the file lives: beside the rest of `.plot`, under `state/`, in the
- * main checkout of the repository `repoRoot` belongs to, so a linked worktree
- * reads and writes the bridge fleetd writes.
+ * Where the file lives: `.plot/state/last-pulse.json` under the state home, so
+ * a linked worktree reads and writes the bridge fleetd writes.
+ *
+ * @param home - the state home of the repository.
+ * @returns the bridge file's path.
  */
-export const bridgePath = (repoRoot: string): string => path.join(mainRootOf(repoRoot), '.plot', 'state', 'last-pulse.json');
+export const bridgePath = (home: StateHome): string => path.join(home, '.plot', 'state', 'last-pulse.json');
 
 /** Maps do not survive `JSON.stringify`; entry arrays do. */
 const toEntries = <K extends string, V>(map: Map<K, V>): [K, V][] => [...map.entries()];
@@ -104,8 +108,8 @@ const parseBridge = (raw: string, nowMs: number, heartbeat: FleetdHeartbeat | nu
 
 /** The seams a test needs so a suite never touches the operator's own bridge. */
 export interface FleetStateFileOptions {
-  /** The repository the bridge belongs to. */
-  repoRoot: string;
+  /** The state home the bridge lives under. */
+  home: StateHome;
   /** Reads the clock; defaults to `Date.now`. Lets a test age a file without sleeping. */
   now?: () => number;
   /**
@@ -126,7 +130,7 @@ export interface FleetStateFileOptions {
  * @returns a `FleetState` backed by one file.
  */
 export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
-  const file = bridgePath(options.repoRoot);
+  const file = bridgePath(options.home);
   const now = options.now ?? (() => Date.now());
   const heartbeat = options.heartbeat ?? (() => null);
 
@@ -179,15 +183,39 @@ export const fleetStateFile = (options: FleetStateFileOptions): FleetState => {
   };
 };
 
+/** A bridge over no file: every read answers no pulse, every write fails. */
+const unreadFleetState: FleetState = {
+  read: async () => answered(null),
+  readSync: () => answered(null),
+  write: async () => failed<void>(),
+};
+
+/**
+ * The bridge under a resolved state home.
+ *
+ * @param answer - the resolved state home.
+ * @param options - the clock and heartbeat seams of {@link fleetStateFile}.
+ * @returns the file-backed bridge, or, where the home is unread, a bridge
+ *   whose reads answer `answered(null)` and whose writes answer `failed`.
+ */
+export const fleetStateIn = (answer: StateHomeAnswer, options: Omit<FleetStateFileOptions, 'home'> = {}): FleetState =>
+  'home' in answer ? fleetStateFile({ ...options, home: answer.home }) : unreadFleetState;
+
 /**
  * Keeps one repository's bridged pulse, reading fleetd's heartbeat file for a
  * vouch on every read.
  *
  * A bridge older than {@link BRIDGE_MAX_AGE_MS} is returned while
- * `.plot/state/fleetd.json` reads `live` and names that bridge's `at`.
+ * `.plot/state/fleetd.json` reads `live` and names that bridge's `at`. The
+ * state home is resolved with {@link stateHomeAtSync}.
  *
- * @param repoRoot - the repository root.
- * @returns a `FleetState` whose reads consult the heartbeat file.
+ * @param repoRoot - a main checkout or a linked worktree.
+ * @returns a `FleetState` whose reads consult the heartbeat file; where the
+ *   home is unread, reads answer no pulse and writes fail.
  */
-export const fleetStateVouched = (repoRoot: string): FleetState =>
-  fleetStateFile({ repoRoot, heartbeat: () => readFleetdHeartbeatSync(repoRoot) });
+export const fleetStateVouched = (repoRoot: string): FleetState => {
+  const answer = stateHomeAtSync(repoRoot);
+  return 'home' in answer
+    ? fleetStateFile({ home: answer.home, heartbeat: () => readFleetdHeartbeatSync(answer.home) })
+    : unreadFleetState;
+};

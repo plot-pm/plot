@@ -684,32 +684,57 @@ describe('the quiet-kind invariant — no PR-less abandoned/orphaned-claim row w
     expect(localWip.group).toBe('waiting-on-you');
   });
 
-  it('the cross-product carries no PR-less abandoned/orphaned-claim note under waiting-on-you', () => {
-    // The invariant stated as a search over the full totality cross-product
-    // from this file's first section, rather than over hand-picked fixtures
-    // alone. `classify`'s return carries no `quietKind` field — that word is
-    // assigned a layer up, in row-building — so the note text is the
-    // abandoned/orphaned-claim signal available at this layer, and it is
-    // exactly the text the two fixture tests above pin: *"commits, no PR ever
-    // opened"* (abandoned) and *"claimed, no work committed"* (orphaned
-    // claim). Whatever `classify` yields, past the quiet window with no PR,
-    // neither note may coincide with waiting-on-you.
-    const CROSS_PRODUCT: { state: BranchState; verdict: string; phase: string; worker: WorkerState }[] = [];
-    for (const state of STATES) {
-      for (const verdict of VERDICTS) {
-        for (const phase of SCAN_PHASES) {
-          for (const worker of WORKERS) {
-            CROSS_PRODUCT.push({ state, verdict, phase, worker });
+  // A violator is a row whose KIND is abandoned or orphaned-claim and whose
+  // GROUP is waiting-on-you. Both are fields the row carries; the note is a
+  // sentence and is never read. A null `quietKind` is not a violator.
+  const quietViolator = (row: Pick<AgentRow, 'group' | 'quietKind'>): boolean =>
+    row.group === 'waiting-on-you' && (row.quietKind === 'abandoned' || row.quietKind === 'orphaned-claim');
+
+  it('no PR-less abandoned or orphaned-claim row sits under waiting-on-you', () => {
+    const AGES: readonly number[] = [QUIET + 1, 5000];
+    const QUIET_STATES: readonly BranchState[] = ['claimed', 'wip'];
+    const violators: string[] = [];
+    let abandoned = 0;
+    let orphaned = 0;
+    for (const claimed of ['', 'someone']) {
+      for (const state of QUIET_STATES) {
+        for (const worker of WORKERS) {
+          for (const verdict of VERDICTS) {
+            for (const phase of SCAN_PHASES) {
+              for (const age of AGES) {
+                const branch = 'feature/quiet';
+                const pulse: FleetReading = {
+                  main: 'main', head: 'abc1234',
+                  plans: [{
+                    file: '2026-11-01-quiet.md', phase,
+                    slices: [{ name: 'W', verdict, branches: [{ branch, state, deferred: false, claimed, worker }] }],
+                  }],
+                  summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+                };
+                const ages = new Map<string, number | null>([[branch, age]]);
+                const rows = withHandOver(rowsFromPulse(pulse, ages, 'plot', QUIET), []);
+                for (const r of rows) {
+                  if (r.quietKind === 'abandoned') abandoned += 1;
+                  if (r.quietKind === 'orphaned-claim') orphaned += 1;
+                  if (quietViolator(r)) {
+                    violators.push(JSON.stringify({ claimed, state, worker, verdict, phase, age, group: r.group, quietKind: r.quietKind }));
+                  }
+                }
+              }
+            }
           }
         }
       }
     }
-    const violators = CROSS_PRODUCT.filter((row) => {
-      const result = classify(row.state, row.verdict, QUIET + 1, QUIET, null, false, 0, row.phase, row.worker);
-      const isAbandonedOrOrphaned = /commits, no PR ever opened|claimed, no work committed/.test(result.note);
-      return result.group === 'waiting-on-you' && isAbandonedOrOrphaned;
-    });
     expect(violators).toEqual([]);
+    expect(abandoned).toBeGreaterThan(0);
+    expect(orphaned).toBeGreaterThan(0);
+  });
+
+  it('the predicate lists a planted abandoned row under waiting-on-you as a violator', () => {
+    const planted = { ...branchRow('wip', 'waiting-on-you', 'eligible'), quietKind: 'abandoned' } as AgentRow;
+    const unkinded = { ...branchRow('wip', 'waiting-on-you', 'eligible'), quietKind: null } as AgentRow;
+    expect([planted, unkinded].filter(quietViolator)).toEqual([planted]);
   });
 });
 

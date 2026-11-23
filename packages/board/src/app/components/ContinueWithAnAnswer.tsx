@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { ContinueRefusal } from '@plot-pm/fleet/shared/continuation';
+import type { ContinueRefusal } from '@plot-pm/domain';
 import { BOARD_ANSWER_AUTHOR } from '../../contract/schema.js';
 
 /**

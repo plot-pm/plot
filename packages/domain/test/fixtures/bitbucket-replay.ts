@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { budgetFile } from '../../src/adapters/budget/budget-file.js';
+import { bbLedgerFile } from '../../src/adapters/host/bb-ledger-file.js';
 import { bitbucketApi, type BitbucketApi } from '../../src/adapters/host/bitbucket-api.js';
 import { slotsFile } from '../../src/adapters/slots/slots-file.js';
 import type { PrListingQuery } from '../../src/ports/host.js';
@@ -106,7 +107,7 @@ export const startBitbucketReplay = async (exchanges: readonly BitbucketExchange
 };
 
 /**
- * A client against a stub, with its own ledger and slot directory under a new
+ * A client against a stub, with its own ledger, `bb` state and slot directory under a new
  * temp directory, and a fixture credential.
  *
  * @param base - the stub's base URL.
@@ -119,6 +120,7 @@ export const bitbucketReplayClient = (base: string): { api: BitbucketApi; cleanu
     env: { BITBUCKET_API_BASE: base, BB_EMAIL: 'fixture@example.test', BB_TOKEN: 'fixture' },
     budget: budgetFile({ home }),
     slots: slotsFile({ home, isAlive: () => true }),
+    ledger: bbLedgerFile({ env: { BB_STATE_DIR: join(home, 'bb') }, log: () => undefined }),
   });
   return { api, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 };

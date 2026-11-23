@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3178
 - **Review:** pr
@@ -12,6 +12,8 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3616 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/role-agents-start-no-mcp-server`
+- **Started:** 2026-11-22, Jan Wloka, `bug/workers-and-board-agents-start-no-mcp-server`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 
@@ -88,7 +90,7 @@ An agent that fleetd or the board starts inherits every MCP server the operator'
 
 ### Worker and board agents
 
-- `bug/workers-and-board-agents-start-no-mcp-server` — `.plot/worker-prompt.sh` adds `--strict-mcp-config` through `head_args`, the seven `## Plot Config` agent commands carry it, `AGENTS.md` is regenerated, the SDK runner sets `strictMcpConfig` where the run's fragment carries the flag (`fragmentStrictMcp`), and `agent-commands-strict-mcp.test.mjs` and `charter-reaches-launch.test.mjs:196` pin it <!-- builds: --strict-mcp-config in the worker prompt and the Plot Config agent commands, and fragmentStrictMcp -->
+- `bug/workers-and-board-agents-start-no-mcp-server` — `.plot/worker-prompt.sh` adds `--strict-mcp-config` through `head_args`, the seven `## Plot Config` agent commands carry it, `AGENTS.md` is regenerated, the SDK runner sets `strictMcpConfig` where the run's fragment carries the flag (`fragmentStrictMcp`), and `agent-commands-strict-mcp.test.mjs` and `charter-reaches-launch.test.mjs:196` pin it <!-- builds: --strict-mcp-config in the worker prompt and the Plot Config agent commands, and fragmentStrictMcp --> → #3651
 
 ## Notes
 

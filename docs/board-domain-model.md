@@ -1096,7 +1096,6 @@ appearing here is the defect `a-plan-moves-through-the-sections` fixed.
 | plan `phase` | Development | Discovery · Endgame · Released |
 | wave `verdict` | eligible · blocked | complete |
 | branch `state` | wip · **claimed** | open · merged · deferred |
-| pr | present, or **absent** | — |
 | worker | not running | running |
 
 **No longer uniform on `pr`, by design.** `quiet-is-not-one-state` split the

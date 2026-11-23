@@ -1,7 +1,7 @@
 import type { Containment, FirstParentCommit } from '../ports/refs.js';
 import type { DefaultBranchReading } from '../entities/default-branch.js';
 import type { CandidateCommit, RepairRecord } from '../entities/repair-record.js';
-import { defaultBranchRed } from './default-branch.js';
+import { type CandidateRuns, defaultBranchRed } from './default-branch.js';
 
 /**
  * The episode's candidates: the first-parent commits of `lastGreenSha..firstRedSha`.
@@ -29,17 +29,26 @@ export interface RedMainCandidate extends CandidateCommit {
    * names, or `''` where the subject names none or the host answered none.
    */
   hostMergeCommit: string;
-  /** This candidate's own runs, folded: `green`, `red`, `pending` or `unknown`. */
-  runs: 'green' | 'red' | 'pending' | 'unknown';
+  /**
+   * This candidate's own runs, from `candidateRunsOf`: `green`, `red`,
+   * `pending`, `unknown`, or `cancelled` where its CI run was cancelled.
+   */
+  runs: CandidateRuns;
   /** Whether this commit changes, adds or removes a `State:` line. */
   touchesState: boolean;
+  /**
+   * Whether this commit changes at least one file and every file it changes
+   * lies in `syncPathSet`: plan, index, sprint, release and brief files.
+   */
+  plotDataOnly: boolean;
 }
 
 /**
  * What the picker answers: a PR number, `hold` where the first non-green
- * candidate has not settled, or `unknown` where no PR can be named.
+ * candidate has not settled, `cancelled` with the sha of a code commit whose
+ * CI run was cancelled, or `unknown` where no PR can be named.
  */
-export type RedMainPickerAnswer = { pr: number } | 'hold' | 'unknown';
+export type RedMainPickerAnswer = { pr: number } | { cancelled: string } | 'hold' | 'unknown';
 
 /** The squash-merge shape GitHub and Bitbucket both write: `Title (#N)`. */
 const SQUASH = /\(#(\d+)\)$/;
@@ -90,9 +99,12 @@ export const prNumberOf = (subject: string): number | null => {
  * merge and a bundle bot's push can never enter the window.
  *
  * Walks the candidates oldest first, in merge order, and skips each whose runs
- * read `green`. The first candidate that is not green decides:
+ * read `green`, and each whose runs read `cancelled` and that is
+ * `plotDataOnly`. The first other candidate decides:
  * - `pending` or `unknown` runs answer `hold`; a later red candidate contains
  *   the earlier one's change, so it is never named in its place;
+ * - `cancelled` runs answer `{ cancelled: sha }`, for the same reason: no
+ *   later PR is named in its place;
  * - `red` runs answer that candidate's PR number when its subject names a PR,
  *   the host reads that PR `MERGED`, the host's `mergeCommit` equals the
  *   candidate's sha, and the candidate changes no `State:` line.
@@ -109,6 +121,10 @@ export const prNumberOf = (subject: string): number | null => {
 export const redMainPicker = (candidates: readonly RedMainCandidate[]): RedMainPickerAnswer => {
   for (const candidate of [...candidates].reverse()) {
     if (candidate.runs === 'green') continue;
+    if (candidate.runs === 'cancelled') {
+      if (candidate.plotDataOnly) continue;
+      return { cancelled: candidate.sha };
+    }
     if (candidate.runs !== 'red') return 'hold';
     const number = prNumberOf(candidate.subject);
     if (number === null) return 'unknown';
@@ -150,8 +166,11 @@ export interface RedMainStepInput {
   descendsFromRecordedRed: Containment;
   /** The breaking-commit picker's answer for this episode, where the record holds candidates. */
   pickerAnswer: RedMainPickerAnswer;
-  /** Whether the re-run this episode asked for has settled, where `record.rerun === 'asked'`. */
-  rerunSettled: 'pending' | 'green' | 'red' | 'none';
+  /**
+   * Whether the re-run this episode asked for has settled, where `record.rerun === 'asked'`;
+   * `overdue` where the wait passed `Checks wait` with no settled answer.
+   */
+  rerunSettled: 'pending' | 'green' | 'red' | 'none' | 'overdue';
   /** Whether a repair PR is open and still in review, where `record.state === 'repairing'`. */
   repairInFlight: boolean;
   /** Whether the record's last-green re-run (before a revert) settled, and how. */
@@ -199,7 +218,7 @@ export const episodeOpen = (
  *   every later answer, `revert` included: a stale reading never reverts.
  * - `idle` or `rerun`: reads {@link RedMainStepInput.rerunSettled} for the
  *   first red SHA's re-run — `'none'`/`'pending'` holds `await-rerun`; `'red'`
- *   moves to `start-repair`. `'green'` never closes the episode: a settled green
+ *   and `'overdue'` move to `start-repair`, whichever commit settled red. `'green'` never closes the episode: a settled green
  *   closed it above, so the settled reading is red here. A settled commit
  *   after the first red SHA answers `start-repair` (a flake on the first red
  *   SHA does not clear a later red); the first red SHA itself answers
@@ -211,10 +230,10 @@ export const episodeOpen = (
  *   episode reverts once) or the pre-revert re-run of the last green SHA read
  *   red (a red re-run there points outside the repository); `await-repair`
  *   while that re-run is still pending or unasked.
- * - Once the bound passes (`now - redSince >= mainRepairBoundMs`) with the
+ * - Once the bound passes ({@link repairBoundReached}) with the
  *   episode still open: `revert` requires the head to equal the settled
- *   commit (no newer head pending); the picker answering `unknown` answers
- *   `exhausted` instead; a pending head holds at `hold`.
+ *   commit (no newer head pending); the picker answering `unknown` or
+ *   `{ cancelled }` answers `exhausted` instead; a pending head holds at `hold`.
  *
  * @param reading - the default-branch reading, or null where there is none.
  * @param record - the repair record, or null where none exists.
@@ -242,11 +261,11 @@ export const redMainStep = (
     if (input.rerunSettled === 'green') {
       return reading.settled.sha === record.firstRedSha ? 'await-rerun' : 'start-repair';
     }
-    if (input.rerunSettled === 'red') return 'start-repair';
+    if (input.rerunSettled === 'red' || input.rerunSettled === 'overdue') return 'start-repair';
     return 'await-rerun';
   }
 
-  const boundReached = input.now - Date.parse(record.redSince) >= input.mainRepairBoundMs;
+  const boundReached = repairBoundReached(record, input.now, input.mainRepairBoundMs);
 
   if (record.state === 'repairing') {
     if (!boundReached) return input.repairInFlight ? 'await-repair' : 'start-repair';
@@ -260,9 +279,27 @@ export const redMainStep = (
 
   if (input.pickerAnswer === 'hold') return 'hold';
 
-  if (input.pickerAnswer === 'unknown') return 'exhausted';
+  if (input.pickerAnswer === 'unknown' || 'cancelled' in input.pickerAnswer) return 'exhausted';
 
   return 'revert';
+};
+
+/**
+ * Whether the `Main repair bound` has passed for the episode's repair.
+ *
+ * The bound runs from `record.attempt.startedAt` where it parses, else from
+ * `record.redSince`.
+ *
+ * @param record - the repair record.
+ * @param now - the current time, as epoch milliseconds.
+ * @param mainRepairBoundMs - the bound, in milliseconds.
+ * @returns true at or after the start plus `mainRepairBoundMs`; false before it,
+ *   or where neither `startedAt` nor `redSince` parses.
+ */
+export const repairBoundReached = (record: RepairRecord, now: number, mainRepairBoundMs: number): boolean => {
+  const startedAt = Date.parse(record.attempt?.startedAt ?? '');
+  const start = Number.isNaN(startedAt) ? Date.parse(record.redSince) : startedAt;
+  return !Number.isNaN(start) && now >= start + mainRepairBoundMs;
 };
 
 /** What a merged revert PR means while the episode still reads red. */

@@ -60,7 +60,7 @@ vi.mock('@plot-pm/domain', async (importOriginal) => {
 // marks a file as a browser test, and this one drives no page.
 const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
   repo: 'garden', kind: 'branch', branch: 'feature/a-branch', plan: 'a-plan',
-  planFile: '2026-08-24-a-plan.md', wave: 'Wave', state: 'wip', phase: 'Development',
+  planFile: '2026-08-24-a-plan.md', wave: 'Wave', state: 'wip', phase: 'Development', planState: 'approved',
   group: 'working', ageMinutes: 30, note: '', pr: null, branchUrl: '', ...over,
 });
 const agent = (over: Partial<AgentEntry> = {}): AgentEntry => AgentEntrySchema.parse({

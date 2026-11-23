@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
-import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
-import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { fleetStateIn } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import { answerRecordFile, ANSWER_RECORD_HOME_ENV, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered, type FleetReading } from '@plot-pm/domain';
 import { run } from '../../src/server/entry/continue-command.js';
-import { branchFromPulse, continueBranch, lookupBranch } from '../../src/shared/continue-command.js';
+import { branchFromPulse, lookupBranch } from '@plot-pm/domain';
+import { continueBranch } from '../../src/shared/continue-command.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 
 // The refusals the continue controller keeps, with no board: they are answered
@@ -160,9 +162,11 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
   const dirs: string[] = [];
   afterEach(() => {
     for (const d of dirs.splice(0)) rmTree(d);
+    delete process.env[TRANSCRIPT_HOME_ENV];
   });
 
-  it('starts a new pid through the default bridged pulse', async () => {
+  // A blocked desk the bridged pulse lists; `resumeId` goes into its manifest, and `transcripts` writes the desk's transcripts.
+  const startBlocked = async (resumeId: string, transcripts: (dir: string) => void = () => {}) => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-blocked-')));
     dirs.push(root);
     const repo = path.join(root, 'repo');
@@ -182,7 +186,12 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     git(desk, 'checkout', '-qb', branch);
     fs.writeFileSync(path.join(desk, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which adapter?');
     fs.writeFileSync(path.join(desk, '.plot-worker.pid'), '424242');
-    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '' }, null, 2)}\n`);
+    fs.writeFileSync(path.join(manifests, 'sess.json'), `${JSON.stringify({ session: 'sess', branch, worktree: desk, pid: '424242', startedAt: '', resumeId }, null, 2)}\n`);
+    const home = path.join(root, 'home');
+    process.env[TRANSCRIPT_HOME_ENV] = home;
+    const transcriptDir = transcriptDirFor(desk, home);
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    transcripts(transcriptDir);
     fs.mkdirSync(path.join(repo, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(repo, 'CLAUDE.md'), `## Plot Config\n\n- **Worker command:** true\n- **Agent registry:** ${manifests}\n`);
     const reading = FleetReadingSchema.parse({
@@ -192,7 +201,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       plans: [{ file: 'docs/plans/p.md', phase: 'Approved', slices: [{ name: 'S', verdict: 'eligible', branches: [{ branch, local_worktree: desk, worker: 'waiting', worker_pid: '424242', state: 'wip', deferred: false, claimed: '' }] }] }],
     });
-    const wrote = await fleetStateFile({ repoRoot: repo }).write({
+    const wrote = await fleetStateIn(stateHomeAtSync(repo)).write({
       at: Date.now(),
       pulse: reading,
       ages: new Map(),
@@ -216,7 +225,25 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
     const pid = /pid (\d+)/.exec(out.join(''))?.[1];
     expect(pid).toBeDefined();
     expect(pid).not.toBe('424242');
+    return out.join('');
+  };
+
+  it('starts a new pid through the default bridged pulse, in a fresh session where the manifest names none', async () => {
+    expect(await startBlocked('')).toMatch(/^fresh session [0-9a-f-]{36}$/m);
   });
+
+  it('names the session it resumes', async () => {
+    const out = await startBlocked('sess-i', (dir) => fs.writeFileSync(path.join(dir, 'sess-i.jsonl'), `${JSON.stringify({ type: 'user', gitBranch: 'feature/blocked-desk' })}\n`));
+    expect(out).toMatch(/^resumes sess-i$/m);
+  });
+
+  it('names a fresh session and each rejected handle with its reason', async () => {
+    const out = await startBlocked('sess-r', (dir) =>
+      fs.writeFileSync(path.join(dir, 'sess-r.jsonl'), `${JSON.stringify({ type: 'agent-setting', agentSetting: 'unblocker', sessionId: 'sess-r' })}\n`),
+    );
+    expect(out).toMatch(/^fresh session [0-9a-f-]{36} \(sess-r: role-transcript\)$/m);
+  });
+
 
   it('--who jwloka writes author=jwloka on the answered row', async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-continue-who-')));
@@ -248,7 +275,7 @@ describe('the continue entry on a desk holding PLOT-BLOCKED', () => {
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       plans: [{ file: 'docs/plans/p.md', phase: 'Approved', slices: [{ name: 'S', verdict: 'eligible', branches: [{ branch, local_worktree: desk, worker: 'waiting', worker_pid: '424242', state: 'wip', deferred: false, claimed: '' }] }] }],
     });
-    const wrote = await fleetStateFile({ repoRoot: repo }).write({
+    const wrote = await fleetStateIn(stateHomeAtSync(repo)).write({
       at: Date.now(),
       pulse: reading,
       ages: new Map(),

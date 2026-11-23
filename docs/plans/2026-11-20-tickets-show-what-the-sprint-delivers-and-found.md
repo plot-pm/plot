@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -12,6 +12,8 @@
 - **Rounds:** 3
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/scope-ticket-rows-in-the-payload`
+- **Started:** 2026-11-22, Jan Wloka, `feature/tickets-show-what-the-sprint-delivers-and-found`
+- **Delivered:** 2026-11-22
 
 ## Changelog
 
@@ -77,7 +79,7 @@ Today the Tickets section (`TicketsSectionView`, `packages/board/src/app/compone
 
 ### Tickets of the scope
 
-- `feature/tickets-show-what-the-sprint-delivers-and-found` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tuples-in-every-row, feature/folded-sections-summarise-visually, feature/delivery-row-menu-column --> — `scopeTickets` and `ticketIsMine` as domain rules with unit tests, the Delivered by the sprint and Found during the sprint groups folded by default with their fold keys, one row per ticket and scope plan, findings removed from the "no plan" group and from its counts, the per-group unread state, the incomplete-read line, the hidden-by-Mine count of an empty group, the ⋯ items of each row kind with the `plan-named` reason, and the folded-summary chips <!-- builds: scopeTickets, the association of a ticket to the scope's plans and PRs -->
+- `feature/tickets-show-what-the-sprint-delivers-and-found` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tuples-in-every-row, feature/folded-sections-summarise-visually, feature/delivery-row-menu-column --> — `scopeTickets` and `ticketIsMine` as domain rules with unit tests, the Delivered by the sprint and Found during the sprint groups folded by default with their fold keys, one row per ticket and scope plan, findings removed from the "no plan" group and from its counts, the per-group unread state, the incomplete-read line, the hidden-by-Mine count of an empty group, the ⋯ items of each row kind with the `plan-named` reason, and the folded-summary chips <!-- builds: scopeTickets, the association of a ticket to the scope's plans and PRs --> → #3650
 
 ## Notes
 

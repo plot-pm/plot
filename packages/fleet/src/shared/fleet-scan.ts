@@ -935,6 +935,7 @@ export const walkOnce = async (
   const document = fleetReading(assembled.value, {
     ...header,
     host: branches.ok ? branches.value.hostReach : 'failed',
+    ...(branches.ok && branches.value.hostCause !== undefined ? { hostCause: branches.value.hostCause } : {}),
     planSource: estate.ok && estate.value.source === 'worktree' ? 'worktree' : 'ref',
   }, conflicts);
   const reading = FleetReadingSchema.safeParse(document);

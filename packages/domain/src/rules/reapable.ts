@@ -1,4 +1,5 @@
 import type { ReapRefusal } from '../entities/worktree.js';
+import type { ContinueLockReading } from './continue-lock.js';
 import type { AheadReading } from './movable.js';
 
 /**
@@ -38,6 +39,12 @@ export interface TreeReadings {
    * `worker alive (pid 4242)` is what an operator needs to go and look.
    */
   workerPid: string | null;
+  /**
+   * What the desk's continue lock says, or `'unread'` where the lock file
+   * exists and could not be read. A held lock and an unread one both refuse;
+   * absent means the caller took no such reading, and nothing is refused on it.
+   */
+  continueLock?: ContinueLockReading | 'unread';
   /**
    * The first uncommitted path, or `''` when the tree is clean.
    *
@@ -93,7 +100,8 @@ export interface TreeReadings {
  * One refusal, and the reading it was taken from.
  *
  * `detail` is empty for the refusals whose reading is the refusal itself; it
- * carries the pid for `live-worker`, the offending path for
+ * carries the pid for `live-worker`, `<pid> <seconds left>` or `unread` for
+ * `continue-lock-held`, the offending path for
  * `uncommitted-changes`, and the unpushed shas (or `unknown`) for
  * `unpushed-commits`.
  */
@@ -107,8 +115,9 @@ export interface ReapProblem {
 /**
  * Every reason this worktree may not be reaped, in the order they are tested.
  *
- * The order is the argument and not a formality. A live worker is first because
- * it is the only signal describing someone acting right now; a caller reporting
+ * The order is the argument and not a formality. A live worker is first and a
+ * held continue lock second, because they are the only signals describing
+ * someone acting right now; a caller reporting
  * one reason per tree takes the first and gets the most urgent. The remaining
  * order matches what the tree can lose: uncommitted work exists in exactly one
  * place, a marker holds a question for a person, a tree on the default branch
@@ -128,6 +137,12 @@ export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   const problems: ReapProblem[] = [];
   if (readings.workerPid !== null && readings.workerPid !== '') {
     problems.push({ refusal: 'live-worker', detail: readings.workerPid });
+  }
+  if (readings.continueLock === 'unread') {
+    problems.push({ refusal: 'continue-lock-held', detail: 'unread' });
+  } else if (readings.continueLock?.held === true) {
+    const { pid, expiresInMs } = readings.continueLock;
+    problems.push({ refusal: 'continue-lock-held', detail: `${pid} ${Math.max(0, Math.ceil(expiresInMs / 1000))}` });
   }
   // `markerRecordsWork === false` is the one reading that lets a marker
   // through: the caller measured the desk and found nothing beside the

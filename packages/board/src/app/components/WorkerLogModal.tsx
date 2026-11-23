@@ -4,7 +4,7 @@ import type { LogMissReason, WorkerLog } from '../../server/worker-log.js';
 import { AgentPanelFacts } from './AgentPanelFacts.js';
 import { ContinueWithAnAnswer } from './ContinueWithAnAnswer.js';
 import { RestartTheWorker } from './RestartTheWorker.js';
-import { restartOffered } from '@plot-pm/domain';
+import { logMissWord, restartOffered } from '@plot-pm/domain';
 
 /**
  * How often an open panel re-fetches, in ms.
@@ -30,31 +30,17 @@ export function sizeLabel(bytes: number): string {
 }
 
 /**
- * What the panel SAYS for a log it could not read — three answers, three moves.
+ * What the panel SAYS for a log it could not read: one sentence per reason.
  *
- * The three-way distinction the server draws is worth nothing if the client
- * renders all of them as an empty box, which is precisely the collapse this
- * slice exists to prevent. Each sentence names what is true and what to do about
- * it, because "no log" without "the worktree is here, look in it" sends the
- * reader nowhere.
- *
+ * The sentences are the domain's (`logMissWord`); the panel decides none of them.
  * Exported for test: the assertion that matters is that no two of these are the
  * same string, which a component test cannot make about markup it has to
  * scrape.
  */
-export function missWord(reason: LogMissReason): string {
-  switch (reason) {
-    case 'no-worktree':
-      return 'No worktree for this branch on this machine — ask the machine that took it.';
-    case 'no-log':
-      return 'The worktree is here, but no worker has written a log in it.';
-    case 'unreadable':
-      return 'The log file is there and would not open — check its permissions.';
-  }
-}
+export const missWord = (reason: LogMissReason): string => logMissWord(reason);
 
 /**
- * The empty-log sentence, kept apart from the three above ON PURPOSE.
+ * The empty-log sentence, kept apart from the misses above ON PURPOSE.
  *
  * A worker that has started and printed nothing yet is a SUCCESSFUL read, and
  * the reader's move is to wait rather than to go looking. Rendering it with the

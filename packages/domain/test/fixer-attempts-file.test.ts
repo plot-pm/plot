@@ -173,3 +173,61 @@ describe('fixerAttemptsFile.markInFlight', () => {
     expect((await store.markPushed(42, 3, 'c'.repeat(40))).ok).toBe(false);
   });
 });
+
+describe('fixerAttemptsFile re-runs', () => {
+  const HEAD = 'a'.repeat(40);
+  const AT = '2026-11-23T12:00:00.000Z';
+
+  it('markRerun on a PR with no record writes a version-1 record with no attempts', async () => {
+    const store = fixerAttemptsFile(root);
+    expect((await store.markRerun(42, { headSha: HEAD, at: AT, answer: 'asked' })).ok).toBe(true);
+    expect(await store.read(42)).toEqual({
+      ok: true,
+      value: { v: 1, pr: 42, attempts: [], reruns: [{ headSha: HEAD, at: AT, answer: 'asked' }] },
+    });
+  });
+
+  it('markRerun replaces the entry of the same head and keeps the attempts', async () => {
+    const store = fixerAttemptsFile(root);
+    await store.append(42, attempt);
+    await store.markRerun(42, { headSha: HEAD, at: AT, answer: 'asked' });
+    await store.markRerun(42, { headSha: HEAD, at: AT, answer: 'unaskable' });
+    await store.markRerun(42, { headSha: 'b'.repeat(40), at: AT, answer: 'asked' });
+    const read = await store.read(42);
+    expect(read).toEqual({
+      ok: true,
+      value: {
+        v: 1,
+        pr: 42,
+        attempts: [attempt],
+        reruns: [
+          { headSha: HEAD, at: AT, answer: 'unaskable' },
+          { headSha: 'b'.repeat(40), at: AT, answer: 'asked' },
+        ],
+      },
+    });
+  });
+
+  it('append keeps the reruns of an existing record', async () => {
+    const store = fixerAttemptsFile(root);
+    await store.markRerun(42, { headSha: HEAD, at: AT, answer: 'asked' });
+    await store.append(42, attempt);
+    expect(await store.read(42)).toMatchObject({ ok: true, value: { attempts: [attempt], reruns: [{ headSha: HEAD }] } });
+  });
+
+  it('markRerunCleared sets cleared once, and fails for no record or no entry on the head', async () => {
+    const store = fixerAttemptsFile(root);
+    expect((await store.markRerunCleared(42, HEAD, AT)).ok).toBe(false);
+    await store.markRerun(42, { headSha: HEAD, at: AT, answer: 'asked' });
+    expect((await store.markRerunCleared(42, 'b'.repeat(40), AT)).ok).toBe(false);
+    expect((await store.markRerunCleared(42, HEAD, '2026-11-23T12:05:00.000Z')).ok).toBe(true);
+    expect((await store.markRerunCleared(42, HEAD, '2026-11-23T12:09:00.000Z')).ok).toBe(true);
+    expect(await store.read(42)).toMatchObject({ ok: true, value: { reruns: [{ headSha: HEAD, cleared: '2026-11-23T12:05:00.000Z' }] } });
+  });
+
+  it('markRerun refuses an unreadable record rather than overwriting it', async () => {
+    mkdirSync(dirname(fixerAttemptsPath(root, 42)), { recursive: true });
+    writeFileSync(fixerAttemptsPath(root, 42), '{ not json');
+    expect((await fixerAttemptsFile(root).markRerun(42, { headSha: HEAD, at: AT, answer: 'asked' })).ok).toBe(false);
+  });
+});

@@ -1,4 +1,4 @@
-import type { Cell, LinkTarget } from '@plot-pm/domain';
+import type { Cell, LinkTarget, StatusPill } from '@plot-pm/domain';
 import { RoleChip } from './RoleChip.js';
 import { LinkTupleView, type SegmentControl } from './TupleRow.js';
 import { artifactTuple } from '../lib/tuple-row.js';
@@ -150,6 +150,24 @@ export const RowCell = ({ cell, handlers }: { cell: Cell | null; handlers: LinkH
     </>
   );
 };
+
+/**
+ * A row's status pills, in the domain's order: a dot in the pill's tone, then its whole words, linked where the
+ * pill's `href` resolves to a place. The hooks are `data-status-pill` (the words) and `data-pill-tone`.
+ *
+ * @param pills - what `workItemPills` returned for the row.
+ * @param handlers - what a click on a linked pill does.
+ */
+export const StatusPills = ({ pills, handlers }: { pills: readonly StatusPill[]; handlers: LinkHandlers }) => (
+  <span data-status-pills className="flex items-baseline gap-1.5 whitespace-nowrap">
+    {pills.map((p) => (
+      <span key={p.word} data-status-pill={p.word} data-pill-tone={p.tone} className="delivery-pill">
+        <span aria-hidden data-pill-dot className="delivery-pill-dot" />
+        {p.href === null ? p.word : <Linked resolved={resolveLink(p.href, handlers.context)} handlers={handlers}>{p.word}</Linked>}
+      </span>
+    ))}
+  </span>
+);
 
 /**
  * The Master Agent line: the branch tuple, linked to the host where `branchUrlBase` is known and as text where it is

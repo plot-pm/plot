@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3134, #3141, #3125
 - **Review:** pr
@@ -12,6 +12,11 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3614 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-brief-ask-test-owns-its-clock`
+- **Started:** 2026-11-21, Jan Wloka, `bug/a-refused-brief-is-asked-again`
+- **Started:** 2026-11-22, Jan Wloka, `bug/a-start-refusal-names-its-defect`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-probe-and-the-loop-name-the-charter-prompt`
+- **Started:** 2026-11-23, Jan Wloka, `bug/a-red-pr-is-re-run-once-per-head`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -121,19 +126,19 @@ In both cases the pass that asked read the plan as Approved on `origin/<main>` (
 
 ### Brief retry
 
-- `bug/a-refused-brief-is-asked-again` — the `--at <sha>` prompt and its `/plot-implement` flag, `onEnd` from `askForBrief`, `briefAskState`, `outstandingEnds` and `BRIEF_ASK_RETRIES`, `briefEnds` held across passes, the spent file and the `spent` brief-writer state on the row, and the domain and board tests <!-- builds: briefAskState and outstandingEnds, the brief ask's asked/free/spent state -->
+- `bug/a-refused-brief-is-asked-again` — the `--at <sha>` prompt and its `/plot-implement` flag, `onEnd` from `askForBrief`, `briefAskState`, `outstandingEnds` and `BRIEF_ASK_RETRIES`, `briefEnds` held across passes, the spent file and the `spent` brief-writer state on the row, and the domain and board tests <!-- builds: briefAskState and outstandingEnds, the brief ask's asked/free/spent state --> → #3649
 
 ### Start refusal
 
-- `bug/a-start-refusal-names-its-defect` — the `defect` word on `StartCommand`'s refusal and on the entry's first answer line, the charter refusal before the runner gate, the entry's header and the shared charter reader, the shell footer and hint per word with one line removed, the performer reading every word, and the tests <!-- builds: StartCommand.defect, the refusal's footer word -->
+- `bug/a-start-refusal-names-its-defect` — the `defect` word on `StartCommand`'s refusal and on the entry's first answer line, the charter refusal before the runner gate, the entry's header and the shared charter reader, the shell footer and hint per word with one line removed, the performer reading every word, and the tests <!-- builds: StartCommand.defect, the refusal's footer word --> → #3663
 
 ### Probe and loop
 
-- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution -->
+- `bug/the-probe-and-the-loop-name-the-charter-prompt` — `promptAbsentRepair`, the write probe resolving each started agent's prompt including a slice's own charter and the desk copy, the loop's repair naming a declared file and its charter, and the attempts assertions in both charter-refusal tests <!-- builds: promptAbsentRepair and the write probe's per-agent prompt resolution --> → #3668
 
 ### CI re-run
 
-- `bug/a-red-pr-is-re-run-once-per-head` — `ciRerunArm` between `conflictArm` and `ciRedArm` with its `rerun-running` hold, the `reruns` field and its two store methods, the `rerun` step, the tick's `rerunFailed` call with its `failed` and `unaskable` paths, the fixer brief's re-run line for `asked` only, and the tests <!-- builds: ciRerunArm, one CI re-run per head before a fixer -->
+- `bug/a-red-pr-is-re-run-once-per-head` — `ciRerunArm` between `conflictArm` and `ciRedArm` with its `rerun-running` hold, the `reruns` field and its two store methods, the `rerun` step, the tick's `rerunFailed` call with its `failed` and `unaskable` paths, the fixer brief's re-run line for `asked` only, and the tests <!-- builds: ciRerunArm, one CI re-run per head before a fixer --> → #3671
 
 ## Notes
 

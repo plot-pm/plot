@@ -213,7 +213,7 @@ const fixture = async (beatAt = Date.now()) => {
   // A served board runs with `PLOT_REPO_ROOT` set (`plot-boardctl.sh`), which
   // answers the git directories without a `git rev-parse`.
   vi.stubEnv('PLOT_REPO_ROOT', dir);
-  await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(beatAt));
+  await adapters.fleetdHeartbeatIn(adapters.stateHomeAtSync(dir)).write(heartbeat(beatAt));
   return { dir, opts: { repoRoot: dir, scriptsDir: dir, config: quietConfig() } };
 };
 
@@ -249,7 +249,7 @@ describe('the board serves from fleetd snapshot', () => {
   // beside fleetd's own reads and saturated macOS's `syspolicyd` twice.
   it('spawns 0 processes in 12 beats with a live heartbeat and the channel in mismatch', async () => {
     const { dir, opts } = await fixture();
-    const written = await adapters.fleetStateFile({ repoRoot: dir }).write({
+    const written = await adapters.fleetStateIn(adapters.stateHomeAtSync(dir)).write({
       at: Date.now() - 2_000,
       pulse: {
         main: 'main',
@@ -300,7 +300,7 @@ describe('the board serves from fleetd snapshot', () => {
     const served = { ...opts, channelSnapshot: () => current(held) };
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('snapshot');
-    await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(Date.now() - 600_000));
+    await adapters.fleetdHeartbeatIn(adapters.stateHomeAtSync(dir)).write(heartbeat(Date.now() - 600_000));
     await fleet.refresh(served, entry);
     expect(entry.viewSource).toBe('own');
     // The own scan reads the fixture's refs from files, so it may start no process.
@@ -386,7 +386,7 @@ describe('the PR beat on snapshot, with an issue index to serve', () => {
         // A minute per beat: past the identity reading's 60 s TTL, with the
         // heartbeat and the snapshot still live.
         now.mockReturnValue(start + i * 61_000);
-        await adapters.fleetdHeartbeatFile({ repoRoot: dir }).write(heartbeat(start + i * 61_000));
+        await adapters.fleetdHeartbeatIn(adapters.stateHomeAtSync(dir)).write(heartbeat(start + i * 61_000));
         await fleet.maybeRefreshPrs(served, entry);
       }
     } finally {

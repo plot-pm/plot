@@ -19,6 +19,7 @@ import { afterEach, describe, it, vi } from 'vitest';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -63,6 +64,9 @@ function repo(plans: Record<string, string> = {}): string {
   made.push(parent);
   const dir = path.join(parent, 'repo');
   fs.mkdirSync(dir, { recursive: true });
+  // A repository, so the bridge under its state home is read: a plain
+  // directory has no state home and reads no bridge.
+  execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
   fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
   for (const [name, body] of Object.entries(plans)) {
     fs.writeFileSync(path.join(dir, 'docs/plans', name), body, 'utf8');
@@ -503,8 +507,8 @@ describe('deliverability reads the plan\'s phase at the pulse\'s own read ref', 
     // A `git show` that fails — missing ref, missing file at that ref, a git
     // error — must fall through to the working tree, never answer
     // `already-delivered` and never `not-found` for a plan that exists on
-    // disk. The real `refsGit` adapter against a non-repo directory (`repo()`
-    // never runs `git init`) is the failing read; no fixture is injected.
+    // disk. The real `refsGit` adapter against a repository with no `origin`
+    // (`repo()` adds no remote) is the failing read; no fixture is injected.
     const dir = repo();
     fs.writeFileSync(path.join(dir, 'docs/plans', DATED), planBody('A stale checkout plan', 'Approved'), 'utf8');
     pulseNaming(dir, DATED, 'origin/main');

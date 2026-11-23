@@ -172,6 +172,15 @@ describe('deliveryHeader — Fleet', () => {
   it('reads the parallel value as unread where it is absent', () => {
     expect(deliveryHeader(input({ parallelAgents: null })).fleet.parallel).toBe('parallel —');
   });
+  it('turns a spinner beside the label at the fastest working pace', () => {
+    expect(deliveryHeader(input({ agents: [{ group: 'working', pace: 'slow' }, { group: 'working', pace: 'fast' }] })).fleet.pace).toBe('fast');
+    expect(deliveryHeader(input({ agents: [{ group: 'working', pace: 'slow' }, { group: 'free', pace: null }] })).fleet.pace).toBe('slow');
+  });
+  it('shows no spinner where no agent works or no pace was given', () => {
+    expect(deliveryHeader(input({ agents: [{ group: 'free', pace: null }] })).fleet.pace).toBeNull();
+    expect(deliveryHeader(input({ agents: agents('working') })).fleet.pace).toBeNull();
+    expect(deliveryHeader(input({ agents: [] })).fleet.pace).toBeNull();
+  });
 });
 
 describe('deliveryHeader — Machine', () => {

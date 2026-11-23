@@ -4,6 +4,7 @@ import {
   allSlicesMerged,
   countSliceStates,
   countSliceStatesOver,
+  notStartedHold,
   planSliceMerges,
   placeDelivery,
   sliceProgress,
@@ -185,5 +186,45 @@ describe('sliceStateIn', () => {
   it('reads a stopped acting agent as stopped', () => {
     const r = readings([item({ id: 'a', stage: 'building' })], [agent({ id: 'x', actsOn: 'a', process: 'stopped' })]);
     expect(sliceStateIn(open('a'), r, input)).toBe(sliceStateOf(open('a'), r.items[0], 0, 1, input));
+  });
+});
+
+describe('notStartedHold', () => {
+  const queued = (over: Partial<WorkItemReading> = {}): WorkItemReading => item({ id: 'a', stage: 'queued', ...over });
+
+  it('reads a needs-brief item as no brief', () => {
+    expect(notStartedHold('not-started', queued({ needsBrief: true }))).toEqual({ kind: 'no-brief' });
+  });
+
+  it('reads an item that waits on a slice as waits on that slice', () => {
+    expect(notStartedHold('not-started', queued({ waitsOn: 'Work items grid' }))).toEqual({ kind: 'waits-on', slice: 'Work items grid' });
+  });
+
+  it('reads an item with neither fact as no hold', () => {
+    expect(notStartedHold('not-started', queued())).toBeNull();
+    expect(notStartedHold('not-started', queued({ waitsOn: '' }))).toBeNull();
+  });
+
+  it('reads no brief first where the item also waits on a slice', () => {
+    expect(notStartedHold('not-started', queued({ needsBrief: true, waitsOn: 'Work items grid' }))).toEqual({ kind: 'no-brief' });
+  });
+
+  it.each(['being-built', 'at-a-gate', 'delivered', 'blocked'] as const)('gives a %s slice no hold, whatever it waits on', (state) => {
+    expect(notStartedHold(state, queued({ needsBrief: true, waitsOn: 'Work items grid' }))).toBeNull();
+  });
+
+  it('gives a slice with no read item no hold, and it stays unread', () => {
+    expect(sliceStateOf(open('a'), undefined, 0, 0, input)).toBe('unread');
+    expect(notStartedHold('unread', undefined)).toBeNull();
+    expect(notStartedHold('not-started', undefined)).toBeNull();
+  });
+
+  it('keeps a held queued slice counted as not started, never at a gate', () => {
+    const items = [queued({ needsBrief: true }), item({ id: 'b', stage: 'queued', waitsOn: 'a' }), item({ id: 'c', stage: 'building' })];
+    const counts = countSliceStates([open('a'), open('b'), open('c')], readings(items), input);
+    expect(counts['not-started']).toBe(2);
+    expect(counts['at-a-gate']).toBe(0);
+    expect(counts.delivered + counts.blocked + counts['at-a-gate'] + counts['being-built'] + counts['not-started']).toBe(counts.total);
+    expect(counts.total).toBe(3);
   });
 });

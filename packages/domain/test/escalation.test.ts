@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { escalationComment, escalationMarker, escalationReason, planIssueId } from '../src/rules/escalation.js';
+import { escalationComment, escalationMarker, escalationReason, planIssueId, planIssueValue } from '../src/rules/escalation.js';
 
 describe('escalationReason', () => {
   it('reads the reason of an escalated row', () => {
@@ -61,5 +61,16 @@ describe('planIssueId', () => {
 
   it('answers null for a plan with no Status section, even where another section names an issue', () => {
     expect(planIssueId('# P\n\n## Notes\n\n- **Issue:** #3064\n')).toBeNull();
+  });
+});
+
+describe('planIssueValue', () => {
+  it.each([
+    ['no Status section', '# P\n\nNo status section here.\n', ''],
+    ['no Issue line', '## Status\n- **State:** Approved\n', ''],
+    ['two issue numbers', '## Status\n- **Issue:** #12, #13\n', '#12, #13'],
+    ['a Jira key', '## Status\n- **Issue:** ABC-1\n', 'ABC-1'],
+  ])('answers the raw value for %s', (_name, planText, expected) => {
+    expect(planIssueValue(planText)).toBe(expected);
   });
 });

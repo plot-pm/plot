@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { PlanRecord } from '@plot-pm/domain/ports/plan-store';
 import { cardControls } from '@plot-pm/domain/rules/card-controls';
 import { sliceReadingsOf } from '@plot-pm/domain/rules/slice-readings';
+import { licensedSpike } from '@plot-pm/domain/rules/spike';
 import { spikeCardState } from '@plot-pm/domain/rules/spike-confirm';
 import { approvedSpikeKey, planEstate } from '../../src/server/board.js';
 import { spikeBranchOfRecord } from '../../src/server/entry/gate.js';
@@ -70,9 +71,11 @@ describe('the readers of a Spike approved: record agree', () => {
 
       const card = cardControls({ state: 'design', status: 'draft', started: false, slices, spikeApproved: record });
       expect(card.approveSpike).toBe(licensed === null);
-      expect(spikeCardState({ state: 'design', slices, spikeApproved: record })).toBe(
-        licensed === null ? 'spike-not-approved' : 'spike-approved',
-      );
+      const spikeCard = spikeCardState({ state: 'design', slices, spikeApproved: record });
+      expect(spikeCard?.state).toBe(licensed === null ? 'spike-not-approved' : 'spike-approved');
+      const licence = licensedSpike(record, slices);
+      expect(spikeCard?.reason).toBe(licence.licensed ? null : licence.reason);
+      expect(card.spikeUnlicensed).toBe(spikeCard?.reason);
 
       const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'licensed-spike-'));
       made.push(repoRoot);

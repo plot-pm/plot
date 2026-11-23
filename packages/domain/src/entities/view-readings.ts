@@ -104,6 +104,9 @@ export const WalkValueSchema = z.object({
     backend: z.string(),
     origin: z.string(),
     hostReach: HostReachSchema,
+    // plot-state: reading — why the host refused during ONE walk; the next
+    //                       walk reads it again.
+    hostCause: z.enum(['ceiling', 'paused', 'host']).optional().catch(undefined),
     merges: z.array(z.object({ sha: z.string(), subject: z.string() })).readonly(),
     /** Plan file → the commit that first added it. */
     added: z.record(z.string(), z.string()),

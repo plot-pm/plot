@@ -7,6 +7,7 @@ import {
   isSweepableClaim,
   firstClaimRefusal,
   dirtyTreeOwner,
+  dirtyTreeRow,
   isUnownedDirtyTree,
   unownedDirtyTrees,
   type LocalBranchReadings,
@@ -202,6 +203,24 @@ const desk = (over: Partial<DirtyTreeReadings> = {}): DirtyTreeReadings => ({
   workerPid: null,
   manifest: '',
   ...over,
+});
+
+describe('dirtyTreeRow — one row per desk', () => {
+  it('skips an owned tree the worktree report already named', () => {
+    expect(dirtyTreeRow('pid 4242', true)).toBe('skip');
+  });
+
+  it('prints an owned tree the worktree report did not name as owned', () => {
+    expect(dirtyTreeRow('a1b2.json', false)).toBe('owned');
+  });
+
+  it('prints a tree nobody owns as a leftover', () => {
+    expect(dirtyTreeRow('nobody', false)).toBe('leftover');
+  });
+
+  it('prints a tree nobody owns as a leftover even where the worktree report named it', () => {
+    expect(dirtyTreeRow('nobody', true)).toBe('leftover');
+  });
 });
 
 describe('dirtyTreeOwner — the finding is the word `nobody`', () => {

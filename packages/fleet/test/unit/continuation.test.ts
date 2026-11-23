@@ -1,17 +1,18 @@
 // `composeContinuation` — what it writes for a marker-driven reply versus a
 // fresh start that never had a question to answer.
-import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { execFileSync, type spawn as SpawnFn } from 'node:child_process';
 import { describe, expect, it, afterEach } from 'vitest';
-import { composeContinuation, continueOnDesk } from '../../src/shared/continuation.js';
+import { composeContinuation, continueOnDesk, deskTranscriptHandles } from '../../src/shared/continuation.js';
+import { recordRoleSessions } from '../../src/shared/role-sessions.js';
 import { markerReading } from '../../src/shared/worker-question.js';
 import { ENDING_FILENAME } from '@plot-pm/domain/entities/ending';
 import { MAIN_CHECKOUT_WRITER_ENV } from '@plot-pm/domain/rules/main-checkout-write';
-import { answerRecordFile, ANSWER_RECORD_HOME_ENV } from '@plot-pm/domain/adapters';
+import { answerRecordFile, ANSWER_RECORD_HOME_ENV, transcriptDirFor, TRANSCRIPT_HOME_ENV } from '@plot-pm/domain/adapters';
 import { isAnswered } from '@plot-pm/domain';
 import { removeTree } from '../rm-tree.mjs';
 import { readManifestFields } from '../../src/server/entry/worker-loop.js';
@@ -720,5 +721,183 @@ describe('continueOnDesk — a desk the loop ended corrections-spent', () => {
     } finally {
       delete process.env[ANSWER_RECORD_HOME_ENV];
     }
+  });
+});
+
+describe('continueOnDesk — a continuation resumes the asking agent, never a role run', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    delete process.env[ANSWER_RECORD_HOME_ENV];
+    delete process.env[TRANSCRIPT_HOME_ENV];
+    removeAll(dirs.splice(0));
+  });
+
+  // Writes what the wrapper would: a new agent pid and the stamp naming it.
+  const fakeSpawn = ((_cmd: string, _args: readonly string[], o: { cwd: string; env: Record<string, string | undefined> }) => {
+    const child = new EventEmitter();
+    writeFileSync(join(o.cwd, '.plot-worker.pid'), '424245');
+    const manifest = o.env.PLOT_MANIFEST_FILE ?? '';
+    writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), pid: '424245' }));
+    queueMicrotask(() => child.emit('exit', 0));
+    return child;
+  }) as unknown as typeof SpawnFn;
+
+  // A linked desk: its `.git` file names a private gitdir, as `git worktree add` writes it.
+  const blockedDesk = (ending: Record<string, string>) => {
+    const worktree = mkdtempSync(join(tmpdir(), 'plot-continue-asking-'));
+    const gitDir = mkdtempSync(join(tmpdir(), 'plot-continue-asking-gitdir-'));
+    const manifestDir = mkdtempSync(join(tmpdir(), 'plot-continue-asking-manifests-'));
+    const recordHome = mkdtempSync(join(tmpdir(), 'plot-continue-asking-record-'));
+    const transcriptHome = mkdtempSync(join(tmpdir(), 'plot-continue-asking-home-'));
+    dirs.push(worktree, gitDir, manifestDir, recordHome, transcriptHome);
+    writeFileSync(join(worktree, '.git'), `gitdir: ${gitDir}\n`);
+    writeFileSync(join(worktree, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which ledger does fleetd count in?\n');
+    writeFileSync(
+      join(worktree, ENDING_FILENAME),
+      JSON.stringify({ reason: 'blocked', actor: 'agent', branch: 'feature/x', detail: 'the agent declared itself blocked', ...ending }),
+      'utf8',
+    );
+    process.env[ANSWER_RECORD_HOME_ENV] = recordHome;
+    process.env[TRANSCRIPT_HOME_ENV] = transcriptHome;
+    const transcripts = transcriptDirFor(worktree, transcriptHome);
+    mkdirSync(transcripts, { recursive: true });
+    return { worktree, manifestDir, transcripts };
+  };
+
+  // `firstLine` is the transcript's first line; `gitBranch` goes on a later line, as the runtime writes it.
+  const transcript = (dir: string, handle: string, secondsAgo: number, opts: { firstLine?: string; gitBranch?: string } = {}) => {
+    const file = join(dir, `${handle}.jsonl`);
+    const lines = [opts.firstLine ?? '{}', ...(opts.gitBranch === undefined ? [] : [JSON.stringify({ type: 'user', gitBranch: opts.gitBranch })])];
+    writeFileSync(file, `${lines.join('\n')}\n`);
+    const at = Date.now() / 1000 - secondsAgo;
+    utimesSync(file, at, at);
+  };
+
+  // The unblocker's run, as `unblockPortsFor` records it: the handles it added to the desk's transcript directory.
+  const roleRun = (worktree: string, transcripts: string, handle: string) => {
+    const before = deskTranscriptHandles(worktree);
+    transcript(transcripts, handle, 0);
+    recordRoleSessions(worktree, [...deskTranscriptHandles(worktree)].filter((h) => !before.has(h)));
+  };
+
+  const continuedWith = async (worktree: string, manifestDir: string, over: Partial<Parameters<typeof continueOnDesk>[0]> = {}) => {
+    const result = await continueOnDesk({
+      opts: { repoRoot: worktree, scriptsDir: '/s', manifestDir },
+      branch: 'feature/x',
+      worktree,
+      main: '',
+      previousPid: '',
+      caller: 'person',
+      answer: 'count it in the bb ledger',
+      readCfg: (_opts, key, fallback) => (key === 'Worker command' ? 'true' : fallback),
+      spawn: fakeSpawn,
+      ...over,
+    });
+    expect(result.kind).toBe('started');
+    const written = readdirSync(manifestDir).filter((f) => f.endsWith('.json'));
+    expect(written).toHaveLength(1);
+    const resumeId = (await readManifestFields(join(manifestDir, written[0] ?? ''))).resumeId;
+    return { resumeId, session: result.kind === 'started' ? result.session : undefined };
+  };
+
+  const continued = async (worktree: string, manifestDir: string) => (await continuedWith(worktree, manifestDir)).resumeId;
+
+  // The first line a `claude -p --agent unblocker` run writes, as measured on desk-033f539d.
+  const UNBLOCKER_LINE = JSON.stringify({ type: 'agent-setting', agentSetting: 'unblocker', sessionId: 'f5e4b3c3' });
+
+  // A desk whose registry manifest names it, so the continuation stamps that manifest.
+  const stampedDesk = (resumeId: string, ending: Record<string, string> = {}) => {
+    const desk = blockedDesk(ending);
+    writeFileSync(join(desk.manifestDir, 'sess.json'), JSON.stringify({ session: 'sess', branch: 'feature/x', worktree: desk.worktree, pid: '424242', resumeId }));
+    return desk;
+  };
+
+  it('resumes the session the ending recorded, although a role transcript is newest', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-asking' });
+    transcript(transcripts, 'sess-asking', 600);
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    expect(await continued(worktree, manifestDir)).toBe('sess-asking');
+  });
+
+  it('with no recorded session, resumes the newest transcript a role run did not write', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({});
+    transcript(transcripts, 'sess-earlier', 1200);
+    transcript(transcripts, 'sess-asking', 600);
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    expect(await continued(worktree, manifestDir)).toBe('sess-asking');
+  });
+
+  it('with no recorded session and only a role transcript, starts a new conversation', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({});
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    const resumeId = await continued(worktree, manifestDir);
+    expect(resumeId).not.toBe('sess-unblocker');
+    expect(resumeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  it('the measured case: skips the ending\'s unblocker handle with no role record and resumes the implementer', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-f' });
+    transcript(transcripts, 'sess-i', 600, { firstLine: JSON.stringify({ type: 'queue-operation' }), gitBranch: 'feature/x' });
+    transcript(transcripts, 'sess-f', 0, { firstLine: UNBLOCKER_LINE, gitBranch: 'feature/x' });
+    const { resumeId, session } = await continuedWith(worktree, manifestDir);
+    expect(resumeId).toBe('sess-i');
+    expect(session).toEqual({ resumed: 'sess-i' });
+  });
+
+  it('starts a new session where the ending\'s role handle is the only transcript, and names the rejection', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-f' });
+    transcript(transcripts, 'sess-f', 0, { firstLine: UNBLOCKER_LINE });
+    const { resumeId, session } = await continuedWith(worktree, manifestDir);
+    expect(resumeId).not.toBe('sess-f');
+    expect(resumeId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(session).toEqual({ fresh: resumeId, rejected: [{ handle: 'sess-f', why: 'role-transcript' }] });
+  });
+
+  it('does not resume an ending handle the role-session record lists', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-f' });
+    transcript(transcripts, 'sess-f', 0);
+    recordRoleSessions(worktree, ['sess-f']);
+    const { resumeId, session } = await continuedWith(worktree, manifestDir);
+    expect(resumeId).not.toBe('sess-f');
+    expect(session).toEqual({ fresh: resumeId, rejected: [{ handle: 'sess-f', why: 'role-listed' }] });
+  });
+
+  it('skips the newest transcript of another branch and resumes the older one of this branch', async () => {
+    const { worktree, manifestDir, transcripts } = blockedDesk({ resumeId: 'sess-f' });
+    transcript(transcripts, 'sess-i', 1200, { gitBranch: 'feature/x' });
+    transcript(transcripts, 'sess-o', 600, { gitBranch: 'feature/the-fixer-scope-reads-every-open-pr' });
+    transcript(transcripts, 'sess-f', 0, { firstLine: UNBLOCKER_LINE });
+    expect(await continued(worktree, manifestDir)).toBe('sess-i');
+  });
+
+  it.each([
+    ['a continuation', {}],
+    ['a restart', { restart: async () => ({ ok: true as const }) }],
+  ])('%s replaces a role handle in the stamped manifest with the implementer\'s', async (_name, over) => {
+    const { worktree, manifestDir, transcripts } = stampedDesk('sess-r');
+    transcript(transcripts, 'sess-i', 600, { gitBranch: 'feature/x' });
+    transcript(transcripts, 'sess-r', 0, { firstLine: UNBLOCKER_LINE });
+    const { resumeId, session } = await continuedWith(worktree, manifestDir, over);
+    expect(resumeId).toBe('sess-i');
+    expect(session).toEqual({ resumed: 'sess-i' });
+  });
+
+  it.each([
+    ['a continuation', {}],
+    ['a restart', { restart: async () => ({ ok: true as const }) }],
+  ])('%s keeps the implementer\'s handle in the stamped manifest', async (_name, over) => {
+    const { worktree, manifestDir, transcripts } = stampedDesk('sess-i');
+    transcript(transcripts, 'sess-i', 600, { gitBranch: 'feature/x' });
+    roleRun(worktree, transcripts, 'sess-unblocker');
+    const { resumeId, session } = await continuedWith(worktree, manifestDir, over);
+    expect(resumeId).toBe('sess-i');
+    expect(session).toEqual({ resumed: 'sess-i' });
+  });
+
+  it('keeps a usable stamped handle while the ending records a different usable one', async () => {
+    const { worktree, manifestDir, transcripts } = stampedDesk('sess-m', { resumeId: 'sess-e' });
+    transcript(transcripts, 'sess-m', 600, { gitBranch: 'feature/x' });
+    transcript(transcripts, 'sess-e', 0, { gitBranch: 'feature/x' });
+    expect(await continued(worktree, manifestDir)).toBe('sess-m');
   });
 });

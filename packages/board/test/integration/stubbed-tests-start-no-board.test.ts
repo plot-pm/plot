@@ -569,7 +569,9 @@ describe('a browser test that stubs its own state starts no board', () => {
 // 99 → 100 on 2026-11-20: `delivery-tuples.browser.test.ts`, for a section header, a Tickets row, the release card and a release
 // delivery plan row drawn as bordered link tuples, and no horizontal scroll at 320 px. It serves its state through the catalogue
 // and starts no board.
-const EXPECTED_FILES = 100;
+// 100 → 101 on 2026-11-21: `row-menu-column.browser.test.ts`, for every Delivery row's Do cell sitting last at one x in every
+// section, light and dark, and no horizontal scroll at 320 px. It serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 101;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -962,7 +964,18 @@ const EXPECTED_FILES = 100;
 // 725 → 730 on 2026-11-20: the five `it(` in the new `delivery-tuples.browser.test.ts` (99 → 100 files): four surfaces drawn as link tuples, and one 320 px check run in light and dark. Added, not moved.
 // 730 → 731 on 2026-11-21: the one `it(` that checks an empty Fleet section shows its stopped frame and an empty Work items group shows "— none", added to `unplanned-issues.browser.test.ts`. Added, not moved.
 // 731 → 732 on 2026-11-21: `delivery-tab-header.browser.test.ts` checks the one Delivery header in five `it(` where it checked the two-column header and the to-do list in four: the reading groups side by side with a rule at 1280 px, stacked at 320 px, a non-zero blocks-delivery number in --hue-red, no fold in the header, and `open ›` opening a folded section. The to-do-line and fleet-card assertions in `release-approve`, `delivery-tab-sections`, `delivery-fleet-look` and `fleet-settings` moved to the header's groups and the Fleet section's switches, one `it(` for one. Added, not moved.
-const EXPECTED_TESTS = 732;
+// 732 → 734 on 2026-11-21: the two `it.each(` in the new `row-menu-column.browser.test.ts` (100 → 101 files): the Do cell last at one x in every section, and no horizontal scroll at 320 px, each run in light and dark. Added, not moved.
+// 734 → 737 on 2026-11-21: the three `it(` added to `release-approve.browser.test.ts` for the Release group's slot: a disabled button draws a dashed border and an enabled one a solid border, the slot keeps its place under a short and a long status line, and the page scrolls no wider than 320 px. Added, not moved.
+// 737 → 739 on 2026-11-21: the two `it(` added to `delivery-tab-sections.browser.test.ts`: a folded summary chip opens its section, and a folded Fleet heading keeps its spinner. Added, not moved.
+// 739 → 740 on 2026-11-21: the one `it(` that checks a conflict fixer's row names its finding on a green, review-clean PR, added to `a-fleet-row-shows-its-role-chip.browser.test.ts`. Added, not moved.
+// 740 → 742 on 2026-11-22: the two `it(` added to `delivery-tab-sections.browser.test.ts`: a blocker mark opens the folded Queued group that holds its slice, and an `← agents:` link opens the folded Fleet section that holds its agent. Added, not moved.
+// 742 → 744 on 2026-11-22: `loose-ends-show-under-unblock.browser.test.ts` replaces the `it(` that bulk-deleted the quiet branches with one that groups a claimed and a deletable branch into one Unblock row, each with its own reason and no bulk control on the heading; `delivery-rows.browser.test.ts` gains two, for the triage link and the unread notice under the You rows. Two added, one replaced.
+// 744 → 746 on 2026-11-22: the two `it(` that check the Delivered by the sprint and Found during the sprint groups render folded with their label and "— none", and open on their rows, added to `tickets-section.browser.test.ts`. Added, not moved.
+// 746 → 754 on 2026-11-22: two `it(` added to `delivery-work-items.browser.test.ts`, one for a long status pill kept whole beside a long branch ellipsised with its full name on hover, and one for an empty group's "— none" row inside the grid. Six counted again in `agents-tab.browser.test.ts`: its line comment naming `changeset-release/*` opened a block comment for `stripComments`, which hid the six `it(` up to the next `*/`, and the rewrite of that test removed the comment. Two added, six existing ones counted, none removed.
+// 754 → 756 on 2026-11-22: the two `it(` for the activity signals' layout: an idle row's reserved spinner slot is as wide as an active row's and its status text starts at the same x, added to `activity-mark.browser.test.ts`; and a working Fleet agent's Doing now spinner and the header's Fleet label spinner are seen, with a blocked agent's empty slot as wide, added to `delivery-fleet-look.browser.test.ts`. The fade's length, `activitySignal`, `doingPace` and the Mine-free header pace are unit properties in `test/unit/agent-list.test.ts`, `test/unit/delivery-header-of.test.ts` and the domain suite. Added, not moved.
+// 756 → 758 on 2026-11-22: the two `it(` added to `release-delivery-fold.browser.test.ts` for an opened plan row's slice lines: each line's ⋯ cell starts at the plan row's ⋯ cell, the merged line's empty cell included, and Start work in a line's ⋯ posts that line's branch. Added, not moved.
+// 758 → 762 on 2026-11-23: `fleet-settings.browser.test.ts` replaces the two `it(` that held the switches in the Fleet heading with two that hold them in the switch row at the top of the open section, and gains three: no switch outside `[data-section="fleet"]`, the switch row above a stopped fleet's empty frame, and a folded Fleet section that shows no switch and opens from a held group's link with `#fleet-controls` in view. `a-fleet-row-shows-its-role-chip.browser.test.ts` gains one, for one state pill after the spinner slot in each agent row's Doing now cell. Four added, two replaced.
+const EXPECTED_TESTS = 762;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an

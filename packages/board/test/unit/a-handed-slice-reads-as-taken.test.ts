@@ -25,7 +25,7 @@ const HANDED = 'handed over — not taken up yet';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => AgentRowSchema.parse({
   repo: 'plot', kind: 'branch', branch: BRANCH, plan: 'a-plan',
-  planFile: '2026-10-01-a-plan.md', wave: 'Wave', state: 'open', phase: 'Development',
+  planFile: '2026-10-01-a-plan.md', wave: 'Wave', state: 'open', phase: 'Development', planState: 'approved',
   group: 'not-started', ageMinutes: 0, note: 'eligible — nobody has taken it',
   pr: null, branchUrl: '', verdict: 'eligible', startability: 'start-work',
   worker: 'elsewhere', ...over,

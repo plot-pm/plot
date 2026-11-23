@@ -1,6 +1,7 @@
 import type { Mergeability } from '../entities/pr.js';
 import type { PortResult } from '../port-result.js';
 import type { Worktree } from '../entities/worktree.js';
+import type { ContinueLockReading } from '../rules/continue-lock.js';
 import type { TreePresence } from '../rules/reapable.js';
 import type { CommitReading } from '../rules/sample.js';
 
@@ -117,6 +118,16 @@ export interface Trees {
    * @returns the porcelain lines, status code and path together.
    */
   dirtyPathsWithStatus(path: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Reads what the desk's continue lock (`.plot-worker.continue.lock`) says now.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the reading; `held: false` where no lock file exists, its body is
+   *   no record, the lock expired or its holder died. Fails where the lock file
+   *   exists and cannot be read.
+   */
+  continueLock(path: string): Promise<PortResult<ContinueLockReading>>;
 
   /**
    * Lists the changed and untracked paths a checkout holds under the given

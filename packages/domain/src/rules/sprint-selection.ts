@@ -140,3 +140,29 @@ export const rowInSprintSelection = (
  */
 export const showsSprintSlug = (activeSprintCount: number, selected: string[]): boolean =>
   activeSprintCount > 1 && selected.length !== 1;
+
+/** The word a row of a plan in no Active sprint shows. */
+export const NO_SPRINT_WORD = 'no sprint';
+
+/**
+ * What a Delivery row says about its sprint membership.
+ *
+ * Only the `release` scope under Mine `mine` or `strict` says anything: there every Active sprint shows
+ * together, so a row of a plan in none of them is marked `no sprint`. Mode `off` shows every row
+ * unmarked, and the `my-sprint` scope already narrows its rows to the selected sprints. An exempt row
+ * ({@link rowIsSprintExempt}), a plan-less row, and any row while no sprint is Active say nothing.
+ *
+ * @param item - the row's kind and plan slug; `plan` is `''` for a plan-less row.
+ * @param activeSprints - sprint slug to the set of plan slugs it contains, one entry per Active sprint.
+ * @param view - the Delivery tab's scope kind and Mine mode.
+ * @returns `no sprint`, or `null` where the row says nothing about its sprint.
+ */
+export const rowSprintMembership = (
+  item: { kind: string; plan: string },
+  activeSprints: Map<string, Set<string>>,
+  view: { scope: 'release' | 'my-sprint'; mine: 'off' | 'mine' | 'strict' },
+): typeof NO_SPRINT_WORD | null => {
+  if (view.scope !== 'release' || view.mine === 'off') return null;
+  if (item.plan === '' || rowIsSprintExempt(item) || activeSprints.size === 0) return null;
+  return inAnyActiveSprint(item.plan, activeSprints) ? null : NO_SPRINT_WORD;
+};

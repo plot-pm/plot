@@ -240,9 +240,8 @@ wait_bound=10
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --status) mode=status ;;
-    --start)  mode=start ;;
-    --stop)   mode=stop ;;
+    # Two DIFFERENT mode flags refuse; the same flag twice is one mode.
+    --status|--start|--stop) mode=${mode:-${1#--}}; [ "$mode" = "${1#--}" ] || { echo "plot-boardctl: --$mode and $1 are different modes; give one; nothing was done" >&2; exit 1; } ;;
     --port)   port="${2:?--port needs a value}"
               port_from_flag=1
               case "$port" in

@@ -137,8 +137,15 @@ describe('approveSpike — the refusals', () => {
   it('refuses a closed or absent PR and a rival PR', () => {
     expect(reason(readings({ pr: { number: 42, state: 'CLOSED', draft: false, branch: 'x' } }))).toBe('pr-closed');
     expect(reason(readings({ pr: { number: 0, state: 'NONE', draft: false, branch: 'x' } }))).toBe('pr-absent');
+    expect(reason(readings({ pr: { number: 0, state: 'NONE', draft: false, branch: 'x', unnamedMerge: { sha: 'm', via: 'list' } } }))).toBe('pr-merge-unnamed');
     const rival = { number: 43, file: 'docs/plans/2026-10-12-a-plan.md', blob: 'riv' };
     expect(reason(readings({ pr: { number: 42, state: 'OPEN', draft: false, branch: 'x', rivals: [rival] } }))).toBe('pr-ambiguous');
+  });
+
+  it('approves the spike through a merged plan PR the commit answer named', () => {
+    const out = approveSpike(readings({ pr: { number: 3478, state: 'MERGED', draft: false, branch: 'docs/a-plan', route: 'merged' } }), input({ channel: 'plan-PR #3478 merged' }));
+    expect(decided(out)).toBe(true);
+    expect(decided(out) && out.detail.spike).toBe('feature/spike');
   });
 
   it('refuses the plan-pr rule\'s own refusal ahead of plan-not-found', () => {

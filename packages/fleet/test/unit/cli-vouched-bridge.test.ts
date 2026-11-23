@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import { removeTree } from '../rm-tree.mjs';
@@ -5,8 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { FleetReadingSchema } from '@plot-pm/domain/entities/fleet';
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { fleetStateFile } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
-import { fleetdHeartbeatFile } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
+import { fleetStateIn } from '@plot-pm/domain/adapters/fleet-state/fleet-state-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import { fleetdHeartbeatIn } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
 import { bridgedPulse } from '../../src/server/entry/dispatch-command.js';
 
 // The dispatch, continue, restart and restart-stopped commands each read the
@@ -16,6 +18,8 @@ import { bridgedPulse } from '../../src/server/entry/dispatch-command.js';
 let repo: string;
 beforeEach(() => {
   repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-cli-vouch-'));
+  // The bridge lives under the state home, so the directory is a repository.
+  execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
 });
 afterEach(() => {
   removeTree(repo);
@@ -37,10 +41,10 @@ const beat = (bridgeAt: number | null, beatAt: number): FleetdHeartbeat => ({
 /** Writes a bridge `bridgeAgeMs` old and a heartbeat naming `named` at `beatAgeMs` old. */
 const seed = async (bridgeAgeMs: number, named: 'same' | 'other', beatAgeMs: number): Promise<void> => {
   const at = Date.now() - bridgeAgeMs;
-  await fleetStateFile({ repoRoot: repo, now: () => at }).write({
+  await fleetStateIn(stateHomeAtSync(repo), { now: () => at }).write({
     at, pulse: reading, ages: new Map(), branchUrlBase: '', approvedAt: new Map(), ideaPlans: new Map(), prError: null,
   });
-  await fleetdHeartbeatFile({ repoRoot: repo }).write(beat(named === 'same' ? at : at + 1, Date.now() - beatAgeMs));
+  await fleetdHeartbeatIn(stateHomeAtSync(repo)).write(beat(named === 'same' ? at : at + 1, Date.now() - beatAgeMs));
 };
 
 describe('the CLI controllers read the heartbeat', () => {

@@ -5,7 +5,7 @@ import {
   type DispatchReadingFor,
   type NamedBranchRefusal,
 } from '@plot-pm/domain/rules/auto-dispatch';
-import type { FleetReading } from '@plot-pm/domain';
+import { dispatchReadingForPulses, type FleetReading } from '@plot-pm/domain';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import { originPlanHome } from './origin-desk.js';
 import { DISPATCH_SCRIPT, dispatchLogPath, scriptsOf, type ActOptions } from './action-log.js';
@@ -123,6 +123,27 @@ export const startReadingFromPulse = (pulse: FleetReading | null, slug: string, 
   dispatchReadingFor(pulse, slug, branch);
 
 /**
+ * What the board's pulses say about starting `slug`, at `branch` where one is named.
+ *
+ * Reads a partial live pulse as partial: where neither it nor the last finished
+ * pulse lists the plan, the reading is `pulse-partial`.
+ *
+ * @param live - the board's current pulse, or `null` on a cold cache.
+ * @param liveComplete - whether the scan that produced `live` finished.
+ * @param lastComplete - the pulse of the last scan that finished, or `null`.
+ * @param slug - the plan slug.
+ * @param branch - the branch the caller names, or `undefined`.
+ * @returns the reading; see `dispatchReadingForPulses`.
+ */
+export const startReadingFromPulses = (
+  live: FleetReading | null,
+  liveComplete: boolean,
+  lastComplete: FleetReading | null,
+  slug: string,
+  branch?: string,
+): DispatchReadingFor => dispatchReadingForPulses(live, liveComplete, lastComplete, slug, branch);
+
+/**
  * The branch an implement run briefs for a reading, or `null` for a branchless run.
  *
  * @param reading - the reading.
@@ -178,6 +199,9 @@ export const startDispatch = (input: DispatchInput): DispatchStart => {
   const reading = input.startReading(slug, input.branch);
   if (reading.kind === 'branch-refused') {
     return { kind: 'refused', status: 409, reason: reading.reason, detail: reading.detail };
+  }
+  if (reading.kind === 'pulse-partial') {
+    return { kind: 'refused', status: 409, reason: 'pulse-partial', detail: reading.detail };
   }
   if (reading.kind === 'held') {
     return { kind: 'refused', status: 409, reason: 'nothing-startable', detail: nothingStartableDetail(reading) };

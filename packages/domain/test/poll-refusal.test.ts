@@ -9,6 +9,7 @@ describe('pollRefusal', () => {
     ['sleep 60', 'sleep 60'],
     ['sleep 30 && gh pr checks', 'sleep 30 && gh pr checks'],
     ['gh run watch', 'gh run watch'],
+    ['time gh run watch', 'time gh run watch'],
     ['gh pr checks', 'gh pr checks'],
     ['ps -p 123', 'ps -p 123'],
     ['a while loop around gh pr checks', 'while ! gh pr checks; do sleep 30; done'],

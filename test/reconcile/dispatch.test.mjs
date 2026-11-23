@@ -1321,6 +1321,62 @@ test('dispatch: --stop refuses without a branch and never kills everything', () 
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+// A second mode flag, or a second branch for one, refuses before the first side
+// effect (#3138). Each case runs against a desk a bare `--stop feature/g` signals,
+// so a parser that took the last flag would end the loop these tests keep alive.
+const refusesOverLiveDesk = (label, args, pattern) => {
+  const { wt, loop, ask, done } = loopDesk(label);
+  try {
+    const r = ask(...args);
+    assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
+    assert.match(r.stderr, pattern);
+    assert.match(r.stderr, /give one; nothing was done/);
+    assert.doesNotMatch(r.stdout, /stopped feature\/g/);
+    assert.doesNotThrow(() => process.kill(loop.pid, 0), 'the loop a bare --stop signals still runs');
+    assert.equal(fs.existsSync(path.join(wt, '.plot-worker.ending.json')), false, 'a stop ending was written');
+  } finally {
+    done();
+  }
+};
+
+test('dispatch: --start --stop feature/g refuses, names both flags, and signals no agent', () => {
+  refusesOverLiveDesk('modestartstop', ['--start', '--stop', 'feature/g'], /--start and --stop are different modes/);
+});
+
+test('dispatch: --stop feature/g --restart feature/g refuses, naming both modes', () => {
+  refusesOverLiveDesk('modestoprestart', ['--stop', 'feature/g', '--restart', 'feature/g'],
+    /--stop and --restart are different modes/);
+});
+
+test('dispatch: --stop feature/a --stop feature/g refuses, names both branches, and stops neither', () => {
+  refusesOverLiveDesk('modetwobranches', ['--stop', 'feature/a', '--stop', 'feature/g'],
+    /--stop feature\/a and --stop feature\/g name different branches/);
+});
+
+test('dispatch: the same --stop branch twice is one stop', () => {
+  const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'modesamebranch');
+  try {
+    const out = spawnSync('bash', [dispatch, '--stop', 'feature/x', '--stop', 'feature/x'],
+      { encoding: 'utf8', cwd: r, timeout: 20_000 });
+    assert.doesNotMatch(out.stderr, /different/);
+    assert.match(out.stderr, /no worktree holds 'feature\/x'/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: --status alone reads the desks, as before the mode refusal', () => {
+  const { ask, done } = loopDesk('modestatus');
+  try {
+    const out = ask('--status');
+    assert.equal(out.status, 0, out.stderr);
+    assert.doesNotMatch(out.stderr, /different modes/);
+    assert.match(out.stdout, /feature\/g/);
+  } finally {
+    done();
+  }
+});
+
 test('dispatch: branches sharing a last segment are two slices, handed over separately', () => {
   // `feature/api` and `bug/api` both end in "api". This test was written when
   // dispatch cut a desk per branch and a path built from the last segment alone
@@ -4100,6 +4156,19 @@ test('dispatch: --start --dry-run names the desks and creates none', () => {
   }
 });
 
+test('dispatch: --start 3 --dry-run keeps the count and the dry run', () => {
+  const { root, checkout } = repoForStart('dryruncount');
+  try {
+    const out = runDetached(['--start', '3', '--dry-run'], checkout, { PLOT_START_ONE: '' });
+    assert.doesNotMatch(out, /different modes/);
+    assert.match(out, /would create/, out);
+    assert.match(out, /summary: .*requested=3 /, out);
+    assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'a dry run creates no desk');
+  } finally {
+    removeSandbox(root);
+  }
+});
+
 test('dispatch: with no Worker command --start says so and starts nothing', () => {
   // `worker=unconfigured` is what the performer reads to answer `unaskable` —
   // asked, and this repo has no answer — rather than reporting a failure it
@@ -4177,6 +4246,7 @@ test('dispatch: --start refuses a Worker command that does not run the loop', ()
     assert.match(res.stderr, /Repair: set 'Worker command' to 'PLOT_UNATTENDED=1 plot-worker-loop\.sh', and move the harness call into \.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /\.plot\/worker-prompt\.sh/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.match(res.stderr, /--restart <branch>\) starts a worker on any command/, res.stderr);
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
     assert.equal(fs.existsSync(path.join(checkout, '.plot', 'agents')), false, 'no manifest is written');
     const trees = execFileSync('git', ['worktree', 'list', '--porcelain'],
@@ -4198,6 +4268,8 @@ test('dispatch: --start refuses a loop whose prompt file is absent, before any d
     assert.equal(res.status, 1, res.stdout + res.stderr);
     assert.match(res.stderr, /prompt file \.plot\/worker-prompt\.sh is absent/, res.stderr);
     assert.match(res.stderr, /plot-install-prompt\.sh/, res.stderr);
+    assert.match(res.stdout, /summary: agents=0 .*worker=prompt-absent/, res.stdout);
+    assert.doesNotMatch(res.stderr, /--restart <branch>/, 'the --restart hint repairs no-loop only');
     assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false, 'no desk is cut');
     const refs = execFileSync('git', ['for-each-ref', 'refs/plot/'],
       { cwd: path.join(root, 'origin.git'), encoding: 'utf8' });

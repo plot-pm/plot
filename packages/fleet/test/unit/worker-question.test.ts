@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
@@ -14,6 +14,12 @@ import {
   QUESTION_MAX,
 } from '../../src/shared/worker-question.js';
 import type { FleetReading, WorkerState } from '@plot-pm/domain';
+import { answerRecordFile } from '@plot-pm/domain/adapters/answer-record/answer-record-file';
+
+vi.mock('@plot-pm/domain/adapters/answer-record/answer-record-file', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@plot-pm/domain/adapters/answer-record/answer-record-file')>();
+  return { ...actual, answerRecordFile: vi.fn(actual.answerRecordFile) };
+});
 
 // WHAT A DESK IS WAITING ON — read from the marker FILE a worker wrote, not
 // grepped from the contents of every file in the tree.
@@ -388,6 +394,20 @@ describe('workerQuestions — the escalation reason from the answer record', () 
 
   it('carries no reason where the escalated row is for an earlier askedAt', async () => {
     expect(await asked(() => [{ askedAt: '2020-01-01T00:00:00.000Z', outcome: 'escalated test' }])).toBeUndefined();
+  });
+
+  it('builds one answer record for a pulse with two marked desks', async () => {
+    const a = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: which?\n' });
+    const b = treeWith({ 'PLOT-BLOCKED.md': 'PLOT-BLOCKED: what?\n' });
+    const p = pulse([
+      { branch: 'feature/a', worker: 'waiting', local_worktree: a },
+      { branch: 'feature/b', worker: 'waiting', local_worktree: b },
+    ]);
+    const repo = repoWith([], a);
+    vi.mocked(answerRecordFile).mockClear();
+    const found = await workerQuestions(p, repo);
+    expect(found.size).toBe(2);
+    expect(vi.mocked(answerRecordFile)).toHaveBeenCalledTimes(1);
   });
 
   it('carries no reason where no repository root is given', async () => {

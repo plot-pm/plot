@@ -1,7 +1,7 @@
 import { useContext } from 'react';
-import { linkIconKind, type HeaderCountPart, type PlanLine } from '@plot-pm/domain';
+import { linkIconKind, type HeaderCountPart, type PlanLine, type PlanSliceLine } from '@plot-pm/domain';
 import type { PlanRowView, ReleaseBlockView, ReleaseHeaderView } from '../lib/agent-rows/delivery-view.js';
-import { artifactTuple } from '../lib/tuple-row.js';
+import { artifactTuple, linkTuplesOf, type TupleLink } from '../lib/tuple-row.js';
 import { TicketHrefContext } from './PlanTicketKeys.js';
 import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 import { LinkIcon } from './LinkIcon.js';
@@ -24,21 +24,11 @@ const PHASE_HUE: Readonly<Record<string, string>> = {
   Released: 'delivery-hue-orange',
 };
 
-/** The state word of an opened plan line and its hue, by the slice's state. */
-const LINE_STATE: Readonly<Record<PlanLine['state'], { word: string; hue: string }>> = {
-  delivered: { word: '✓ merged', hue: 'delivery-hue-green' },
-  blocked: { word: '✕ blocked', hue: 'delivery-hue-red' },
-  'at-a-gate': { word: '⟳ at CI', hue: 'delivery-hue-amber' },
-  'being-built': { word: '● building', hue: 'delivery-hue-blue' },
-  'not-started': { word: '○ not started', hue: '' },
-  unread: { word: '○ not read', hue: '' },
-};
-
 /** The column headers of the plan table, shown from 640 px up. */
 export const PLAN_COLUMNS = ['Plan', 'Phase', 'Slices', 'Owner'] as const;
 
-/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, which holds one 1.25 rem menu. */
-export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_1.25rem]';
+/** The plan table's tracks: Plan, Phase, Slices, Owner and the actions cell, whose width is `--delivery-menu-track`. */
+export const PLAN_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_7rem_minmax(0,1.5fr)_6rem_var(--delivery-menu-track)]';
 
 /** The header bar of one Release block: its name where it has one, then each count's number in bold and its words. */
 export const ReleaseLine = ({ block }: { block: Pick<ReleaseBlockView, 'release' | 'name' | 'header' | 'counts'> }) => {
@@ -168,16 +158,63 @@ export const PlanStrip = ({ plan }: { plan: Pick<PlanRowView, 'strip' | 'stripTe
   );
 };
 
-/** The state word of an opened plan line, coloured by the slice's state. */
-export const LineState = ({ state }: { state: PlanLine['state'] }) => (
-  <span data-plan-line-state={state} className={`delivery-release-state ${LINE_STATE[state].hue}`}>{LINE_STATE[state].word}</span>
+/** The plan table's tracks a slice line takes: Slice, PR and branch, State, Merged and the actions cell, whose width is `--delivery-menu-track`. */
+export const LINE_TRACKS = 'sm:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_7rem_6rem_var(--delivery-menu-track)]';
+
+/** The State cell of an opened plan line: the line's status pills, each a dot in its tone and its word. */
+export const LineState = ({ line }: { line: Pick<PlanSliceLine, 'state' | 'pills'> }) => (
+  <span data-plan-line-state={line.state} className="delivery-release-state flex items-baseline gap-1.5">
+    {line.pills.map((p) => (
+      <span key={p.word} data-status-pill={p.word} data-pill-tone={p.tone} className="delivery-pill">
+        <span aria-hidden data-pill-dot className="delivery-pill-dot" />
+        {p.word}
+      </span>
+    ))}
+  </span>
 );
 
-/** A line's PR as a PR tuple: a link where the payload holds its address, the number as text where it does not. */
-export const LinePr = ({ pr, url }: { pr: number; url: string | null }) => {
-  const hook = { 'data-plan-line-pr': `${pr}` };
-  return <LinkTupleView segments={artifactTuple({ what: 'pr', label: `${pr}`, href: url ?? '' }, () => undefined)} controls={[{ extraAttr: { link: hook, text: hook } }]} />;
-};
+/**
+ * The links of an opened plan line: its PR, then its branch, in the order `linkTuplesOf` pairs them.
+ *
+ * @param line - the line's PR and branch; either may be absent.
+ * @param prUrl - the PR's address, or `null` where the payload holds none.
+ * @param branchUrlBase - the base of a branch URL on the host; `''` where the host is unknown.
+ * @returns the PR link where the line has a PR, then the branch link where it has a branch.
+ */
+export const lineLinks = (
+  line: Pick<PlanLine, 'pr' | 'branch'>,
+  prUrl: string | null,
+  branchUrlBase: string,
+): TupleLink[] => [
+  ...(line.pr === undefined ? [] : [{ what: 'pr' as const, label: `${line.pr}`, href: prUrl ?? '' }]),
+  ...(line.branch === undefined
+    ? []
+    : [{ what: 'branch' as const, label: line.branch, href: branchUrlBase === '' ? '' : `${branchUrlBase}${encodeURIComponent(line.branch)}` }]),
+];
+
+/**
+ * The PR and branch cell of an opened plan line: one PR+branch tuple, or the one link the line has, or nothing.
+ *
+ * The PR segment carries `data-plan-line-pr` and the branch segment `data-plan-line-branch`.
+ */
+export const LineLinks = ({ line, prUrl, branchUrlBase }: {
+  line: Pick<PlanLine, 'pr' | 'branch'>;
+  prUrl: string | null;
+  branchUrlBase: string;
+}) => (
+  <span data-plan-line-links className="flex min-w-0 items-baseline gap-2">
+    {linkTuplesOf(lineLinks(line, prUrl, branchUrlBase), () => undefined).map((segments) => (
+      <LinkTupleView
+        key={segments.map((s) => s.label).join(' ')}
+        segments={segments}
+        controls={segments.map((s) => {
+          const hook = s.what === 'pr' ? { 'data-plan-line-pr': s.label } : { 'data-plan-line-branch': s.label };
+          return { extraAttr: { link: hook, text: hook } };
+        })}
+      />
+    ))}
+  </span>
+);
 
 /**
  * An opened plan line's slice as a slice tuple: a button that scrolls to the slice's item where `onJump` is given,

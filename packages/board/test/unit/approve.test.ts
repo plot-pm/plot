@@ -1,13 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { hostFixture } from '@plot-pm/domain/adapters/host/host-fixture';
 import { planStoreFixture, planRecord } from '@plot-pm/domain/adapters/plan-store/plan-store-fixture';
 import { refsFixture } from '@plot-pm/domain/adapters/refs/refs-fixture';
 import type { CommitStatusWrite, Host, HostRefusal } from '@plot-pm/domain/ports/host';
+import type { Pr } from '@plot-pm/domain/entities/pr';
 import type { PortResult } from '@plot-pm/domain';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { perform, Refused, type Context } from '../../src/server/entry/approve.js';
+import type { PushLock } from '../../src/server/entry/ladder.js';
 
 const answered = <T>(value: T): PortResult<T> => ({ ok: true, value });
 const HEAD = 'a'.repeat(40);
@@ -235,6 +237,66 @@ describe('approve perform — sprint annotation by sprintOfPlan, not by director
   });
 });
 
+describe('approve perform — an in-session approval of a sprint member records no PR', () => {
+  const SPRINT_FILE = 'docs/sprints/2026-10-20-w43.md';
+  const ABS_SPRINT = `/repo/${SPRINT_FILE}`;
+  // Already recorded, so the booking writes only the sprint line: the fixture store parses no text.
+  const PLAN_TEXT = '# P\n\n## Status\n\n- **State:** Approved\n- **Approved:** 2026-10-01, jwloka, in-session\n';
+
+  /** Reads and writes in the booking worktree land on the same `/repo` files. */
+  const bookedAt = (store: PlanStore): PlanStore => {
+    const inRepo = (file: string): string => file.replace(/^.*\/\.plot-approve-[^/]+/, '/repo');
+    return {
+      ...store,
+      readPlan: (file) => store.readPlan(inRepo(file)),
+      listDir: (dir) => store.listDir(inRepo(dir)),
+      readText: (file) => store.readText(inRepo(file)),
+      writeText: (file, content) => store.writeText(inRepo(file), content),
+    };
+  };
+
+  const ctxInSession = (files: Record<string, string>): Context & { lock: PushLock } => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host: hostFixture({ prs: [], commitStatuses: [] }),
+    planStore: bookedAt(planStoreFixture({
+      files: Object.assign(files, { [FILE]: PLAN_TEXT, [`/repo/${FILE}`]: PLAN_TEXT }),
+      plans: [FILE, `/repo/${FILE}`].map((file) => planRecord({
+        file, phase: 'approved', review: 'in-session', impl: 'own-branches', branches: ['feature/one'], sprint: '',
+        approvedRaw: '2026-10-01, jwloka, in-session',
+      })),
+    })),
+    refs: refsFixture({}),
+    scripts: scriptsStub([]),
+    trees: {
+      originHead: async () => answered('main'),
+      hasRef: async () => answered(false),
+      fetch: async () => answered(undefined),
+      mainRoot: async () => answered('/repo'),
+      excludePath: async () => answered(undefined),
+      addBranch: async () => answered(undefined),
+      stage: async () => answered(undefined),
+      hasStagedChanges: async () => answered(false),
+      removeWithBranch: async () => answered(undefined),
+    } as unknown as Trees,
+    lock: { take: async () => 'taken', release: async () => {} } as unknown as PushLock,
+  });
+
+  it('writes pr: none over pr: #0 and never names PR 0', async () => {
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const files: Record<string, string> = {
+      [ABS_SPRINT]: ['### Must Have', '', `- [ ] [${SLUG}] the plan <!-- pr: #0, branch: feature/one -->`, ''].join('\n'),
+    };
+    try {
+      await perform(ctxInSession(files), { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, () => {}, () => {});
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(files[ABS_SPRINT]).toContain(`- [ ] [${SLUG}] the plan <!-- pr: none, branch: feature/one -->`);
+  });
+});
+
 describe('approve perform — a refused open-PR listing is reported as a host refusal', () => {
   const REFUSAL_429: HostRefusal = { kind: 'failed', said: 'HTTP 429: rate limit exceeded' };
 
@@ -455,5 +517,197 @@ describe('approve perform — an open PR the host named with no head commit is n
     expect(message).toContain('no plan found');
     expect(message).toContain('#975');
     expect(message).toContain('the host named no head commit');
+  });
+});
+
+describe('approve perform — a plan the default branch holds, found by its adding merge', () => {
+  const MERGE = '1d814d0a1'.padEnd(40, '1');
+  const SECOND = '0835e43b7'.padEnd(40, '2');
+  const PLAN_PR = 3478;
+
+  /** A merged row as the host answers it by commit or in a listing. */
+  const mergedRow = (number: number, head: string, headSha: string, mergeCommit: string): Pr => ({
+    number, repo: '', head, base: 'main', state: 'MERGED', mergedAt: '2026-11-17T10:00:00Z', mergeCommit,
+    draft: false, mergeable: 'unknown', review: '', checks: 'unknown', failingChecks: [], url: '', author: '', headSha,
+  });
+
+  /** The newest 100 merged PRs, none of them the plan PR. */
+  const newer = Array.from({ length: 100 }, (_, i) => mergedRow(3600 - i, `feature/other-${i}`, `${i}`.padStart(40, 'f'), `${i}`.padStart(40, 'e')));
+
+  interface Asked { commit: string[]; merged: number }
+
+  /**
+   * A host whose PR of `idea/<slug>` is absent, which answers `prsOfCommit`
+   * from `commitPrs` (or `unaskable` where it is null), and counts the asks.
+   */
+  const hostOf = (asked: Asked, commitPrs: Record<string, readonly Pr[]> | null, listed: readonly Pr[] = newer): Host => {
+    const base = hostFixture({ prs: [...listed], ...(commitPrs === null ? {} : { commitPrs }) });
+    return {
+      ...base,
+      prsOfCommit: async (sha) => {
+        asked.commit.push(sha);
+        return commitPrs === null ? { ok: false, why: 'unaskable', reason: 'shell transport' } : base.prsOfCommit(sha);
+      },
+      prList: async (state, limit) => {
+        if (state === 'merged') asked.merged += 1;
+        return base.prList(state, limit);
+      },
+    };
+  };
+
+  /** A plan in the checkout at its real path, which the default branch also holds, added by `MERGE` (or a squash where `squash`). */
+  const ctxOnMain = (host: Host, impl: string, opts: { squash?: boolean; onMain?: boolean; review?: string } = {}): Context => ({
+    repoRoot: '/repo',
+    scriptDir: '/repo/skills/plot/scripts',
+    host,
+    planStore: planStoreFixture({
+      files: { [REAL_FILE]: 'placeholder' },
+      plans: [planRecord({ file: REAL_FILE, phase: 'draft', review: opts.review ?? 'pr', impl, branches: ['feature/one'] })],
+    }),
+    refs: refsFixture({
+      trees: opts.onMain === false ? {} : { [`origin/main`]: [{ mode: '100644', sha: 'b'.repeat(40), path: REAL_FILE }] },
+      firstParentAdditions: { [`origin/main:${REAL_FILE}`]: MERGE },
+      shas: {
+        ...(opts.squash === true ? {} : { [`${MERGE}^2`]: SECOND }),
+        [`origin/main:${REAL_FILE}`]: 'b'.repeat(40),
+      },
+    }),
+    scripts: scriptsStub([]),
+    trees: treesStub(),
+  });
+
+  const run = async (ctx: Context): Promise<{ out: string; error: string }> => {
+    let out = '';
+    try {
+      await perform(ctx, { dryRun: true, spike: false, who: 'jwloka', slug: SLUG }, (s) => { out += s; }, () => {});
+      return { out, error: '' };
+    } catch (err) {
+      return { out, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  it('approves through prsOfCommit a plan PR absent from the newest 100 merged PRs, and never lists them', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `idea/${SLUG}-v2`, SECOND, MERGE)] });
+    const { out, error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error).toBe('');
+    expect(out).toContain(`pr=#${PLAN_PR}(MERGED)`);
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('approves a same-branch plan on the default branch whose plan PR merged from docs/<slug>, with no prefixed ref', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `docs/${SLUG}`, SECOND, MERGE)] });
+    const { out, error } = await run(ctxOnMain(host, 'same-branch'));
+
+    expect(error).toBe('');
+    expect(out).toContain(`pr=#${PLAN_PR}(MERGED)`);
+    expect(asked.commit).toEqual([SECOND]);
+  });
+
+  it('books a same-branch plan whose plan PR merged on origin/main, and commits nothing in the checkout', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, `docs/${SLUG}`, SECOND, MERGE)] });
+    const ctx = ctxOnMain(host, 'same-branch');
+    const committedIn: string[] = [];
+    const booking = new Error('the booking worktree was asked for');
+    ctx.trees = {
+      ...ctx.trees,
+      mainRoot: async () => answered('/repo'),
+      excludePath: async () => answered(undefined),
+      fetchRef: async () => answered(false),
+      addBranch: async () => { throw booking; },
+      stage: async () => answered(undefined),
+      hasStagedChanges: async () => answered(true),
+      commitStaged: async (root: string) => { committedIn.push(root); return answered(undefined); },
+    } as unknown as Trees;
+    let out = '';
+    let error: unknown;
+    try {
+      await perform(ctx, { dryRun: false, spike: false, who: 'jwloka', slug: SLUG }, (s) => { out += s; }, () => {});
+    } catch (err) {
+      error = err;
+    }
+
+    expect(error).toBe(booking);
+    expect(committedIn).toEqual([]);
+    expect(out).toContain(`PR #${PLAN_PR} is already merged`);
+  });
+
+  it('still refuses pr-absent for the bare slug of a same-branch plan the default branch does not hold', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, {});
+    const { error } = await run(ctxOnMain(host, 'same-branch', { onMain: false }));
+
+    expect(error).toContain(`no PR found for branch '${SLUG}'.`);
+    expect(asked.commit).toEqual([]);
+  });
+
+  it('refuses pr-absent as before for a plan a squash added', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, {});
+    const { error } = await run(ctxOnMain(host, 'own-branches', { squash: true }));
+
+    expect(error).toContain(`no PR found for branch 'idea/${SLUG}'.`);
+    expect(asked.commit).toEqual([]);
+  });
+
+  it('refuses pr-merge-unnamed by commit where the host names no PR for the merge', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [] });
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `the merge commit ${MERGE} added ${REAL_FILE}, and the host could not name its PR.`,
+      `  Check the merge commit on the host, or approve in session: plot-approve-command.mjs --who <handle> ${SLUG}. Nothing was merged and the phase is unchanged.`,
+    ]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('refuses pr-merge-unnamed by list where the host has no answer by commit and the newest 100 merged PRs miss it', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, null);
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `the merge commit ${MERGE} added ${REAL_FILE}, and the host could only search its newest 100 merged PRs.`,
+      `  Set a host credential so plot-approve can ask the host by commit, or approve in session: plot-approve-command.mjs --who <handle> ${SLUG}. Nothing was merged and the phase is unchanged.`,
+    ]);
+    expect(asked.merged).toBe(1);
+  });
+
+  it('refuses slice-on-plan-branch, naming the branch, the PR and the next action', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, 'feature/one', SECOND, MERGE)] });
+    const { error } = await run(ctxOnMain(host, 'own-branches'));
+
+    expect(error.split('\n')).toEqual([
+      `slice feature/one is the plan PR's head branch (#${PLAN_PR}); its merge reads as this slice landing.`,
+      `  Rename the slice's branch in the plan, then re-run. Nothing was merged and the phase is unchanged.`,
+    ]);
+  });
+
+  it('refuses slice-on-plan-branch for an in-session plan whose adding merge came from a slice branch', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, { [SECOND]: [mergedRow(PLAN_PR, 'feature/one', SECOND, MERGE)] });
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const { error } = await run(ctxOnMain(host, 'own-branches', { review: 'in-session' })).finally(() => vi.unstubAllEnvs());
+
+    expect(error.split('\n')[0]).toBe(`slice feature/one is the plan PR's head branch (#${PLAN_PR}); its merge reads as this slice landing.`);
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
+  });
+
+  it('asks prsOfCommit once and prList never for an in-session plan on the default branch, and approves on an unread answer', async () => {
+    const asked: Asked = { commit: [], merged: 0 };
+    const host = hostOf(asked, null);
+    vi.stubEnv('PLOT_UNATTENDED', '');
+    const { error } = await run(ctxOnMain(host, 'own-branches', { review: 'in-session' })).finally(() => vi.unstubAllEnvs());
+
+    expect(error).toBe('');
+    expect(asked.commit).toEqual([SECOND]);
+    expect(asked.merged).toBe(0);
   });
 });

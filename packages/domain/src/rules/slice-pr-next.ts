@@ -6,7 +6,7 @@ import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
-import { fixerScope, type FixerOwner } from './fixer-scope.js';
+import { fleetScope, type FleetOwner } from './fleet-scope.js';
 import { trustedReview } from './pr-index.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import { settledPast, type UnsettledReading } from './settled-past.js';
@@ -34,6 +34,12 @@ export const MERGEABLE_CONFLICTING = MergeabilitySchema.enum.conflicting;
  * budgets, counted apart. `conflictTried` is true where a conflict attempt on
  * the row's current head and the read base tip exists. `pushedHead` is true
  * where the record proves the fixer pushed the row's current head.
+ *
+ * `rerun` is where the re-run of the row's current head stands, from
+ * `rerunOnHead`: `none` for no re-run recorded, `running` for one asked and
+ * not yet seen, `done` for one seen or answered `failed` or `unaskable`, and
+ * `unseen` for one asked longer than `Checks wait` ago and never seen. Absent
+ * where the caller read no clock; {@link ciRerunArm} then answers `none`.
  */
 export type FixerReading =
   | { read: 'unread' }
@@ -45,6 +51,7 @@ export type FixerReading =
       conflictExhausted: boolean;
       conflictTried: boolean;
       pushedHead: boolean;
+      rerun?: 'none' | 'running' | 'done' | 'unseen';
     };
 
 /** The tip of a PR's base branch as the fixer tick read it after a fetch. */
@@ -159,6 +166,7 @@ export type HoldReason =
   | 'ci-red-attempts-spent'
   | 'conflict-attempted'
   | 'conflict-attempts-spent'
+  | 'rerun-running'
   | 'default-branch-red'
   | 'base-branch-red'
   | 'default-branch-stale'
@@ -188,6 +196,7 @@ export type SlicePrStep =
   | { step: 'merge'; head: string }
   | { step: 'hold'; reason: HoldReason }
   | { step: 'fixer'; head: string; evidence: 'high' | 'ci-red' | 'conflict' }
+  | { step: 'rerun'; head: string }
   | { step: 'ticket'; head: string };
 
 const none = (why: string): SlicePrStep => ({ step: 'none', why });
@@ -241,7 +250,7 @@ export const reviewRunArm = (readings: ArmReadings): SlicePrStep => {
  * @param readings - the PR's readings.
  * @returns `write-status`, a hold where the verdict file is unreadable, or `none`.
  */
-export const restatusArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const restatusArm = (readings: ArmReadings): SlicePrStep => {
   const { row, verdict, config, reviewStarts, now } = readings;
   if (!config.autoReview) return none('auto-review-off');
   if (row !== null && row.headSha !== undefined && reviewStartAllowed(reviewStarts, row.headSha, config.startBudget, now) === 'budget-spent') {
@@ -346,6 +355,38 @@ export const ciRedArm = (readings: ArmReadings): SlicePrStep => {
 };
 
 /**
+ * CI red on the current head re-runs the failed jobs once per head before
+ * {@link ciRedArm} starts a fixer on it.
+ *
+ * Answers, in order: an `unread` hold while the fixer record is unread;
+ * `none('rerun-unread')` where the reading carries no `rerun`;
+ * `none('no-ci-red')` where the row is not `failing` on its head;
+ * `none('rerun-done')` and `none('rerun-unseen')` for those `rerun` readings;
+ * `hold('rerun-running')` for a re-run asked and not yet seen, because a
+ * `failing` row read then predates the re-run; `none('ci-red-attempts-spent')`
+ * where the CI-red budget is spent, which {@link ciRedArm} then holds;
+ * `none('desk-alive')` where the desk is not gone; otherwise a `rerun` step.
+ *
+ * @param readings - the PR's readings.
+ * @returns an `unread` or `rerun-running` hold, a `rerun` step, or `none`.
+ */
+export const ciRerunArm = (readings: ArmReadings): SlicePrStep => {
+  const { row, fixer } = readings;
+  if (fixer === undefined) return none('fixer-not-built');
+  if (fixer.read === 'unread') return hold('unread');
+  if (fixer.rerun === undefined) return none('rerun-unread');
+  if (row === null || row.headSha === undefined || row.ciChecks !== 'failing' || row.checksSha !== row.headSha) {
+    return none('no-ci-red');
+  }
+  if (fixer.rerun === 'done') return none('rerun-done');
+  if (fixer.rerun === 'unseen') return none('rerun-unseen');
+  if (fixer.rerun === 'running') return hold('rerun-running');
+  if (fixer.ciExhausted) return none('ci-red-attempts-spent');
+  if (!deskGone(readings, fixer)) return none('desk-alive');
+  return { step: 'rerun', head: row.headSha };
+};
+
+/**
  * Whether the desk that owned the PR is gone, as {@link ciRedArm} and
  * {@link conflictArm} read it: dead, ended `corrections-spent` with its fresh
  * session spent, or superseded by a head the fixer itself pushed.
@@ -391,7 +432,7 @@ export const conflictArm = (readings: ArmReadings): SlicePrStep => {
  * @param readings - the PR's readings.
  * @returns `review`, or `none`.
  */
-export const reviewArm = (readings: SlicePrNextReadings): SlicePrStep => {
+export const reviewArm = (readings: ArmReadings): SlicePrStep => {
   const { row, config, reviewStarts, now } = readings;
   if (!config.autoReview) return none('auto-review-off');
   if (row === null || row.plotReview === undefined || row.headSha === undefined) return none('not-asked');
@@ -545,20 +586,21 @@ export const slicePrNext = (readings: SlicePrNextReadings): SlicePrStep => {
  * of the head branch.
  */
 export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
-  /** The owner of the head branch, from `fixerOwner`. */
-  readonly owner: FixerOwner;
+  /** The owner of the head branch, from `fleetOwner`. */
+  readonly owner: FleetOwner;
 };
 
 /**
  * The fixer's next step for one open PR.
  *
- * Asks `fixerScope` in place of {@link guardArm}: a PR out of scope answers
+ * Asks `fleetScope` in place of {@link guardArm}: a PR out of scope answers
  * `none` with the scope's reason, and `person-pushed-recently` carries the
  * time left as `leftMs`. A PR in scope then walks {@link reviewRunArm},
- * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm} and
- * {@link ciRedArm}, and the first answer that is not `none` wins; with none,
- * `ciRedArm`'s `none` is returned. `conflictArm` runs before `ciRedArm`
- * because the host runs no pull-request checks on a conflicting merge ref.
+ * {@link fixerInFlightArm}, {@link highArm}, {@link conflictArm},
+ * {@link ciRerunArm} and {@link ciRedArm}, and the first answer that is not
+ * `none` wins; with none, `ciRedArm`'s `none` is returned. `conflictArm` runs
+ * before `ciRerunArm` and `ciRedArm` because the host runs no pull-request
+ * checks on a conflicting merge ref.
  * For `owner: 'none'` the arms read the desk as `{ dead: true }`; for
  * `owner: 'desk'` they read `readings.desk`.
  *
@@ -573,7 +615,7 @@ export type FixerPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
  * @returns the step.
  */
 export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
-  const scope = fixerScope({
+  const scope = fleetScope({
     row: readings.row,
     defaultBranchName: readings.defaultBranchName,
     owner: readings.owner,
@@ -586,9 +628,78 @@ export const fixerPrNext = (readings: FixerPrNextReadings): SlicePrStep => {
     desk: scope.owner === 'none' ? { dead: true } : readings.desk,
   };
   let last: SlicePrStep = none('no-arm-answered');
-  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, conflictArm, ciRedArm]) {
+  for (const arm of [reviewRunArm, fixerInFlightArm, highArm, conflictArm, ciRerunArm, ciRedArm]) {
     last = arm(walked);
     if (!isNone(last)) return last;
   }
   return last;
+};
+
+/**
+ * Whether a repair record names an open, non-draft PR, so the review pass
+ * takes it before `fleetScope`.
+ *
+ * @param readings - the PR's row and the repair readings of the default branch and of its base.
+ * @returns `true` where `repairMerge` or `baseRepairMerge` names the row through {@link repairNamesPr}.
+ */
+export const repairAdmits = (readings: Pick<SlicePrNextReadings, 'row' | 'repairMerge' | 'baseRepairMerge'>): boolean => {
+  const { row, repairMerge, baseRepairMerge } = readings;
+  if (row === null || row.state !== 'OPEN' || row.draft) return false;
+  return (
+    (repairMerge !== undefined && repairNamesPr(repairMerge, row)) ||
+    (baseRepairMerge !== undefined && repairNamesPr(baseRepairMerge, row))
+  );
+};
+
+/**
+ * Everything {@link reviewPrNext} reads about one open PR, as values: the
+ * readings {@link slicePrNext} takes without the sprint scope, and the owner
+ * of the head branch.
+ */
+export type ReviewPrNextReadings = Omit<SlicePrNextReadings, 'scope'> & {
+  /** The owner of the head branch, from `fleetOwner`. */
+  readonly owner: FleetOwner;
+};
+
+/**
+ * The review pass's next step for one open PR.
+ *
+ * A PR that {@link repairAdmits} names is in, as in {@link guardArm}. Every other PR asks
+ * `fleetScope` with `readings.owner` and the attempts record's `pushedHead`: a
+ * PR out of scope answers `none` with the scope's reason, and
+ * `person-pushed-recently` carries the time left as `leftMs`. A PR in scope
+ * then walks {@link reviewRunArm}, {@link restatusArm} and {@link reviewArm},
+ * and the first answer that is not `none` wins; with none, `reviewArm`'s
+ * `none` is returned, because it names the reason.
+ *
+ * {@link fixerInFlightArm}, {@link highArm}, {@link ciRedArm},
+ * {@link conflictArm} and {@link mergeArm} are not walked: HIGH findings and
+ * CI belong to the fixer pass ({@link fixerPrNext}), and merging belongs to
+ * the merge pass, which keeps {@link slicePrNext} and the sprint scope. The
+ * walk reads no desk.
+ *
+ * A fork PR is not told apart from a branch PR: the row carries no head
+ * repository.
+ *
+ * @param readings - everything read of the PR, as values.
+ * @returns the step.
+ */
+export const reviewPrNext = (readings: ReviewPrNextReadings): SlicePrStep => {
+  if (!repairAdmits(readings)) {
+    const scope = fleetScope({
+      row: readings.row,
+      defaultBranchName: readings.defaultBranchName,
+      owner: readings.owner,
+      pushedHead: readings.fixer?.read === 'record' && readings.fixer.pushedHead,
+      now: readings.now,
+    });
+    if (!scope.in) return scope.why === 'person-pushed-recently' ? { step: 'none', why: scope.why, leftMs: scope.leftMs } : none(scope.why);
+  }
+  let review: SlicePrStep = none('no-arm-answered');
+  for (const arm of [reviewRunArm, restatusArm, reviewArm]) {
+    const answer = arm(readings);
+    if (arm === reviewArm) review = answer;
+    if (!isNone(answer)) return answer;
+  }
+  return review;
 };

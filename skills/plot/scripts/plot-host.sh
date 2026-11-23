@@ -636,8 +636,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The host CLI's stderr for one call, read back after the call. One file per
 # process, created here in the parent because the calls redirect into it from
 # inside command substitutions, where an assignment would not reach the caller.
-HOST_ERR=""
-plot_tmpfile HOST_ERR host-err || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+# `BB_RC` holds the exit code of the last `bb()` call, for the same reason.
+HOST_ERR=""; BB_RC=""
+plot_tmpfile HOST_ERR host-err && plot_tmpfile BB_RC host-bb-rc || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
 
 die() { echo "plot-host: $*" >&2; exit 1; }
 
@@ -682,7 +683,12 @@ gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
-die3() { echo "plot-host: $*" >&2; exit 3; }
+# `failed_code` answers 5 instead where the last `bb()` call exited 75: `bb`
+# refused it on its hourly ceiling, a pause, or a 429, so the op is throttled.
+# Only `bb()` writes `BB_RC`, and each call overwrites it, so a GitHub, Jira or
+# Jenkins op keeps exit 3 whatever its stderr says.
+failed_code() { [ "$(cat "$BB_RC" 2>/dev/null)" = 75 ] && echo 5 || echo 3; }
+die3() { echo "plot-host: $*" >&2; exit "$(failed_code)"; }
 
 # THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
 # read it, so what `green` means cannot differ between a listing and a merge.
@@ -869,9 +875,10 @@ pr_list_failed() { # $1=stderr text
   # the repair for the first is a login this connector can name — see
   # `host_repair`, which asks the CLI this backend drives rather than assuming
   # one. A failure that is neither costs the reader one `auth status`.
+  # A `bb` exit of 75 still exits 5 here, whatever the stderr text says.
   echo "plot-host: pr-list: ${err:-the host failed the request and said nothing}" >&2
   host_repair "$(backend)"
-  exit 3
+  exit "$(failed_code)"
 }
 
 # Run one `pr-list` host call, or die reporting which failure it was.
@@ -2020,16 +2027,19 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # `jen api` request, HTML, empty body — gets the generic "did not answer"
 # refusal, since nothing there proves Jenkins was even reached.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug job tree body try path plain="" default_job root_path branch_path branch_answered="" err_tmp err_line
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug job tree body try path plain="" default_job root_path branch_path branch_answered="" err_tmp err_branch err_root err_line timed_out=""
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
   body=""; root_path="$(jenkins_job_url_path "$job" "")"; branch_path="$(jenkins_job_url_path "$job" "$branch")"
+  # ONE STDERR FILE PER PATH, so the refusal can say which path wrote which line.
+  plot_tmpfile err_branch host-jenkins-sha-err && plot_tmpfile err_root host-jenkins-sha-err || { echo "plot-host: $op — no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+  err_tmp="$err_branch"
   for path in "$branch_path" "$root_path"; do
-    plot_tmpfile err_tmp host-jenkins-sha-err || { echo "plot-host: $op — no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
-    try=$(PLOT_JEN_BOUND_S="${PLOT_JENKINS_SHA_BOUND_S:-30}" jen -I "$slug" api "$path/api/json?$tree" 2>"$err_tmp") || true
+    # Exit 143 is `jen()` killing a call at its bound: the exit code decides, never empty stderr.
+    try=$(PLOT_JEN_BOUND_S="${PLOT_JENKINS_SHA_BOUND_S:-30}" jen -I "$slug" api "$path/api/json?$tree" 2>"$err_tmp") || { [ $? = 143 ] && timed_out=1; }
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
     # A branch path that came back as REAL JSON (jq could parse and evaluate
     # it, just found no `builds` key) means Jenkins answered and indexed no
@@ -2045,21 +2055,26 @@ jenkins_sha_runs() {
     # body shape" keeps the empty-history reading from ever depending on what
     # a branch-level answer happens to contain.
     [ "$path" = "$root_path" ] && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
-    plain=1
+    plain=1; err_tmp="$err_root"
   done
   if [ -z "$body" ]; then
     if [ -n "$branch_answered" ]; then
       echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2
     else
-      err_line="$(grep -m1 '^error:' "$err_tmp" 2>/dev/null || true)"
-      if grep -qi 'unknown command: api' "$err_tmp" 2>/dev/null; then
+      if grep -qi 'unknown command: api' "$err_branch" "$err_root" 2>/dev/null; then
         echo "plot-host: $op — the sha read needs jen 0.4.0 or later with \`api\`" >&2
-      elif grep -qiE 'command not found|no such file or directory' "$err_tmp" 2>/dev/null; then
+      elif grep -qiE 'command not found|no such file or directory' "$err_branch" "$err_root" 2>/dev/null; then
         echo "plot-host: $op — \`jen\` is not installed; the sha read needs jen 0.4.0 or later with \`api\`" >&2
       else
         printf '%s\n' "plot-host: $op — Jenkins did not answer for Jenkins instance '$slug'" >&2
-        [ -n "$err_line" ] && printf '  jen: %s\n' "$err_line" >&2
-        printf '  Plot reaches Jenkins only through `jen`; run `jen auth login`.\n' >&2
+        # Each path's first `error:` line, branch path first; a path with none shows nothing.
+        err_line="$(grep -m1 '^error:' "$err_branch" 2>/dev/null)" && printf '  jen at %s: %s\n' "$branch_path" "$err_line" >&2
+        err_line="$(grep -m1 '^error:' "$err_root" 2>/dev/null)" && printf '  jen at %s: %s\n' "$root_path" "$err_line" >&2
+        if [ -n "$timed_out" ]; then
+          printf '  A call ran past the %s s bound; raise PLOT_JENKINS_SHA_BOUND_S if Jenkins needs longer.\n' "${PLOT_JENKINS_SHA_BOUND_S:-30}" >&2
+        else
+          printf '  Plot reaches Jenkins only through `jen`; run `jen auth login`.\n' >&2
+        fi
       fi
     fi
     exit 4
@@ -2297,7 +2312,8 @@ is_rate_refusal() {
 
 # Emits the miss payload on a genuine miss and exits non-zero on anything else,
 # after putting the CLI's own words on stderr. Callers get: stdout parseable or
-# empty, exit code decisive.
+# empty, exit code decisive. The failure code is `failed_code`'s: 5 after a
+# `bb` 75, else 3.
 # A FAILURE WITH NO DIAGNOSTIC AT ALL IS TREATED AS A MISS, and that is a
 # deliberate exception to the allowlist above rather than an oversight.
 #
@@ -2324,7 +2340,7 @@ host_miss_or_fail() {
     return 0
   fi
   echo "plot-host: $err" >&2
-  return 3
+  return "$(failed_code)"
 }
 
 # WHY A SECOND PATH EXISTS AT ALL: GitHub meters GraphQL and REST separately,
@@ -2664,160 +2680,6 @@ bb_strip_ansi() {
   # ESC [ ... <final-byte>. LC_ALL=C so the byte class is bytes, not locale
   # graphemes — the escape is 7-bit regardless of the text's encoding.
   LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g'
-}
-
-# --- bb capability check (--json support) ------------------------------------
-#
-# TWO TOOLS SHARE THE NAME `bb`. craftamap/bb is a Go binary that does NOT
-# support `--json` for PR commands. Quatico's `bb` (a shell wrapper) does.
-# Their version numbers name different products: craftamap 0.6.0 is not
-# "older than" Quatico 1.0.0 — they are unrelated.
-#
-# The adapter passes `--json` to `bb pr list`. Against craftamap that is
-# `Error: unknown flag: --json`, swallowed by any 2>/dev/null, and jq exits 0
-# on empty input — so every Bitbucket PR list reads as *no PRs*.
-#
-# Worse: craftamap 0.6.0 panics (SIGSEGV) under an HTTP 429. A segfaulting CLI
-# is indistinguishable from a quiet one when stderr is discarded.
-#
-# The capability is per-FLAG, not per-version. On one machine, on one day:
-#   plugin cache (bb 1.0.0)  : --json yes, checks no
-#   plugin marketplace (1.9.0): --json yes, checks yes
-#   craftamap fallback (0.6.0): --json NO
-#
-# So: CHECK THE CAPABILITY, ONCE PER RUN. `BB_CAP_*` are cached on first call.
-# A bb without `--json` exits 3 with the reason naming WHICH bb answered.
-
-# Cached capability state — empty until first call to bb_require_json.
-BB_CAP_CHECKED=""
-BB_CAP_IDENTITY=""    # "craftamap/0.6.0" or "quatico/1.2.3" or "unknown/<ver>"
-BB_CAP_PROBE_RC=""    # the exit code `bb pr list --help --json` returned
-BB_CAP_PROBE_MATCH="" # the line that matched a rejection pattern, if one did
-
-# Identify which bb is on PATH. Returns a string like "quatico/1.9.0" or
-# "craftamap/0.6.0" or "unknown/<version>" or "unknown/unknown".
-#
-# The identification is BEHAVIOURAL, not by reading a vendor field that may not
-# exist: craftamap/bb prints `bb version X.Y.Z (sha)` and Quatico's prints
-# `bb version X.Y.Z` (no sha) with a distinctive banner. The shape decides.
-bb_identify() {
-  local ver_out ver_stripped
-  ver_out="$(bb --version 2>&1)" || {
-    # bb not found or exited non-zero — cannot proceed
-    echo "unknown/unavailable"
-    return
-  }
-  ver_stripped="$(bb_strip_ansi <<<"$ver_out")"
-
-  local version; version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
-  [ -z "$version" ] && version="unknown"
-
-  # craftamap/bb includes a git sha in parentheses: `bb version 0.6.0 (abc1234)`
-  # Quatico's does not — it prints only `bb version X.Y.Z`.
-  if grep -qE '\([0-9a-f]+\)' <<<"$ver_stripped"; then
-    echo "craftamap/$version"
-  elif grep -qi 'quatico\|plugin' <<<"$ver_stripped"; then
-    echo "quatico/$version"
-  else
-    # Unknown provenance — report the version so a human can tell
-    echo "unknown/$version"
-  fi
-}
-
-# Test whether the bb on PATH supports `--json` for PR commands.
-# Returns 0 if it does, non-zero otherwise.
-#
-# The test is BEHAVIOURAL: call `bb pr list --json --help` (or similar) and
-# see if it rejects `--json`. We cannot rely on version numbers because two
-# products share the name and their versions are unrelated.
-#
-# Note: `bb pr list --json --state open` would contact the network; we want a
-# purely local check. craftamap's `bb pr list --help --json` exits 1 with
-# "unknown flag: --json" on stderr (and sometimes stdout). Quatico's accepts it.
-bb_test_json_support() {
-  # Ask for help with --json — a bb that does not understand it will complain.
-  # Capture both streams since bb writes errors to stdout.
-  local out rc
-  out="$(bb pr list --help --json 2>&1)"; rc=$?
-
-  # WHAT WAS TESTED, kept for the refusal below. The diagnostic names the
-  # command, its exit code and the line that matched — three observations a
-  # reader can reproduce — rather than a provenance verdict `bb_identify`
-  # cannot determine. A message that guesses wrong costs more than one that
-  # says less.
-  BB_CAP_PROBE_RC="$rc"; BB_CAP_PROBE_MATCH=""
-
-  # THE MEASUREMENT ANSWERS FIRST, AND THE TEXT ONLY WHEN IT IS ABSENT.
-  #
-  # `rc = 0` proves the flag PARSED: no CLI accepts an unknown flag and exits 0.
-  # That is a measurement. The grep below is a heuristic over prose, and asking
-  # the heuristic first is what issue #668 is.
-  #
-  # bb 1.9.0 documents that the flag is cheap — "a bare `--json`, costs nothing
-  # extra" — and `--json.*not` matched `--json, costs no`t`hing`, so a bb that
-  # WORKS was rejected for explaining the flag it supports. The bug therefore
-  # scaled with documentation quality: bb 1.0.0 lacks the sentence and passed.
-  [ "$rc" = 0 ] && return 0
-
-  # ANCHORED TO THE FLAG, WITH NO `.*` BRIDGE, so prose cannot reach them.
-  # These are what a CLI actually prints when it rejects a flag — Cobra, getopt
-  # and Go's `flag` respectively. craftamap 0.6.0 exits NON-ZERO on `--json`, so
-  # it never reached the early return above and its exact message still matches.
-  if grep -qiE 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out"; then
-    BB_CAP_PROBE_MATCH="$(grep -iEm1 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out")"
-    return 1
-  fi
-
-  # A "not a bitbucket repo" error is about the repo, not the flag.
-  grep -qiE 'not a bitbucket repo|repository not found' <<<"$out" && return 0
-
-  # AN UNRECOGNISED FAILURE ACCEPTS, and this is a behaviour change the plan
-  # argued for in round 1. Refusing on wording outside the three formats above
-  # is the same mistake as the bug this function is fixing, one arm along: a
-  # guess refusing a CLI that may work. A help call failing for some other
-  # reason is likelier an environment problem, and letting it through means the
-  # first real call fails with BB'S OWN ERROR — more accurate than any guess
-  # made here.
-  #
-  # The cost is stated rather than hidden: a genuinely incapable `bb` with
-  # unfamiliar wording now produces a downstream error instead of one clear
-  # message. That is the direction to fail, because the other direction is #668.
-  return 0
-}
-
-# Require that bb supports --json. Called once before the first bb PR call.
-# Exits 3 with a diagnostic if bb cannot do what the adapter needs.
-# Caches the result so subsequent calls are free.
-bb_require_json() {
-  # Skip check if already done
-  [ -n "$BB_CAP_CHECKED" ] && return 0
-  BB_CAP_CHECKED=1
-
-  # Allow tests to skip this (their stubs may not implement --help)
-  if [ -n "${PLOT_BB_SKIP_CAP_CHECK:-}" ]; then
-    BB_CAP_IDENTITY="stub/test"
-    return 0
-  fi
-
-  BB_CAP_IDENTITY="$(bb_identify)"
-
-  if ! bb_test_json_support; then
-    # THE OBSERVATION FIRST, THE IDENTITY WHERE ONE IS KNOWN.
-    #
-    # The plan asked for the observation and for dropping the provenance CLAIM
-    # — `bb_identify` answers `unknown/<ver>` for Quatico's bb, so a message
-    # resting on it advised a working install to reinstall itself.
-    #
-    # But identity is not always unknown: craftamap reports a real version, and
-    # `host.test.mjs:1761` asserts the diagnostic names it. Both are right, and
-    # they do not conflict — an identity that IS determinable is a fact worth
-    # printing, and `bb_identify` already answers `unknown/<ver>` rather than
-    # inventing one where it is not. So this reports what was tested AND who
-    # answered, and it no longer tells anyone what to install.
-    die3 "bb ($BB_CAP_IDENTITY): bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
-  fi
-
-  return 0
 }
 
 # --- Jira issue support (REST, no CLI) --------------------------------------
@@ -3232,13 +3094,39 @@ BB_LIST_PAGELEN=50
 # space-separated. `adapters/host/listing-paging.ts` holds the same table.
 BB_LIST_PAGE_VERSIONS="1.9.0"
 
+# WHICH `bb` ANSWERS, read by `bb_identity_check` before the first `bb()` call
+# of a run. `BB_RC` is empty until a `bb()` call ends, and it is one file for the
+# run and its subshells, so the check runs once; an op that never calls `bb`
+# never reads it. `command bb --version` runs outside the `bb()` wrapper: it
+# sends no request, so it takes no host slot and records no budget row.
+#
+# The check refuses craftamap/bb, which has no `--json` and prints a git sha in
+# parentheses (`bb version 0.6.0 (abc1234)`). It does not demand the word
+# `quatico-bb`: Quatico's `bb` prints only `bb X.Y.Z` up to 1.12.1 and adds
+# `(quatico-bb — …)` from 1.13.0, and both take `--json`. A `bb` that prints
+# nothing passes, and its first real call fails with its own words.
+#
+# `BB_VERSION` is the version the line names, empty where it names none;
+# `bb_list_page_length` is its one reader, and reads the line again because
+# the first check can have run in a subshell.
+BB_VERSION=""
+bb_identity_check() {
+  local line; line="$(command bb --version 2>/dev/null | bb_strip_ansi | head -1)"
+  BB_VERSION="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$line" | head -1)"
+  grep -qE '\([0-9a-f]+\)' <<<"$line" && die3 "bb is not Quatico's bb ($line) — install it with brew install quatico-solutions/tap/quatico-bb"
+  return 0
+}
+
 # The page length the answering `bb` lists by, or nothing where its version is
-# not in BB_LIST_PAGE_VERSIONS. Reads the version `bb_require_json` recorded,
-# so it costs no `bb` call; a skipped capability check records no version.
+# not in BB_LIST_PAGE_VERSIONS. Reads `BB_VERSION` through `command bb --version`,
+# so it costs no request.
+# Quatico's `bb` 1.9.0 prints `bb version 1.9.0`, which names 1.9.0, so its
+# row still matches.
 bb_list_page_length() {
-  local v="${BB_CAP_IDENTITY#*/}"
+  bb_identity_check
+  [ -n "$BB_VERSION" ] || return 0
   case " $BB_LIST_PAGE_VERSIONS " in
-    *" $v "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
+    *" $BB_VERSION "*) printf '%s\n' "$BB_LIST_PAGELEN" ;;
   esac
 }
 
@@ -3491,8 +3379,8 @@ budget_account() {
       who="$(awk '/^[[:space:]]+user:/ {print $2; exit}' "${GH_CONFIG_DIR:-$HOME/.config/gh}/hosts.yml" 2>/dev/null)"
       ;;
     bitbucket)
-      # `bb_identify` already resolves who bb is, and it caches; but it runs a
-      # `bb` call, which is the thing being counted. The remote's owner is the
+      # Asking `bb` who is logged in would spend a `bb` call, which is the
+      # thing being counted. The remote's owner is the
       # free approximation and is the half of the key that groups correctly:
       # two checkouts of one workspace share a budget.
       who="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#^.*[:/]([^/]+)/[^/]+(\.git)?$#\1#')"
@@ -3847,47 +3735,48 @@ host_slot_give() {
   PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
 }
 
-gh() {
-  host_slot_take github github
-  command gh "$@"
-  local rc=$?
+# Runs one host CLI call inside its connector's slot and records it on the
+# ledger, failed or not. $1=connector $2=backend-for-account $3=bucket ("" lets
+# `budget_record_call` choose), then the command line to run.
+host_cli_call() {
+  local connector="$1" account_be="$2" bucket="$3" rc; shift 3
+  host_slot_take "$connector" "$account_be"
+  "$@"; rc=$?
   host_slot_give
-  budget_record_call github github "$(gh_bucket_of_argv "$@")"
+  budget_record_call "$connector" "$account_be" "$bucket"
   return $rc
 }
 
+gh() { host_cli_call github github "$(gh_bucket_of_argv "$@")" command gh "$@"; }
+
+# `bb` also writes its exit code to `BB_RC` for `failed_code`, and runs
+# `bb_identity_check` while `BB_RC` is still empty.
 bb() {
-  host_slot_take bitbucket bitbucket
-  command bb "$@"
+  [ -s "$BB_RC" ] || bb_identity_check
+  host_cli_call bitbucket bitbucket '' command bb "$@"
   local rc=$?
-  host_slot_give
-  budget_record_call bitbucket bitbucket
+  printf '%s\n' "$rc" >"$BB_RC"
   return $rc
 }
 
-jen() {
-  host_slot_take jenkins ''
-  local rc
-  if [ -n "${PLOT_JEN_BOUND_S:-}" ]; then
-    local pid watcher was_m
-    case $- in *m*) was_m=yes ;; *) was_m=no ;; esac; set -m
-    command jen "$@" & pid=$!
-    ( sleep "$PLOT_JEN_BOUND_S"; kill -TERM "-$pid" ) >/dev/null 2>&1 & watcher=$!
-    wait "$pid"; rc=$?
-    kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
-    [ "$was_m" = yes ] || set +m
-    [ $rc = 143 ] && echo "jen api gave no answer within ${PLOT_JEN_BOUND_S} s" >&2
-  else
-    command jen "$@"
-    rc=$?
-  fi
-  host_slot_give
-  # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
-  # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
-  # against a server the git host knows nothing about.
-  budget_record_call jenkins ''
-  return $rc
-}
+# Jenkins is the CI axis, a connector of its own — this repo is GitHub +
+# Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
+# against a server the git host knows nothing about.
+jen() { host_cli_call jenkins '' '' ${PLOT_JEN_BOUND_S:+jen_bounded} command jen "$@"; }
+
+# Runs its argv with a `PLOT_JEN_BOUND_S` bound and exits 143 when the bound
+# kills it. A SUBSHELL HOLDS `set -m`, so the caller's job-control mode never
+# changes; job control gives the call its own process group, which the watcher
+# kills.
+jen_bounded() (
+  set -m
+  "$@" & pid=$!
+  ( sleep "$PLOT_JEN_BOUND_S"; kill -TERM "-$pid" ) >/dev/null 2>&1 & watcher=$!
+  wait "$pid"; rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+  [ $rc = 143 ] && echo "error: jen api gave no answer within ${PLOT_JEN_BOUND_S} s" >&2
+  exit $rc
+)
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
 shift
@@ -3952,12 +3841,6 @@ case "$op" in
     if [ "$be" = "github" ]; then
       _db=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)
     else
-      # `--json` IS A CAPABILITY, NOT A GIVEN. Two products share the name `bb`
-      # and craftamap's rejects the flag (see `bb_require_json`) — against it
-      # this call emits `unknown flag: --json`, `jq` reads non-JSON, and the arm
-      # would answer nothing while exiting 0. This call was unguarded while it
-      # was unreachable; asking the host makes it live.
-      bb_require_json
       _db=$(bb repo view --json 2>/dev/null | jq -r '.mainbranch.name // empty' 2>/dev/null || true)
     fi
     # `null` is what `jq` prints for an absent field and it is not a branch name.
@@ -3977,9 +3860,8 @@ case "$op" in
     # THE BITBUCKET ARM IS NOT EXPOSED. `budget_account bitbucket` answers the
     # remote's owner segment, which is the WORKSPACE: on a team workspace every
     # contributor gets the same word, and it matches no PR author. Measured
-    # 2026-09-25, neither `bb` stores a username for free. Quatico's keeps only
-    # the Atlassian email, in the Keychain. craftamap's keeps an email in
-    # `configuration.toml`. A Bitbucket PR author carries a nickname, an
+    # 2026-09-25, `bb` stores no username for free: it keeps only the
+    # Atlassian email, in the Keychain. A Bitbucket PR author carries a nickname, an
     # account id and a uuid, and never an email. So this backend has no answer,
     # and exit 4 says so.
     #
@@ -4052,8 +3934,6 @@ case "$op" in
           '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
       fi
     else
-      # Establish that bb supports --json BEFORE calling it — Done-when 5.
-      bb_require_json
       # THE SAME KEY SET AS THE GITHUB ARM, INCLUDING `mergeCommit`. This arm
       # dropped that key on all four of its paths until 2026-09-18, and the
       # consumer reads it as `.mergeCommit // empty` — where `jq` cannot tell an
@@ -4153,7 +4033,6 @@ case "$op" in
           miss_or_unknown "$err"
         fi
       else
-        bb_require_json
         # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER. `bb pr list --state
         # merged` returns one fixed page of 50, newest first, and a branch whose
         # merge is older than that page reads as unmerged — measured 2026-10-20
@@ -4220,7 +4099,6 @@ case "$op" in
                | {n: .number, b: (.baseRefName // ""), s: .mergeCommit.oid, t: .mergedAt}) | '"$pick" <<<"$out"
       fi
     else
-      bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
       # states the measurement and the cost. Bitbucket names the merge commit
       # `merge_commit.hash` on a merged PR.
@@ -4255,7 +4133,6 @@ case "$op" in
         [ -n "$err" ] && is_lookup_miss "$err" || die3 "${err:-the pulls read failed}"
       fi
     else
-      bb_require_json
       # ASK THE HOST FOR THE BRANCH; DO NOT PAGE FURTHER — `pr-merged`'s header
       # states the measurement and the cost. Bitbucket names the merged head
       # `source.commit.hash`.
@@ -4347,7 +4224,7 @@ case "$op" in
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then bb_require_json; head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
       echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
       exit 1
@@ -4754,8 +4631,6 @@ case "$op" in
       # The REST endpoint takes no such flag either; `--limit` is honoured by
       # `bb_state_listing` following `next` (see its header), not by anything
       # Bitbucket's API does on its own.
-      # Establish that bb supports --json BEFORE calling it — Done-when 5.
-      bb_require_json
       # Resolve the states BEFORE the loop. `for s in $(bb_states_for …)` runs
       # the helper in a subshell, where `die` exits that subshell only: the
       # loop would then iterate an empty list and the command would succeed
@@ -5585,7 +5460,7 @@ case "$op" in
     # GitHub reads `GET pulls/<n>` over REST; Bitbucket reads `description`.
     if [ $# -eq 0 ]; then
       if [ "$be" = "github" ]; then gh_api_harvest "repos/$(gh_origin_slug)/pulls/$num" | jq -r '.body // ""'
-      else bb_require_json; bb pr view "$num" --json | jq -r '.description // ""'; fi
+      else bb pr view "$num" --json | jq -r '.description // ""'; fi
       exit
     fi
     pr_text_args pr-body "$@"
@@ -5701,14 +5576,26 @@ case "$op" in
       fi
     elif [ "$be" = "bitbucket" ]; then
       # `bb` shows this script no response headers, so the number is this
-      # adapter's prediction — the `Host rate limit` key, else 800 requests an
-      # hour, the ceiling `bb` keeps — and it is tagged `predicted` because it is one.
+      # adapter's prediction, tagged `predicted` because it is one.
       #
-      # A PREDICTION IS NOT A LIE AND NOT A FAILURE. It is answered: the adapter
-      # is telling the truth about what it knows. A caller reads the basis and
-      # decides how much to trust it; a `throttled` observed during the session
-      # is what corrects it.
-      echo "{\"connector\":\"bitbucket\",\"bucket\":\"api\",\"limit\":$(budget_reading bitbucket | cut -f1),\"remaining\":null,\"reset\":null,\"basis\":\"predicted\"}"
+      # `bb rate-limit --json` (bb 1.15.0) reports its own ledger: `requests` in
+      # the last hour, its `ceiling`, `paused_until` and `wait_seconds`. It sends
+      # no request and takes no host slot, so it runs as `command bb` and
+      # records no budget row. It exits 0, or 75 where a request would be
+      # refused now. Its fields are printed beside the declared `Host rate
+      # limit` (null where none is declared), and `bbLimitReading` in
+      # `rules/bb-ledger.ts` turns them into a reading: this script computes
+      # nothing from them.
+      #
+      # ANY OTHER ANSWER PRINTS THE PREDICTION ALONE, with `remaining` null: the
+      # `Host rate limit` key, else 800 requests an hour, the ceiling `bb`
+      # keeps. A `bb` older than 1.15.0 answers `unknown command: rate-limit`
+      # and exit 1, and an answer that cannot be read is not "no limit".
+      if _rl="$(command bb rate-limit --json 2>/dev/null || [ $? = 75 ])" && _rl="$(jq -ce 'objects | select(.wait_seconds | type == "number") | {requests, ceiling, paused_until, wait_seconds}' <<<"$_rl" 2>/dev/null)"; then
+        jq -c --arg d "$(bash "$here/plot-config.sh" get "Host rate limit" "" 2>/dev/null | grep -xE '[1-9][0-9]*')" '{connector: "bitbucket", bucket: "api", limit: ($d | tonumber? // null), remaining: null, reset: null, basis: "predicted"} + .' <<<"$_rl"
+      else
+        echo "{\"connector\":\"bitbucket\",\"bucket\":\"api\",\"limit\":$(budget_reading bitbucket | cut -f1),\"remaining\":null,\"reset\":null,\"basis\":\"predicted\"}"
+      fi
     fi
     ;;
 

@@ -51,6 +51,9 @@ export const buildFleetBundles = async () => {
     ...SHARED_OPTIONS,
     entryPoints: [path.join(here, 'src/server/entry/registryd-main.ts')],
     outfile: fleetdArtifact,
+    // It imports the prompt entry's resolver for the write probe, whose own
+    // run block would otherwise match this bundle's argv[1].
+    define: { PLOT_EMBEDDED: 'true' },
   });
 
   // ONE OF TWO BUNDLES THAT CARRY `@anthropic-ai/claude-agent-sdk`, for the SDK

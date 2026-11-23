@@ -1849,6 +1849,17 @@ test('scan: section 13 footer counter matches the number of findings', () => {
   assert.match(footer, /\bstale_tally=2\b/);
 });
 
+test('scan: section 13 hint names only the tick', () => {
+  // The loop reads nothing after the slug, so no annotation clears the finding:
+  // the hint names only the action the scan honours (#3586).
+  const hints = stSections['13'].split('\n').filter((l) => l.includes('fix:'));
+  assert.equal(hints.length, 2, `expected 2 hints, got ${hints.length}`);
+  for (const h of hints) {
+    assert.match(h, /fix: tick the item/);
+    assert.doesNotMatch(h, /annotation/);
+  }
+});
+
 test('scan: a stale tally leaves attention= unchanged — the section does NOT gate', () => {
   // THE property a naive implementation breaks. A stale tally is wrong, not
   // broken — rewriting history automatically is worse than reporting it.
@@ -4380,7 +4391,6 @@ exit 0
       cwd: s6Repo,
       env: {
         ...process.env,
-        PLOT_BB_SKIP_CAP_CHECK: '1',
         PATH: `${dir}:${process.env.PATH}`,
       },
     });
@@ -4503,7 +4513,6 @@ exit 0
       // `bb pr list --help --json`, which a stub does not implement.
       env: {
         ...process.env,
-        PLOT_BB_SKIP_CAP_CHECK: '1',
         PATH: `${dir}:${process.env.PATH}`,
       },
     });
@@ -4850,7 +4859,7 @@ exit 0
     out = execFileSync('bash', [scan, '--no-fetch'], {
       encoding: 'utf8',
       cwd: s6Repo,
-      env: { ...process.env, PLOT_BB_SKIP_CAP_CHECK: '1', PATH: `${dir}:${process.env.PATH}` },
+      env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
     });
     argv = fs.existsSync(argvLog) ? fs.readFileSync(argvLog, 'utf8') : '';
   } finally {
@@ -4948,6 +4957,39 @@ test('scan: PR #60 merged before #50 but the tag misses #60 reports tag-misses-p
       `two local PRs merged out of number order, one tag missing the other, must report tag-misses-pr by its detail text:\n${sections['6']}`);
   } finally {
     fs.rmSync(path.join(s6Repo, 'plans', '2026-03-11-outoforder.md'), { force: true });
+  }
+});
+
+test('scan: a sibling PR whose merge commit this clone lacks reports cannot resolve, not tag-misses-pr', () => {
+  // #62 merged FIRST onto a sha this clone does not hold, so `git tag
+  // --contains` fails rather than answering "no tag". #52 merged LAST onto
+  // s6Sha, tagged v9.0.0. A failed read is not an empty answer: the finding
+  // names #62 and its sha, and never claims "the first tag that does: none".
+  const absentSha = 'c0ffee'.repeat(6) + 'beef';
+  s6Write('plans/2026-03-11-siblingabsent.md', ['# siblingabsent', '', '## Status', '',
+    '- **State:** Delivered', '- **Type:** feature', '- **Delivered:** 2026-03-01', '',
+    '## Slices', '', '### first (Branch: bug/siblingabsent-first, PR: #62)', '',
+    '- `bug/siblingabsent-first` — the slice → #62', '',
+    '### second (Branch: bug/siblingabsent-second, PR: #52)', '',
+    '- `bug/siblingabsent-second` — the slice → #52', ''].join('\n'));
+  try {
+    const { out } = runSection6With({
+      101: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      102: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      103: { mergeCommit: s6Sha, mergedAt: '2026-03-01T00:00:00Z' },
+      62: { mergeCommit: absentSha, mergedAt: '2026-03-01T00:00:00Z' },
+      52: { mergeCommit: s6Sha, mergedAt: '2026-03-02T00:00:00Z' },
+    });
+    const sections = splitSections(out);
+    assert.match(sections['6'],
+      new RegExp(`2026-03-11-siblingabsent\\.md — delivered, PR #62 names merge commit ${absentSha}, not in this clone → cannot resolve`),
+      `a sibling whose merge commit the clone lacks must report cannot resolve:\n${sections['6']}`);
+    assert.match(sections['6'], /re-run without --no-fetch\/--offline/,
+      `the finding must carry the fetch advice:\n${sections['6']}`);
+    assert.doesNotMatch(sections['6'], /siblingabsent\.md — delivered, tag .*the first tag that does: none/,
+      `a commit the scan never read must not read as in no tag:\n${sections['6']}`);
+  } finally {
+    fs.rmSync(path.join(s6Repo, 'plans', '2026-03-11-siblingabsent.md'), { force: true });
   }
 });
 

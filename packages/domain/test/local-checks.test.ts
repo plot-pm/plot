@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import {
+  ciSelection,
+  corpusGlobs,
+  estateReaders,
   globToRegExp,
   localChecks,
+  plotReads,
   parseList,
   parseLocalChecks,
   searchTerms,
   shellWord,
   type LocalChecksReadings,
+  type SelectionReadings,
+  type TestFile,
 } from '../src/rules/local-checks.js';
 
 const CHECKS = parseLocalChecks(
@@ -117,7 +123,7 @@ describe('localChecks', () => {
         references: new Map([['skills/plot/scripts/board/board-server.mjs', ['test/reconcile/a.test.mjs']]]),
       }),
     );
-    expect(answer).toEqual({ commands: [], tests: [], overLimit: [], untested: [] });
+    expect(answer).toEqual({ commands: [], tests: [], overLimit: [], estateTests: [], untested: [] });
   });
 
   it('a path named by more test files than the limit is reported, and selects none of them', () => {
@@ -209,5 +215,87 @@ describe('declaration order', () => {
     expect(forward.commands).toEqual(reverse.commands);
     expect(forward.commands[0]).toBe('echo first');
     expect(forward.commands.at(-1)).toBe('echo last');
+  });
+});
+
+describe('estate readers', () => {
+  const CORPUS = corpusGlobs('docs/plans/', 'docs/sprints/');
+  const PLAN = 'docs/plans/x.md';
+  const PLANS_READER: TestFile = { path: 'test/reconcile/parser.test.mjs', text: '// plot-reads: docs/plans\nreaddirSync(plansDir);\n' };
+  const SPRINTS_READER: TestFile = { path: 'test/reconcile/sprint.test.mjs', text: '// plot-reads: docs/sprints\n' };
+  const UNMARKED: TestFile = { path: 'test/reconcile/walk.test.mjs', text: "readdirSync(path.join(repoRoot, 'docs', 'plans'));\n" };
+  const BASENAME: TestFile = { path: 'test/reconcile/fixture.test.mjs', text: "const plan = 'x.md';\n" };
+  const TESTS = [PLANS_READER, SPRINTS_READER, UNMARKED, BASENAME];
+
+  const local = (changed: readonly string[], tests: readonly TestFile[]) =>
+    localChecks({ ...readings({ changed }), references: new Map(changed.map((path) => [path, tests.map((t) => t.path)])), corpus: CORPUS, tests });
+  const ci = (changed: readonly string[], tests: readonly TestFile[]) =>
+    ciSelection({
+      changed,
+      generated: [],
+      checks: CHECKS,
+      tests,
+      corpus: CORPUS,
+      corpusFiles: [],
+      sync: { planDir: 'docs/plans/', activeIndex: 'docs/plans/active/', deliveredIndex: 'docs/plans/delivered/', sprintDir: 'docs/sprints/', releaseDir: 'docs/releases/' },
+    } satisfies SelectionReadings);
+
+  it('reads one directory per `// plot-reads:` line, without `./` or a trailing `/`', () => {
+    expect(plotReads('// plot-reads: ./docs/plans/\n  // plot-reads: docs/sprints\nconst x = 1; // plot-reads: nope\n')).toEqual([
+      'docs/plans',
+      'docs/sprints',
+    ]);
+  });
+
+  it('a changed plan selects a test marked `docs/plans` and not an unmarked one', () => {
+    expect(estateReaders([PLAN, 'skills/plot/a.sh'], CORPUS, TESTS)).toEqual(new Map([[PLAN, [PLANS_READER.path]]]));
+    expect(local([PLAN], TESTS).estateTests).toEqual([PLANS_READER.path]);
+    expect(ci([PLAN], TESTS).estateTests).toEqual([PLANS_READER.path]);
+  });
+
+  it('a test marked `docs/sprints` is not selected by a plan path, and is by a sprint path', () => {
+    expect(local([PLAN], [SPRINTS_READER]).estateTests).toEqual([]);
+    expect(ci([PLAN], [SPRINTS_READER]).estateTests).toEqual([]);
+    expect(ci(['docs/sprints/s.md'], TESTS).estateTests).toEqual([SPRINTS_READER.path]);
+  });
+
+  it('a plan path selects no test that only names its basename, in localChecks and in ciSelection', () => {
+    const answer = local([PLAN], [BASENAME]);
+    expect(answer.commands).toEqual([]);
+    expect(answer.tests).toEqual([]);
+    expect(answer.untested).toEqual([PLAN]);
+    const selected = ci([PLAN], [BASENAME]);
+    expect(selected.tests).toEqual([]);
+    expect(selected.estateTests).toEqual([]);
+  });
+
+  it('runs the estate readers locally through the check whose glob holds them', () => {
+    const answer = local([PLAN], TESTS);
+    expect(answer.commands).toEqual(['node --test test/reconcile/parser.test.mjs']);
+    expect(answer.untested).toEqual([]);
+  });
+
+  it('selects 25 marked tests, and reports none of them in overLimit', () => {
+    const marked = Array.from({ length: 25 }, (_, i): TestFile => ({
+      path: `test/reconcile/estate-${String(i).padStart(2, '0')}.test.mjs`,
+      text: '// plot-reads: docs/plans\n',
+    }));
+    const answer = local([PLAN], marked);
+    expect(answer.estateTests).toEqual(marked.map((t) => t.path));
+    expect(answer.overLimit).toEqual([]);
+    expect(answer.commands).toEqual([`node --test ${marked.map((t) => t.path).join(' ')}`]);
+    expect(ci([PLAN], marked).estateTests).toEqual(marked.map((t) => t.path));
+  });
+
+  it('localChecks and ciSelection answer the same estateTests for one input', () => {
+    const changed = [PLAN, 'docs/sprints/s.md', 'skills/plot/scripts/plot-host.sh'];
+    expect(local(changed, TESTS).estateTests).toEqual(ci(changed, TESTS).estateTests);
+    expect(ci(changed, TESTS).estateTests).toEqual([PLANS_READER.path, SPRINTS_READER.path]);
+  });
+
+  it('keeps the estate readers out of the CI checks, which the job map reads apart', () => {
+    const selected = ci([PLAN], TESTS);
+    expect(selected.checks.every((check) => check.tests.length === 0)).toBe(true);
+    expect(selected.corpus).toBe(true);
   });
 });

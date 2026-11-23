@@ -123,6 +123,7 @@ const ctxFor = (o: Opts = {}): Context => {
       list: async () => answered([tree]),
       markers: async () => answered(['PLOT-BLOCKED.md']),
       dirtyPathsWithStatus: async () => answered(['?? PLOT-BLOCKED.md', ...(o.dirty ?? [])]),
+      continueLock: async () => answered({ held: false }),
       unpushedCommits: async () => answered(o.unpushed ?? []),
       unpushedPatches: async () => answered([]),
       fetch: async () => {

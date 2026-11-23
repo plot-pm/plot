@@ -1,5 +1,5 @@
 import { withEndedDesks } from './ended-desks.js';
-import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
+import { PlanMetaSchema, RELEASE_BRANCH, issueKey, sectionKey, type FleetPlanEntry, type FleetWaiting, type PlanMeta } from '../contract/schema.js';
 import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -47,6 +47,7 @@ import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import { isReviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
+import { isRefutedIssueTitle } from '@plot-pm/domain/rules/verification';
 import type { ReaderLock } from '@plot-pm/domain/ports/reader-lock';
 import type { ProcessProbe } from '@plot-pm/domain/ports/process-probe';
 import { claimOnly, CLAIM_SUBJECT_PREFIX } from '@plot-pm/domain/rules/empty-claim';
@@ -113,7 +114,8 @@ import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
 import type { Worktree } from '@plot-pm/domain/entities/worktree';
-import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { stateHomeFor } from './state-home.js';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -173,7 +175,7 @@ import {
 } from './supervision-report-reading.js';
 import { readAgentRegistryWithInfo, deskCleanliness, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type ReadRegistryOptions } from '@plot-pm/fleet/shared/registry';
 import { readVerifyStatus, type VerifyStatus } from '@plot-pm/fleet/shared/auto-verify';
-import { readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
+import { designBranch, readDesignStatus, type DesignStatus } from '@plot-pm/fleet/shared/auto-design';
 import type { RegistryInfo } from '@plot-pm/fleet/shared/registry';
 import type { AgentEntry } from '@plot-pm/fleet/shared/registry';
 import { workerQuestions } from '@plot-pm/fleet/shared/worker-question';
@@ -1867,20 +1869,30 @@ const ticketPlansOver = (
  *
  * @param opts - the board's repo root and scripts directory.
  * @param entry - the cache entry holding `ideaPlans` and `prs`.
+ * Each entry also carries the plan's phase in lower case, its `Type:` value as
+ * read, and the names of the slices that hold at least one non-deferred
+ * branch, in document order.
+ *
  * @returns the plan index keyed by slug, or null when the plans cannot be read.
  */
 async function fleetPlanIndexOf(
   opts: BuildBoardOptions,
   entry: Pick<CacheEntry, 'ideaPlans' | 'prs' | 'planMetas'>,
-): Promise<Record<string, { file: string; issues: string[] }> | null> {
+): Promise<Record<string, FleetPlanEntry> | null> {
   const metas = await planMetasAtDefault(opts, entry);
   if (metas === null) return null;
   entry.planMetas = metas;
-  const plans: Record<string, { file: string; issues: string[] }> = {};
+  const plans: Record<string, FleetPlanEntry> = {};
   for (const meta of metas) {
     const base = path.basename(meta.file, '.md');
     const slug = base.replace(/^\d{4}-\d{2}-\d{2}-/, '');
-    plans[slug] = { file: meta.file, issues: meta.issues.map(issueKey) };
+    plans[slug] = {
+      file: meta.file,
+      issues: meta.issues.map(issueKey),
+      phase: meta.phase.toLowerCase(),
+      type: meta.type,
+      slices: meta.slices.filter((s) => s.branches.some((b) => !b.deferred)).map((s) => s.name),
+    };
   }
   return plans;
 }
@@ -2228,7 +2240,7 @@ const inboxOf = (rows: readonly IssueIndexRow[], referenced: ReadonlySet<string>
 /**
  * The rows the Tickets section's scope groups read: every open and closed row
  * of `sets` whose key a plan names, whose title {@link isReviewIssueTitle}
- * accepts, or whose key `refuted` holds. No {@link ISSUE_LIMIT} cut applies.
+ * or {@link isRefutedIssueTitle} accepts, or whose key `refuted` holds. No {@link ISSUE_LIMIT} cut applies.
  *
  * An open row comes first, and a closed row with the same key is left out.
  * Each row carries `complete` from the open set; a set with no `complete`
@@ -2250,7 +2262,7 @@ export const planTicketRowsOf = (
   const complete = sets.complete ?? true;
   const kept = (row: IssueIndexRow): boolean => {
     const key = issueKey(row.number);
-    return plans?.has(key) === true || isReviewIssueTitle(row.title) || refuted.has(key);
+    return plans?.has(key) === true || isReviewIssueTitle(row.title) || isRefutedIssueTitle(row.title) || refuted.has(key);
   };
   const seen = new Set<string>();
   const out: PlanTicketRow[] = [];
@@ -2821,7 +2833,7 @@ const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
  * @returns the heartbeat, or `null` where there is none to read.
  */
 const fleetdHeartbeatFor = async (opts: BuildBoardOptions): Promise<FleetdHeartbeat | null> => {
-  const read = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+  const read = await fleetdHeartbeatIn(stateHomeFor(opts)).read();
   return read.ok ? read.value : null;
 };
 
@@ -3519,7 +3531,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // WHICH SOURCE, FIRST. The heartbeat is a file read and starts no process;
     // on `snapshot` the beat installs fleetd's view and returns before any read
     // below. On `own` and `idle` the board reads for itself, as it always did.
-    const heartbeatRead = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+    const heartbeatRead = await fleetdHeartbeatIn(stateHomeFor(opts)).read();
     const heartbeat = heartbeatRead.ok ? heartbeatRead.value : null;
     entry.heartbeat = heartbeat;
     const held = snapshotToServe(opts, entry, heartbeat, Date.now());
@@ -4495,6 +4507,13 @@ import {
   phaseOfPlan,
   type PhaseMap,
 } from '@plot-pm/domain';
+import { planStateOf } from '@plot-pm/domain/entities/plan';
+
+/** A plan's `State:` word as `AgentRow.planState`: the domain's reading, with an absent word and `none` as null. */
+const planStateOrNull = (wire: string | undefined): AgentRow['planState'] => {
+  const state = planStateOf(wire ?? '');
+  return state === 'none' ? null : state;
+};
 import { clockSystem } from '@plot-pm/domain/adapters';
 import type { Clock } from '@plot-pm/domain/ports/clock';
 
@@ -4620,7 +4639,7 @@ function prerequisiteList(names: readonly string[]): string {
  * @param questionAgeMinutes Minutes since the marker was written, or `null`.
  * @param escalationReason Why the unblocker escalated the question, `''` where it did not; appended as `· escalated: <reason>`.
  */
-const questionNote = (
+export const questionNote = (
   workerQuestion: string,
   questionAgeMinutes: number | null,
   escalationReason = '',
@@ -5770,10 +5789,9 @@ function classifyGroup(
   // `quietKind`'s `abandoned` exactly: *real commits, no PR ever opened, nobody
   // on it*, the six rows measured on this estate 2026-09-03.
   //
-  // WAITING ON YOU, because it is the one kind that genuinely needs a person:
-  // revive it, or drop it. The plan says so and `quietPlacement` says so, and
-  // QUIET's own hint — *still thinking, or dead?* — is a question this row has
-  // already answered.
+  // QUIET, because `quietPlacement` answers `quiet` for this kind (operator
+  // decision B, 2026-11-03): the row keeps its kind word and its note, and the
+  // revive-or-drop call stays a person's to make from QUIET.
   //
   // THE AGE FOLLOWS THE STATE rather than replacing it, the same shape as the
   // orphaned claim above. *no commit for 126 days* was the whole note and it
@@ -5791,8 +5809,8 @@ function classifyGroup(
   const readings = wipReadings(pr, hasMergedPr, hostUnasked, tipAt, fetchAt);
   const abandoned = quietNote(readings);
   // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietPlacement`
-  // places `merged` as done, `closed-pr` and `quiet` as quiet, and `abandoned`
-  // and `orphaned-claim` as waiting on you. This arm is reached by a branch that
+  // places `merged` as done, and `closed-pr`, `quiet`, `abandoned` and
+  // `orphaned-claim` as quiet. This arm is reached by a branch that
   // squash-merged with its head ref deleted, which arrives `wip` with no open PR
   // and never meets the `state === 'merged'` arm above.
   // A MERGED PR IS DONE, NOT QUIET — the same answer the `state === 'merged'`
@@ -7611,6 +7629,8 @@ export function rowsFromPulse(
           deferredReason: b.deferred_reason,
           // The row sits in its plan's column, whatever its branch state says.
           phase: phaseOfPlan(phaseMap, { state: plan.phase, tracer: plan.tracer }),
+          // The plan's own state, free of the column map and the tracer rule.
+          planState: planStateOrNull(plan.phase),
           group,
           ageMinutes: age,
           note: b.claimed ? `${rowNote} · ${b.claimed}` : rowNote,
@@ -7737,8 +7757,12 @@ export function rowsFromPulse(
                 writing: askReading?.writing ?? false,
                 failed: askReading?.failed ?? null,
                 askedAt: askReading?.askedAt ?? null,
+                spent: askReading?.spent ?? null,
               })
             : 'none',
+          // fleetd's spent record for this branch: its brief runs ended without
+          // a brief and fleetd asks no more. Null where none exists.
+          briefSpent: askReading?.spent ?? null,
           // And by WHICH slice, where that is the answer. Only the server can
           // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
@@ -8002,6 +8026,7 @@ export function rowsFromPulse(
       // from, and inventing one would be worse than the empty cell. Same rule as
       // `plan: ''` two lines down.
       phase: /^idea\//.test(branch) ? phaseOfPlan(phaseMap, { state: 'draft' }) : null,
+      planState: /^idea\//.test(branch) ? 'draft' : null,
       group,
       ageMinutes,
       note,
@@ -8065,6 +8090,7 @@ export function rowsFromPulse(
       // AND SO NOTHING WRITING EITHER — same absence, same reason: no plan
       // names this row, so `needsBrief` can never hold for it.
       briefWriter: 'none',
+      briefSpent: null,
       blockedBy: null,
       // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
@@ -8334,6 +8360,7 @@ export function rowsFromPulse(
       // follows for every non-idea branch. `Discovery` on a branch nobody
       // planned is a confident wrong answer where nothing is the honest one.
       phase: null,
+      planState: null,
       group: placed,
       ageMinutes,
       note: shownNote,
@@ -8384,6 +8411,7 @@ export function rowsFromPulse(
       briefFailed: null,
       // And so nothing writing either — same reason: no plan names this row.
       briefWriter: 'none',
+      briefSpent: null,
       blockedBy: null,
       verdict: null,
       startability: startability ?? null,
@@ -8771,7 +8799,13 @@ const pidAnswers = (pid: number): boolean => {
 const planRunsRead = (
   running: readonly string[],
   stopped: readonly { plan: string; reason: string; restart: string; log: string }[],
-): PlanRunsRead => ({ running, stopped });
+  branchOf?: (plan: string) => string,
+): PlanRunsRead => {
+  if (branchOf === undefined) return { running, stopped };
+  const branches: Record<string, string> = {};
+  for (const plan of [...running, ...stopped.map((row) => row.plan)]) branches[plan] = branchOf(plan);
+  return { running, stopped, branches };
+};
 
 const machineReaders = new Map<string, ReturnType<typeof machineReaderFor>>();
 
@@ -8787,6 +8821,8 @@ const machineReadingOf = (repoRoot: string, connector: string | null) => {
 
 /**
  * The reviewer, fixer, design and verify agents, each read once from its own state file.
+ * A design run carries the branch its spec run claims (`designBranch`); a verify run
+ * judges a delivery commit on the default branch and carries none.
  *
  * @param repoRoot - the repository the fleet serves.
  * @param now - epoch milliseconds.
@@ -8798,7 +8834,7 @@ export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleR
   return roleRuns({
     reviews: readReviewRuns(repoRoot, pidAnswers),
     fixers: await listFixerAttempts(repoRoot),
-    design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan }))),
+    design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan })), designBranch),
     verify: verify === null ? null : planRunsRead(verify.running, verify.rows.map((row) => ({ ...row, plan: row.slug }))),
     now,
   });

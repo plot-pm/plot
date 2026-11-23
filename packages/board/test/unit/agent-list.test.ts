@@ -6,7 +6,6 @@ import { readFileSync } from 'node:fs';
 import {
   UNNAMED_SLICE,
   noActionReason,
-  menuState,
   openTarget,
   offersOpen,
   openLabel,
@@ -19,7 +18,7 @@ import {
 } from '../../src/app/components/AgentList.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, isFoldable, isFolded, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { MINE_ONLY_BY_DEFAULT, readMineOnly, rowsForReader, writeMineOnly } from '../../src/app/lib/agent-rows/mine-filter.js';
-import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
+import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_FADE, CHANGE_MARK_MS, JUST_NOW, activitySignal, signalAge, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, headingPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { elsewhereNote, groupByPlan, planGroupShape, rowsBySection, sectionTally, showPlanHeading, tallyLabel, unfilteredNote, type PlanGroup, type SectionTally, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
@@ -1007,7 +1006,9 @@ describe('the activity marker leaves the other marks alone', () => {
   it('renders the spinner and the change mark as two distinct elements', () => {
     expect(source).toMatch(/^\s*data-change-mark$/m);
     expect(source).toMatch(/^\s*data-activity-spinner$/m);
-    expect(source).toContain('absolute inset-0 animate-pulse bg-amber-300/25');
+    expect(source).toContain('change-mark pointer-events-none absolute inset-0');
+    // One fade, never a repeating pulse: the three signals keep one meaning each.
+    expect(source).not.toContain('animate-pulse');
     expect(source).not.toMatch(/^\s*data-live-dot$/m);
     // The travelling dot and its track are gone with the old mark.
     expect(source).not.toMatch(/data-activity-(mark|track|dot)/);
@@ -1381,7 +1382,7 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
 
 describe('which groups start collapsed', () => {
   it('folds Free agents and Not placed, and leaves every other section and group open', () => {
-    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free', 'not-placed']);
+    expect([...COLLAPSED_BY_DEFAULT]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('reads Release delivery as open where nothing is stored', () => {
@@ -1395,7 +1396,7 @@ describe('which groups start collapsed', () => {
 
   it('gives a set stored under the earlier vocabulary the new default, not an empty set', () => {
     const stored = { getItem: () => JSON.stringify(['quiet', 'done']) };
-    expect([...readCollapsed(stored)]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(stored)]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('keeps an empty stored set empty: a reader who opened everything', () => {
@@ -1415,18 +1416,23 @@ describe('a new default reaches a stored set once', () => {
     return { getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => { map.set(k, v); } };
   };
 
-  it('reads a stored ["free"] with no record as free and not-placed', () => {
+  it('reads a stored ["free"] with no record as free and every later default', () => {
     const s = store({ 'plot-board:agents:collapsed': '["free"]' });
-    expect([...readCollapsed(s)]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(s)]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
-  it('reads a stored ["free"] whose record holds not-placed as free only', () => {
-    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+  it('reads a stored ["free"] whose record holds every default as free only', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': JSON.stringify(COLLAPSED_BY_DEFAULT) });
     expect([...readCollapsed(s)]).toEqual(['free']);
   });
 
+  it('adds the Tickets group defaults to a set whose record holds only free and not-placed', () => {
+    const s = store({ 'plot-board:agents:collapsed': '["free"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+    expect([...readCollapsed(s)]).toEqual(['free', 'tickets-delivered', 'tickets-found']);
+  });
+
   it('reads the default where nothing is stored', () => {
-    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('keeps a section open that the reader opened after the default joined', () => {
@@ -1434,7 +1440,7 @@ describe('a new default reaches a stored set once', () => {
     const first = readCollapsed(s);
     first.delete('not-placed');
     writeCollapsed(first, s);
-    expect([...readCollapsed(s)]).toEqual(['free']);
+    expect([...readCollapsed(s)]).toEqual(['free', 'tickets-delivered', 'tickets-found']);
   });
 });
 
@@ -1501,7 +1507,7 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // The load-bearing half: a first visit has no stored value, and treating
     // that as "nothing collapsed" ships the crowded view to everyone who has
     // not yet clicked a header.
-    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed']);
+    expect([...readCollapsed(store())]).toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found']);
   });
 
   it('survives a reload — what was written comes back', () => {
@@ -1526,14 +1532,14 @@ describe('readCollapsed / writeCollapsed — persistence, and its default', () =
     // were folded is a worse answer than one that simply forgets.
     for (const raw of ['not json', '{"quiet":true}', '"quiet"', '17']) {
       expect([...readCollapsed(store({ 'plot-board:agents:collapsed': raw })).values()].sort())
-        .toEqual(['free', 'not-placed']);
+        .toEqual(['free', 'not-placed', 'tickets-delivered', 'tickets-found'].sort());
     }
   });
 
   it('drops a stored key no group answers to', () => {
     // Stale state from a renamed group would fold nothing while looking like it
     // had — a set that disagrees with the rendered sections.
-    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]', 'plot-board:agents:collapsed-defaults': '["free","not-placed"]' });
+    const s = store({ 'plot-board:agents:collapsed': '["you","gone-group"]', 'plot-board:agents:collapsed-defaults': JSON.stringify(COLLAPSED_BY_DEFAULT) });
     expect([...readCollapsed(s)]).toEqual(['you']);
   });
 
@@ -1956,7 +1962,7 @@ describe('changedRows — which rows mark themselves, and which stay silent', ()
 
   const watched = (over: Partial<WatchedState> = {}): WatchedState => ({
     pr: null, prNumber: null, prDraft: false, state: 'wip', group: 'working',
-    wave: 'One', phase: 'Development', localDirty: false, localLocked: false,
+    wave: 'One', phase: 'Development', planState: 'approved', localDirty: false, localLocked: false,
     localAhead: 0, stuck: null, ...over,
   });
 
@@ -2217,6 +2223,29 @@ describe('prStatusEntry — the PR status distinguishes the two failures', () =>
     expect(note).toContain('rate limit');
     expect(note).toContain('8 min');           // 480s named as the reset
     expect(note).not.toContain('unavailable'); // NOT the outage word
+  });
+
+  it("names bb's hourly ceiling, its next free time and the wait, for the client's ceiling refusal", () => {
+    const note = text(at({
+      prError: 'rate limited — 800 requests in the last hour from this machine; next request at 11:41:53Z (in 3590 s)',
+      prNextInSeconds: 3590,
+      prAgeSeconds: 45,
+    }));
+    expect(note).toBe("PR data paused: this machine's hourly Bitbucket ceiling is spent, next request at 11:41:53Z (in ~60 min) — showing data from 45s ago — the two groups above that depend on it may be incomplete.");
+  });
+
+  it("names bb's pause and its end, for a pause refusal", () => {
+    const note = text(at({
+      prError: 'rate limited — bb paused until 10:47:03Z after Bitbucket refused a request (in 300 s)',
+      prNextInSeconds: 300,
+      prAgeSeconds: 45,
+    }));
+    expect(note).toBe('PR data paused: bb is paused after Bitbucket refused a request, until 10:47:03Z (in ~5 min) — showing data from 45s ago — the two groups above that depend on it may be incomplete.');
+  });
+
+  it("keeps today's words for the host's own spent quota", () => {
+    const note = text(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: 300, prAgeSeconds: 45 }));
+    expect(note).toBe("PR data paused: the host's rate limit is spent, service returns in ~5 min — showing data from 45s ago — the two groups above that depend on it may be incomplete.");
   });
 
   it('says the budget is spent even when the reset is unknown', () => {
@@ -2547,6 +2576,22 @@ describe('scanHostNote — the scan says when it could not ask', () => {
     expect(new Set(notes).size).toBe(3);
   });
 
+  it("names bb's hourly ceiling where the scan's cause is `ceiling`", () => {
+    const note = scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'ceiling' }, prNextInSeconds: 600 } as Fleet);
+    expect(note).toBe("Fleet scan blind: this machine's hourly Bitbucket ceiling is spent, so no PR could be read. Every branch below reads from local evidence alone and none was offered to --next — the ceiling frees a request as each request of the last hour ages out (next request in ~10 min), so a later scan will say more.");
+  });
+
+  it("names bb's pause where the scan's cause is `paused`", () => {
+    const note = scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'paused' }, prNextInSeconds: 300 } as Fleet);
+    expect(note).toBe('Fleet scan blind: bb is paused after Bitbucket refused a request, so no PR could be read. Every branch below reads from local evidence alone and none was offered to --next — the pause ends on a clock (ends in ~5 min), so a later scan will say more.');
+  });
+
+  it("keeps today's words where the cause is `host`, or absent in a pulse that predates it", () => {
+    const today = scanHostNote(at('throttled'));
+    expect(scanHostNote({ ...at('throttled'), summary: { ...at('throttled').summary, hostCause: 'host' } } as Fleet)).toBe(today);
+    expect(today).toContain("the git host's rate limit was spent");
+  });
+
   it('is a DIFFERENT sentence from the board\'s own PR failure', () => {
     // `prError` is the BOARD's host call; this is the SCAN's. They fail
     // separately and can be true at once, so the panel must not print one
@@ -2740,7 +2785,7 @@ describe('ChangeMarks — how long each mark stays lit', () => {
     // another's with it.
     const { marks, clock, lit } = marksOnFakeClock();
     marks.mark(['plot/a']);
-    clock.advance(2_000);
+    clock.advance(CHANGE_MARK_MS - 1_000);
     marks.mark(['plot/b']);
     expect(lit()).toEqual(['plot/a', 'plot/b']);
     // `a` goes out on its own schedule; `b` is still only 1s old.
@@ -2768,16 +2813,43 @@ describe('ChangeMarks — how long each mark stays lit', () => {
 });
 
 describe('CHANGE_MARK_MS — the marker outlives a glance, not the change', () => {
-  it('is about three seconds, tied to neither poll interval', () => {
+  it('is about two seconds, tied to neither poll interval', () => {
     // Measured, not chosen: the watched value comes from the 60s PR refresh
     // (120s under backoff), not the 4s fleet pulse, so a transition is a RARE
     // event and a 300ms flash would be missed nearly every time. It is
     // deliberately not equal to either clock — a marker cleared by the next
     // pulse would live 4s or 60s depending on which one cleared it, and would
     // stay lit forever on a board whose server died.
-    expect(CHANGE_MARK_MS).toBe(3_000);
+    expect(CHANGE_MARK_MS).toBe(2_000);
     expect(CHANGE_MARK_MS).toBeGreaterThan(1_000);
     expect(CHANGE_MARK_MS).toBeLessThan(4_000);
+  });
+
+  it('is the length of the fade, which runs once', () => {
+    // The marker unmounts when its fade ends: a longer life would leave a
+    // transparent mark, a shorter one would cut the fade off.
+    expect(CHANGE_FADE.animationDuration).toBe(`${CHANGE_MARK_MS}ms`);
+    expect(CHANGE_FADE.animationIterationCount).toBe(1);
+    expect(CHANGE_FADE.animationFillMode).toBe('forwards');
+  });
+});
+
+describe('activitySignal — which of the three signals a row shows', () => {
+  it('passes the running pace to the spinner slot', () => {
+    expect(activitySignal('fast', false, false)).toEqual({ spinner: 'fast', changed: false, age: null });
+    expect(activitySignal(null, false, false)).toEqual({ spinner: null, changed: false, age: null });
+  });
+
+  it('marks a changed row, and reads "just now" in its age under reduced motion only', () => {
+    expect(activitySignal(null, true, false)).toEqual({ spinner: null, changed: true, age: null });
+    expect(activitySignal('slow', true, true)).toEqual({ spinner: 'slow', changed: true, age: JUST_NOW });
+    expect(activitySignal(null, false, true).age).toBeNull();
+  });
+
+  it('replaces the age cell only where the signal names one', () => {
+    const age = { text: '3h', label: 'since claim' };
+    expect(signalAge(age, activitySignal(null, true, false))).toBe(age);
+    expect(signalAge(age, activitySignal(null, true, true))).toEqual({ text: 'just now', label: '' });
   });
 });
 
@@ -2844,12 +2916,12 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
   };
 
   it('lays out the seven columns, with the marks lane before them', () => {
-    // `[marks, kind, item, where, status, do, by, age]` — the Delivery tab's
+    // `[marks, kind, item, where, status, by, age, do]` — the Delivery tab's
     // seven columns in the design's order, after the marks lane. The DO track
-    // holds the row's menu; BY sizes to who acts and holds nothing where
-    // nobody was read.
+    // is last and holds the row's menu at the shared width; BY sizes to who
+    // acts and holds nothing where nobody was read.
     expect(tracks()).toEqual(
-      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', '1.25rem', 'minmax(0rem,auto)', '4.5rem']);
+      ['1.5rem', '4.5rem', 'minmax(12rem,auto)', '1fr', '8rem', 'minmax(0rem,auto)', '4.5rem', 'var(--delivery-menu-track)']);
   });
 
   it('flexes the LINKS track and no other', () => {
@@ -2913,7 +2985,11 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // 12rem floor, unchanged from the fixed-12rem grid this replaced: `minmax`
     // did not move the breakpoint math, which is what let the 508/604/36 numbers
     // come out identical after the 2026-08-23 change (see `TUPLE_TRACKS`).
+    // The menu track's width is `--delivery-menu-track`, read from `delivery.css`.
+    const css = readFileSync(new URL('../../src/app/styles/delivery.css', import.meta.url), 'utf8');
+    const MENU_TRACK_REM = Number.parseFloat(/--delivery-menu-track:\s*([\d.]+)rem/.exec(css)?.[1] ?? 'NaN');
     const floorRem = (t: string) => {
+      if (t === 'var(--delivery-menu-track)') return MENU_TRACK_REM;
       const minmax = /^minmax\(([\d.]+)rem,/.exec(t);
       return minmax ? Number.parseFloat(minmax[1]) : Number.parseFloat(t);
     };
@@ -2967,11 +3043,12 @@ describe('TUPLE_TRACKS — one grid, and where its width goes', () => {
     // And the stripping removed something, so the two assertions above are
     // about code rather than about an empty string.
     expect(src).toMatch(/PLAN_ROW_TRACKS/);
-    // TWO `grid-cols-` in the whole row estate, both in `TupleRow.tsx`:
-    // `TUPLE_TRACKS` and `TICKET_TRACKS` (#1960, a ticket's title gives way).
+    // THREE `grid-cols-` in the whole row estate, all in `TupleRow.tsx`:
+    // `TUPLE_TRACKS`, `TICKET_TRACKS` (#1960, a ticket's title gives way) and
+    // `WORK_GRID_TRACKS` (the Work items grid: item, plan, status, by, age, menu).
     const tupleSrc = readFileSync(
       new URL('../../src/app/components/TupleRow.tsx', import.meta.url), 'utf8');
-    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(2);
+    expect([...tupleSrc.matchAll(/grid-cols-\[/g)]).toHaveLength(3);
     expect(code).not.toMatch(/grid-cols-\[/);
   });
 });
@@ -3382,137 +3459,6 @@ describe("a row's actions all live in its menu", () => {
     // And it does NOT enter the menu, which is where the action is allowed.
     expect(names).not.toContain('IssueRowActions');
   });
-});
-
-/**
- * WHETHER THE MENU EXISTS, and whether anything in it can act — two questions,
- * and the board asked only the second until 2026-08-18.
- */
-describe('menuState — a refusal is not an absence', () => {
-  // NO `canApprove` / `approveWillAct`. The plan-level act left the branch menu
-  // for the plan head (`PlanActions`), so a branch row's menu no longer computes
-  // it and this state no longer carries its flag. What remains is what a branch
-  // row can genuinely do.
-  const none = {
-    canStart: false, canResolve: false, hasRun: false,
-    hasLog: false, hasStatus: false, hasOpen: false,
-    hasChangedFiles: false, serverWillAct: false,
-  };
-
-  it('renders no menu at all on a row with nothing to offer', () => {
-    // The measured defect: the `⋯` rendered on every row, so two of six WAITING
-    // ON YOU rows carried a control that opened nothing.
-    expect(menuState(none)).toEqual({ present: false, enabled: false });
-  });
-
-  it('keeps the menu present but disabled where the server refuses', () => {
-    // There IS something to do here — you simply cannot do it from this
-    // binding. Rendering nothing would report a healthy row, which is the
-    // worse lie: the reason has to stay reachable.
-    expect(menuState({ ...none, canResolve: true })).toEqual({
-      present: true, enabled: false,
-    });
-    expect(menuState({ ...none, canStart: true })).toEqual({
-      present: true, enabled: false,
-    });
-  });
-
-  it('enables the run link without asking whether the server will act', () => {
-    // NAVIGATION, so it carries no guard: there is no rerun route here, and
-    // opening the host's page is not a write. It reads the same over Tailscale
-    // as it does at the machine — which is why a row with only a run is
-    // enabled on a binding that refuses every dispatch.
-    expect(menuState({ ...none, hasRun: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  it('asks about ANY item, never one named item', () => {
-    // The defect this gate had in its first form: `enabled` was `canStart &&
-    // serverWillAct`, so a menu opened only where Start work was possible. Both
-    // dispatching acts on a branch row (Start work, the conflict dispatch)
-    // answer to the SAME `serverWillAct` binding, so the gate must ask about
-    // whichever one is present rather than a single named item.
-    expect(menuState({ ...none, canStart: true, serverWillAct: true }).enabled).toBe(true);
-    expect(menuState({ ...none, canResolve: true, serverWillAct: true }).enabled).toBe(true);
-    // A read item enables on no binding at all — navigation is not an act.
-    expect(menuState({ ...none, hasOpen: true }).enabled).toBe(true);
-  });
-
-  it('never enables a menu it does not render', () => {
-    // THE INVARIANT, over every combination rather than the four spot checks
-    // above. `enabled && !present` would put an openable menu behind a button
-    // that is not there — one line of reasoning across four disjuncts, and
-    // exactly the kind that gets re-derived wrongly in a later edit.
-    const bools = [false, true];
-    // A sampled sweep rather than a full 2^10 grid: the invariant is per-disjunct
-    // (`enabled → present`), so every input is exercised at both values against a
-    // `none` baseline, plus a handful of combinations. The exhaustive nested loop
-    // it replaced grew a dimension with every new item; the property it proves did
-    // not, so it does not need the cartesian product to stay honest.
-    const keys = [
-      'canStart', 'canResolve', 'hasRun', 'hasLog', 'hasStatus',
-      'hasOpen', 'hasChangedFiles', 'serverWillAct',
-    ] as const;
-    const cases: (typeof none)[] = [{ ...none }];
-    for (const key of keys)
-      for (const v of bools) cases.push({ ...none, [key]: v });
-    // A few with an act flag AND its will-act partner, so `enabled` is reached.
-    cases.push({ ...none, canStart: true, serverWillAct: true });
-    cases.push({ ...none, canResolve: true, serverWillAct: true });
-    for (const c of cases) {
-      const state = menuState(c);
-      expect(
-        !state.enabled || state.present,
-        `enabled without present: ${JSON.stringify(c)}`,
-      ).toBe(true);
-    }
-  });
-
-  // A READ, so it carries no guard — the same argument the run link makes one
-  // test up, and the reason both join `enabled` without a `WillAct` term. A row
-  // whose only offer is its log is still worth opening on a binding that
-  // refuses every dispatch: looking at a log is not acting.
-  it('enables the worker log without asking whether the server will act', () => {
-    expect(menuState({ ...none, hasLog: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  // The dispatcher-log `Status` entry, added by
-  // `the-button-claims-only-what-it-knows`. A READ like the worker log and the
-  // run link, so it enables the menu on any binding — looking at what the
-  // dispatcher did is not acting. It is the durable home for what the Start work
-  // button used to hand back as a transient path.
-  it('enables the Status entry without asking whether the server will act', () => {
-    expect(menuState({ ...none, hasStatus: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  it('gives a changed-file list a menu, and it needs no server', () => {
-    // The purest READ in the menu: the paths came in on the pulse that drew the
-    // row, so there is no route to refuse and no binding to consult. It enables
-    // on its own, exactly like the two log items and the run link.
-    expect(menuState({ ...none, hasChangedFiles: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-  // THE MOTIVATING DEFECT, in one line: a row that carried nothing else used to
-  // render no menu at all. Open is navigation the row already has the address
-  // for, so it makes the menu present — and enabled, because navigation is not
-  // an act the server can refuse.
-  it('renders and enables a menu for a row whose only item is Open', () => {
-    expect(menuState({ ...none, hasOpen: true })).toEqual({
-      present: true, enabled: true,
-    });
-  });
-
-  // Approve is NOT tested here any longer: it is a plan-level act that left the
-  // branch menu for the plan head (`PlanActions`), so `menuState` — which
-  // answers for a BRANCH row's menu — no longer carries its flag. The plan
-  // head's menu is covered by the browser test `plan-head-controls.browser.test.ts`,
-  // which exercises the real render.
 });
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a

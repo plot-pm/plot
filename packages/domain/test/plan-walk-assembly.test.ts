@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { answered, failed } from '../src/port-result.js';
+import { PlanSchema } from '../src/entities/fleet.js';
 import type { PlanRecord } from '../src/ports/plan-store.js';
 import type { BranchReadings, PrReading, WaitsReading } from '../src/rules/branch-state.js';
 import {
@@ -289,6 +290,30 @@ describe('offerAnswer', () => {
   });
 });
 
+describe('the pulse plan names why its spike record licenses no branch', () => {
+  const spikePlan = (spikeApprovedRaw: string, phase = 'design'): PlanRecord =>
+    ({ ...planOf('docs/plans/p.md', phase, [[{ branch: 'feature/s', spike: true }], [{ branch: 'feature/b' }]]), spikeApprovedRaw }) as PlanRecord;
+  const pulsePlan = (record: PlanRecord) => {
+    const value = assembled(estateOf(record), branchesOf(['docs/plans/p.md', 'feature/s', open()], ['docs/plans/p.md', 'feature/b', open()]));
+    const row = (fleetReading(value, header) as any).plans[0];
+    return { assembled: value.plans[0]!.spikeUnlicensed, parsed: PlanSchema.parse(row).spikeUnlicensed };
+  };
+
+  it('carries spike-marker-moved for a record that names the unmarked branch', () => {
+    expect(pulsePlan(spikePlan('2026-11-03, jwloka, in-session, feature/b'))).toEqual({
+      assembled: 'spike-marker-moved', parsed: 'spike-marker-moved',
+    });
+  });
+
+  it('carries null for a record that licenses the spike', () => {
+    expect(pulsePlan(spikePlan('2026-11-03, jwloka, in-session, feature/s'))).toEqual({ assembled: null, parsed: null });
+  });
+
+  it('carries null for a plan that is not in Design', () => {
+    expect(pulsePlan(spikePlan('', 'approved'))).toEqual({ assembled: null, parsed: null });
+  });
+});
+
 describe('fleetReading', () => {
   it('prints a branch with a desk, a held worktree and a running worker', () => {
     const estate = estateOf({ ...planOf('docs/plans/p.md', 'approved', [[{ branch: 'feature/a' }]]), tracer: true } as PlanRecord);
@@ -418,5 +443,14 @@ describe('fleetReading — where the plans were read', () => {
     const value = assembled(estate, branchesOf(['p.md', 'feature/a', open()]));
     expect((fleetReading(value, header) as any).plan_source).toBe('ref');
     expect((fleetReading(value, { ...header, planSource: 'worktree' }) as any).plan_source).toBe('worktree');
+  });
+});
+
+describe('fleetReading — the cause of a throttle', () => {
+  it('writes the cause where the host was throttled and omits it otherwise', () => {
+    const value = assembled(estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }]])), branchesOf(['p.md', 'feature/a', open()]));
+    expect((fleetReading(value, { ...header, host: 'throttled', hostCause: 'ceiling' }) as any).summary.hostCause).toBe('ceiling');
+    expect((fleetReading(value, { ...header, host: 'throttled' }) as any).summary).not.toHaveProperty('hostCause');
+    expect((fleetReading(value, { ...header, hostCause: 'paused' }) as any).summary).not.toHaveProperty('hostCause');
   });
 });

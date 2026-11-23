@@ -12,6 +12,13 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3609 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/merge-reads-the-main-checkouts-state`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-repair-start-decision-moves-into-the-domain`
+- **Started:** 2026-11-22, Jan Wloka, `bug/the-first-red-rerun-wait-ends-at-checks-wait`
+- **Started:** 2026-11-22, Jan Wloka, `bug/merge-refuses-an-unfound-state-home`
+- **Started:** 2026-11-23, Jan Wloka, `bug/every-state-reader-asks-one-state-home`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-board-routes-read-a-partial-pulse`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-pulse-lookup-moves-into-the-domain`
+- **Started:** 2026-11-23, Jan Wloka, `bug/a-new-failure-on-main-starts-a-repair`
 
 ## Changelog
 
@@ -155,27 +162,27 @@ The layering rule holds in every slice: a controller or an entry calls the domai
 
 ### Repair-start decision
 
-- `bug/the-repair-start-decision-moves-into-the-domain` — `repairStartAction`, the four re-run reasons including `rerun-unmatched`, and `repairStartTick` dispatching on the answer <!-- builds: repairStartAction, the repair-start decision -->
+- `bug/the-repair-start-decision-moves-into-the-domain` — `repairStartAction`, the four re-run reasons including `rerun-unmatched`, and `repairStartTick` dispatching on the answer <!-- builds: repairStartAction, the repair-start decision --> → #3659
 
 ### Re-run bound
 
-- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start -->
+- `bug/the-first-red-rerun-wait-ends-at-checks-wait` — `overdue` past `Checks wait`, `redMainStep` reading it as `start-repair`, `attempt.startedAt` and `repairBoundReached`, and the 2026-11-06 cells <!-- builds: repairBoundReached, the repair bound from the attempt's start --> → #3666
 
 ### Unfound state home
 
-- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home -->
+- `bug/merge-refuses-an-unfound-state-home` — `MergeReadings.stateHome`, the `state-home-unread` refusal in `mergeAt` and `repair-pr`, and the `PLOT_REPO_ROOT` seam tests <!-- builds: state-home-unread, the merge refusal for an unfound state home --> → #3669
 
 ### One state home
 
-- `bug/every-state-reader-asks-one-state-home` — the bridge, the heartbeat, `recordBridge`, `approve.ts`, `design.ts`, `verify.ts` and `review.ts` on `stateHomeOf`, `mainRootOf` deleted, and the unread-home cells <!-- builds: stateHomeAtSync, the synchronous state-home adapter -->
+- `bug/every-state-reader-asks-one-state-home` — the bridge, the heartbeat, `recordBridge`, `approve.ts`, `design.ts`, `verify.ts` and `review.ts` on `stateHomeOf`, `mainRootOf` deleted, and the unread-home cells <!-- builds: stateHomeAtSync, the synchronous state-home adapter --> → #3672
 
 ### Partial-pulse readers
 
-- `bug/the-board-routes-read-a-partial-pulse` — `pulsePlanReading`, `startReadingFromPulses`, the worker log through `pulseBranchReading` with two new sentences, the bridge characterisation test and the corrected shell comment <!-- builds: pulsePlanReading, the plan-level partial-pulse lookup -->
+- `bug/the-board-routes-read-a-partial-pulse` — `pulsePlanReading`, `startReadingFromPulses`, the worker log through `pulseBranchReading` with two new sentences, the bridge characterisation test and the corrected shell comment <!-- builds: pulsePlanReading, the plan-level partial-pulse lookup --> → #3677
 
 ### Domain pulse lookup
 
-- `bug/the-pulse-lookup-moves-into-the-domain` — `lookupBranch`, `branchFromPulse` and `ContinueRefusal` in the domain, `worktreeForBranch` and the agent panel as mappers, and the import test <!-- builds: lookupBranch in the domain, the one pulse walk -->
+- `bug/the-pulse-lookup-moves-into-the-domain` — `lookupBranch`, `branchFromPulse` and `ContinueRefusal` in the domain, `worktreeForBranch` and the agent panel as mappers, and the import test <!-- builds: lookupBranch in the domain, the one pulse walk --> → #3687
 
 ### New main failure
 

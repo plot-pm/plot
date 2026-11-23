@@ -1,6 +1,7 @@
 import type { ItemStatus, MoscowTier } from '../entities/sprint.js';
 import { normalizeVersion } from '../entities/release.js';
 import { keyFromText } from '../rules/sprint-release.js';
+import { liveOnMerge } from '../rules/pulse-omits-plan.js';
 import {
   type Caller,
   type Outcome,
@@ -293,7 +294,7 @@ export const release = (
   const notMarked: ReleaseSkip[] = [];
 
   for (const plan of readings.deliveredPlans) {
-    if (plan.type === 'docs' || plan.type === 'infra') {
+    if (liveOnMerge(plan.type)) {
       notMarked.push({ slug: plan.slug, reason: 'docs-live-on-merge' });
       continue;
     }

@@ -30,6 +30,8 @@ import {
   type TestFile,
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
+import { pushSelectionBase } from '@plot-pm/domain/rules/push-selection-base';
+import { DEFAULT_RELEASE_DIR } from '@plot-pm/domain/rules/state-sync';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -74,13 +76,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  *
  * `--ci` prints the `ciSelection` answer as one line of JSON instead, for a CI
  * job to write as its outputs: `suites`, `checks` (each `suite`, `command`,
- * `tests`, `always`), `tests`, `corpus` and `untested`. It reads the
- * `Plan directory` and `Sprint directory` keys for the corpus globs. It
+ * `tests`, `always`), `tests`, `corpus`, `untested` and `estateTests`. It reads the
+ * `Plan directory` and `Sprint directory` keys for the corpus globs, and
+ * those two with `Active index` and `Delivered index` for `planDataOnly`. It
  * combines with `--files`.
  *
  * `--corpus <glob>`, with `--ci`, names the corpus tier's files, such as
  * `packages/domain/corpus/**`. A changed path one of them names selects the
  * tier. Without it, only plan data selects the tier. Any other argument exits 2.
+ *
+ * `--push-base <green.json> <first-parent.txt>` asks `pushSelectionBase` and
+ * prints `base=<sha>` or `every=<reason>`. `green.json` holds the Actions API
+ * answer for the newest successful `CI` push run on `main`
+ * (`{"workflow_runs":[{"head_sha":…}]}`); a missing or unparseable file reads
+ * as a failed call, and an empty `workflow_runs` as no green run.
+ * `first-parent.txt` holds `git rev-list --first-parent -n 50 HEAD`, one SHA
+ * per line; an unreadable file reads as an empty line. It reads no repository
+ * and exits 0.
  */
 
 /** The exit codes the caller reads. */
@@ -255,6 +267,9 @@ export const run = async (
     scripts.config('Plan directory', 'docs/plans/'),
     scripts.config('Sprint directory', 'docs/sprints/'),
   ]);
+  const [rawActive, rawDelivered] = ci
+    ? await Promise.all([scripts.config('Active index', 'docs/plans/active/'), scripts.config('Delivered index', 'docs/plans/delivered/')])
+    : [null, null];
   if (listed === null && !committed.ok) warn(`plot-local-checks: could not read the branch against ${against ?? 'its base'}; reading the working tree only\n`);
 
   const changed = listed ?? [...new Set([...(committed.ok ? committed.value : []), ...(working.ok ? working.value : [])])];
@@ -266,22 +281,32 @@ export const run = async (
   const generatedSet = new Set(generated);
   const tests = await readTests(refs, repoRoot, checks, changed);
 
+  const corpus = corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : '');
+
   if (ci) {
     const selection = ciSelection({
       changed,
       generated,
       checks,
       tests,
-      corpus: corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : ''),
+      corpus,
       corpusFiles: corpusGlob === null ? [] : await readCorpus(refs, repoRoot, corpusGlob, changed),
+      sync: {
+        planDir: rawPlans.ok ? rawPlans.value : 'docs/plans/',
+        activeIndex: rawActive?.ok ? rawActive.value : 'docs/plans/active/',
+        deliveredIndex: rawDelivered?.ok ? rawDelivered.value : 'docs/plans/delivered/',
+        sprintDir: rawSprints.ok ? rawSprints.value : 'docs/sprints/',
+        releaseDir: DEFAULT_RELEASE_DIR,
+      },
       root: repoRoot,
     });
     write(`${JSON.stringify(selection)}\n`);
     return EXIT.ok;
   }
 
+  const data = corpus.map(globToRegExp);
   const references = testsNaming(
-    changed.filter((file) => !generatedSet.has(file)),
+    changed.filter((file) => !generatedSet.has(file) && !data.some((pattern) => pattern.test(file))),
     tests,
   );
 
@@ -290,6 +315,8 @@ export const run = async (
         changed,
         generated,
         references,
+        corpus,
+        tests,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
         root: repoRoot,
@@ -404,6 +431,52 @@ export const refuse = async (
   return EXIT.refused;
 };
 
+/**
+ * Reads the green head from the Actions API answer.
+ *
+ * @param text - the file's text, or `null` where it could not be read.
+ * @returns the head SHA, `''` for an empty run list, `null` for a failed call.
+ */
+export const greenHeadOf = (text: string | null): string | null => {
+  if (text === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    const runs = (parsed as { workflow_runs?: unknown }).workflow_runs;
+    if (!Array.isArray(runs)) return null;
+    if (runs.length === 0) return '';
+    const head = (runs[0] as { head_sha?: unknown }).head_sha;
+    return typeof head === 'string' ? head : null;
+  } catch {
+    return null;
+  }
+};
+
+const readOrNull = (file: string): string | null => {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Answers `--push-base`: the base a `main` push run's selection diffs from.
+ *
+ * @param greenFile - the Actions API answer for the newest successful `CI` push run.
+ * @param firstParentFile - the head's first-parent line, one SHA per line.
+ * @param write - where the answer goes.
+ * @returns {@link EXIT.ok}.
+ */
+export const pushBase = (greenFile: string, firstParentFile: string, write: (s: string) => void = (s) => process.stdout.write(s)): number => {
+  const firstParent = (readOrNull(firstParentFile) ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const answer = pushSelectionBase({ greenHead: greenHeadOf(readOrNull(greenFile)), firstParent });
+  write('base' in answer ? `base=${answer.base}\n` : `every=${answer.every}\n`);
+  return EXIT.ok;
+};
+
 /** The arguments {@link run} takes from the command line. */
 export interface Args {
   readonly ci: boolean;
@@ -463,11 +536,19 @@ if (
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
     void endEntry(await refuse(process.cwd(), scriptDir, Buffer.concat(chunks).toString('utf8')));
+  } else if (process.argv[2] === '--push-base') {
+    const [green, firstParent, ...rest] = process.argv.slice(3);
+    if (green === undefined || firstParent === undefined || rest.length > 0) {
+      process.stderr.write('usage: plot-local-checks.mjs --push-base <green.json> <first-parent.txt>\n');
+      void endEntry(EXIT.usage);
+    } else {
+      void endEntry(pushBase(green, firstParent));
+    }
   } else {
     const parsed = parseArgs(process.argv.slice(2));
     if ('unknown' in parsed) {
       process.stderr.write(
-        `plot-local-checks: unknown argument ${parsed.unknown}\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>] [--base <branch>] [--run]\n`,
+        `plot-local-checks: unknown argument ${parsed.unknown}\nusage: plot-local-checks.mjs [--ci [--corpus <glob>]] [--files <path>] [--base <branch>] [--run]\n       plot-local-checks.mjs --push-base <green.json> <first-parent.txt>\n`,
       );
       void endEntry(EXIT.usage);
     } else {

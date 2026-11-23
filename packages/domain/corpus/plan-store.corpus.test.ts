@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
+import { planOf, planStoreShell, type RawPlan } from '../src/adapters/plan-store/plan-store-shell.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import type { PlanRecord } from '../src/ports/plan-store.js';
 import { isAnswered } from '../src/port-result.js';
@@ -54,6 +54,9 @@ const FIELDS: ReadonlyArray<readonly [keyof PlanRecord, string]> = [
   ['review', 'review'],
   ['impl', 'impl'],
   ['approvedRaw', 'approved_raw'],
+  ['spikeApprovedRaw', 'spike_approved_raw'],
+  ['designRaw', 'design_raw'],
+  ['verifiedRaw', 'verified_raw'],
   ['deliveredRaw', 'delivered_raw'],
   ['releasedRaw', 'released_raw'],
   ['startedRaw', 'started_raw'],
@@ -75,12 +78,6 @@ const KNOWN_UNCARRIED = [
   'phase_alt_raw',
   'review_raw',
   'impl_raw',
-  'design_raw',
-  // The scan carries it to the verdict line as `1`/`0`; no PlanStore reader decides on it.
-  'spike_approved_raw',
-  // The board passes it from its own PlanMeta to verificationOf; no PlanStore reader decides on it.
-  'verified_raw',
-  'issues',
   // Read by sprint-release-gate's own input, not through PlanStore; no PlanStore reader decides on it.
   'ticket',
   'malformed_prs',
@@ -91,11 +88,35 @@ const KNOWN_UNCARRIED = [
   'unread_waits',
   // Read by reconcile's section 24b from the shell; no domain rule decides on it.
   'unread_heading_items',
-  'rounds',
-  'waves',
-  'slices',
-  'error',
 ];
+
+/**
+ * The wire keys `planOf` reads that the per-field comparison cannot compare as
+ * a plain copy. Each has its own test below.
+ *
+ * - `issues`: numbers on the wire, strings on the port.
+ * - `rounds`: present on the port only where the wire carries a number.
+ * - `error`: present only on a parse failure.
+ * - `slices`, `waves`: the slice list under either wire spelling (`WIRE_SLICES`).
+ */
+const COMPARED_APART = ['issues', 'rounds', 'error', 'slices', 'waves'];
+
+/**
+ * Calls `planOf` on a proxy that answers `undefined` for every key.
+ *
+ * @returns the wire keys the adapter reads, observed from its behaviour.
+ */
+const keysPlanOfReads = (): Set<string> => {
+  const read = new Set<string>();
+  const recorder = new Proxy({} as RawPlan, {
+    get: (_target, key) => {
+      if (typeof key === 'string') read.add(key);
+      return undefined;
+    },
+  });
+  planOf(recorder);
+  return read;
+};
 
 /** The wire's spelling of a plan's slice list; the parser still emits this one. */
 const WIRE_SLICES = ['slices', 'waves'];
@@ -275,10 +296,10 @@ describe('the PlanStore adapter agrees with plot-plan-meta.sh', () => {
     // reading gets dropped silently — the adapter keeps agreeing about what it
     // reads, while the domain stops being told something it needs.
     //
-    // So: every key the wire emits is either mapped or listed as deliberately
-    // uncarried. A key on neither list fails, and the fix is a decision — carry
-    // it, or write it down.
-    const mapped = new Set<string>(FIELDS.map(([, wire]) => wire));
+    // So: every key the wire emits is mapped, compared apart, or listed as
+    // deliberately uncarried. A key on none of the lists fails, and the fix is
+    // a decision — carry it, or write it down.
+    const mapped = new Set<string>([...FIELDS.map(([, wire]) => wire), ...COMPARED_APART]);
     const unexpected = new Set<string>();
     for (const raw of production) {
       for (const key of Object.keys(raw)) {
@@ -286,6 +307,80 @@ describe('the PlanStore adapter agrees with plot-plan-meta.sh', () => {
       }
     }
     expect([...unexpected].sort()).toEqual([]);
+  });
+
+  it('reports the same issues, as strings, on every plan', () => {
+    const found: Disagreement[] = [];
+    for (const plan of adapted) {
+      const raw = byFile.get(plan.file);
+      if (raw === undefined) continue;
+      const wire = Array.isArray(raw.issues) ? (raw.issues as unknown[]) : [];
+      compareField(found, plan.file, 'issues/issues', plan.issues, wire.map(String));
+    }
+    expect(found.map(describeDisagreement)).toEqual([]);
+    expect(adapted.some((plan) => plan.issues.length > 0)).toBe(true);
+  });
+
+  it('carries rounds exactly where the wire carries a number', () => {
+    const found: Disagreement[] = [];
+    for (const plan of adapted) {
+      const raw = byFile.get(plan.file);
+      if (raw === undefined) continue;
+      const wireHas = typeof raw.rounds === 'number';
+      compareField(found, plan.file, 'rounds present', 'rounds' in plan, wireHas);
+      if (wireHas) compareField(found, plan.file, 'rounds/rounds', plan.rounds, raw.rounds);
+    }
+    expect(found.map(describeDisagreement)).toEqual([]);
+    expect(adapted.some((plan) => 'rounds' in plan)).toBe(true);
+  });
+
+  it('carries error only on a parse failure, with the wire value', () => {
+    const parsed = production[0];
+    expect(parsed).toBeDefined();
+    expect('error' in (parsed ?? {})).toBe(false);
+    expect('error' in planOf((parsed ?? {}) as RawPlan)).toBe(false);
+
+    // The parser reports a failure only for a file it cannot read.
+    const dir = mkdtempSync(join(tmpdir(), 'plot-plan-store-corpus-'));
+    try {
+      const missing = join(dir, '2026-11-23-a-plan-that-is-not-there.md');
+      const [failed] = readPlanMeta(estate, [missing]);
+      expect(failed).toBeDefined();
+      expect(typeof failed?.error).toBe('string');
+      const plan = planOf((failed ?? {}) as RawPlan);
+      expect('error' in plan).toBe(true);
+      expect(plan.error).toBe(failed?.error);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('names every key planOf reads on FIELDS or COMPARED_APART', () => {
+    const read = keysPlanOfReads();
+    // A check over an empty recording passes for every list.
+    expect(read.size).toBeGreaterThan(0);
+    const named = new Set<string>([...FIELDS.map(([, wire]) => wire), ...COMPARED_APART]);
+    expect([...read].filter((key) => !named.has(key)).sort()).toEqual([]);
+  });
+
+  it('puts no key on two of FIELDS, COMPARED_APART and KNOWN_UNCARRIED', () => {
+    const lists: ReadonlyArray<readonly [string, readonly string[]]> = [
+      ['FIELDS', FIELDS.map(([, wire]) => wire)],
+      ['COMPARED_APART', COMPARED_APART],
+      ['KNOWN_UNCARRIED', KNOWN_UNCARRIED],
+    ];
+    const owners = new Map<string, string[]>();
+    for (const [name, keys] of lists) {
+      for (const key of keys) owners.set(key, [...(owners.get(key) ?? []), name]);
+    }
+    const twice = [...owners].filter(([, names]) => names.length > 1).map(([key, names]) => `${key}: ${names.join(', ')}`);
+    expect(twice.sort()).toEqual([]);
+  });
+
+  it('lists as uncarried no key planOf reads', () => {
+    const read = keysPlanOfReads();
+    expect(read.size).toBeGreaterThan(0);
+    expect(KNOWN_UNCARRIED.filter((key) => read.has(key)).sort()).toEqual([]);
   });
 
   it('carries the fields the estate actually populates, so this is not vacuous', async () => {

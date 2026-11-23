@@ -29,7 +29,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // so three branches read as three waves. Each fixture row that means a
   // distinct wave now says so; rows sharing a wave name mean one wave with
   // several branches, which is the other case and equally deliberate.
-  wave: 'w', state: 'open', phase: 'Design', group: 'not-started', ageMinutes: null,
+  wave: 'w', state: 'open', phase: 'Design', planState: 'design', group: 'not-started', ageMinutes: null,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null,
   // The default is startable (open + click), so `startability: 'start-work'`. Blocked
@@ -77,14 +77,14 @@ function fleet(): Fleet {
     row({
       plan: 'reviewed-plan', planFile: '2026-08-15-reviewed-plan.md',
       branch: 'feature/needs-review', group: 'waiting-on-you', state: 'wip',
-      phase: 'Development', ageMinutes: 30, waitingDays: null,
+      phase: 'Development', planState: 'approved', ageMinutes: 30, waitingDays: null,
       note: 'PR #116 green', branchUrl: `${GH}feature/needs-review`,
       pr: { number: 116, url: 'https://github.com/tiny/garden/pull/116', draft: false, state: 'green' },
       startability: 'someone-is-on-it' as const,
     }),
     row({
       plan: 'quiet-plan', planFile: '2026-08-01-quiet-plan.md',
-      branch: 'feature/gone-still', group: 'quiet', state: 'wip', phase: 'Development',
+      branch: 'feature/gone-still', group: 'quiet', state: 'wip', phase: 'Development', planState: 'approved',
       ageMinutes: 4000, waitingDays: null, note: 'last commit 2d ago',
       branchUrl: `${GH}feature/gone-still`,
       startability: 'someone-is-on-it' as const,
@@ -386,9 +386,10 @@ describe('NOT STARTED renders one row per plan', () => {
       // form would make this a claim about a CSS utility rather than about the
       // two rows saying what they are.
       expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
-      // `slice`, and this is the assertion (4) could not make: its children said
-      // `plan` too, which is why the indent was carrying the relationship alone.
-      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('slice');
+      // A slice row under You leads with the verb in slot 2, so it never says
+      // `plan` as its parent does: the indent does not carry the relationship alone.
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('interrogate ›');
+      expect(await branchRow.locator('[data-you-verb]').count()).toBe(1);
     } finally {
       await page.close();
     }

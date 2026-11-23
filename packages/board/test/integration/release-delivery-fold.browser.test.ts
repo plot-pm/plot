@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
-import { openCatalogue, board as buildBoard, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, board as buildBoard, card as buildCard, column, row, slice, type Catalogue } from '../catalogue/index.js';
 import { type Fleet, type FleetSprint, type Slice } from '../../src/contract/schema.js';
 
 /**
@@ -131,6 +131,91 @@ describe('the Release delivery section folds to its header line', () => {
       await expect.poll(async () => (await title.textContent()) ?? '', { timeout: 10_000 }).toContain('Release delivery');
       expect(await expanded(page)).toBe('true');
       expect(await page.locator(`${RELEASE} [data-plan-row]`).count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+});
+
+/**
+ * AN OPENED PLAN ROW'S SLICE LINES SHARE THE PLAN ROW'S LAST COLUMN.
+ *
+ * Plan `bed` holds a merged slice and a startable one with its own branch. Each slice line's ⋯ cell starts at the
+ * plan row's ⋯ cell, the merged line's empty cell included, and Start work in the startable line's ⋯ posts that
+ * line's branch to `/api/dispatch`.
+ */
+describe('an opened Release plan row unfolds to slice lines', () => {
+  let cat: Catalogue;
+  beforeAll(async () => { cat = await openCatalogue(); }, 60_000);
+  afterAll(async () => { await cat?.close(); });
+
+  const PLAN_FILE = 'docs/plans/bed.md';
+  const BRANCH = 'feature/bed-sow';
+  const estate = (): Fleet => ({
+    ...fleet(),
+    rows: [row({
+      plan: 'bed', planFile: 'bed.md', branch: BRANCH, wave: 'Sow', state: 'open', group: 'not-started', phase: 'Development',
+      planState: 'approved', waitingOn: 'click', verdict: 'eligible', startability: 'start-work',
+    })],
+    slices: [
+      slice({ plan: 'bed', name: 'Dig', branches: [], verdict: 'complete', section: 'done', complete: true, planSliceCount: 2, merge: 'merged' }),
+      slice({ plan: 'bed', name: 'Sow', branches: [BRANCH], verdict: 'eligible', section: 'not-started', complete: false, planSliceCount: 2 }),
+    ],
+    sprints: [sprint('mine', 'My Sprint', ME, ['bed'])],
+  }) as unknown as Fleet;
+
+  const open = async (): Promise<Page> => {
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      viewport: { width: 1280, height: 900 },
+      over: {
+        fleet: estate(),
+        board: buildBoard({
+          columns: [column({ phase: 'Development', cards: [buildCard({ slug: 'bed', title: 'Bed', path: PLAN_FILE })] })],
+          dispatch: { available: true, reason: '' },
+          server: { restartCommand: 'pnpm board', port: 4711, branch: 'main', repo: 'garden', hostUser: ME, people: { [ME]: ME } },
+        }),
+      },
+    });
+    await page.locator(`${RELEASE} [data-plan-toggle="bed"]`).click();
+    await page.locator(`${RELEASE} [data-plan-row="bed"] [data-plan-line]`).first().waitFor({ timeout: 15_000 });
+    return page;
+  };
+  const leftOf = async (page: Page, selector: string): Promise<number> => {
+    const box = await page.locator(selector).boundingBox();
+    if (box === null) throw new Error(`${selector} has no box`);
+    return box.x;
+  };
+
+  it('puts every slice line\'s ⋯ cell at the plan row\'s ⋯ cell, the merged line\'s empty cell included', async () => {
+    const page = await open();
+    try {
+      const row = `${RELEASE} [data-plan-row="bed"]`;
+      const plan = await leftOf(page, `${row} > div > [data-row-cell="do"] [data-row-menu]`);
+      const done = `${row} [data-plan-line="done"]`;
+      const todo = `${row} [data-plan-line="to-do"]`;
+      expect(await page.locator(`${done} [data-row-menu] button`).count()).toBe(0);
+      expect(await leftOf(page, `${done} [data-row-menu]`)).toBe(plan);
+      expect(await leftOf(page, `${todo} [data-row-menu]`)).toBe(plan);
+      expect(await page.locator(`${done} [data-status-pill]`).textContent()).toBe('merged');
+      expect(await page.locator(`${todo} [data-status-pill]`).textContent()).toBe('not started');
+      expect(await page.locator(`${todo} [data-plan-line-branch="${BRANCH}"]`).count()).toBe(1);
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
+  it('posts the line\'s branch when Start work in its ⋯ is clicked', async () => {
+    const page = await open();
+    let posted: unknown = null;
+    await page.route('**/api/dispatch', (route) => {
+      posted = route.request().postDataJSON();
+      void route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ slug: 'bed' }) });
+    });
+    try {
+      await page.locator(`${RELEASE} [data-slice-line-actions="Sow"]`).click();
+      await page.getByRole('button', { name: 'Start work' }).click();
+      await expect.poll(() => posted, { timeout: 10_000 }).toEqual({ slug: 'bed', branch: BRANCH });
     } finally {
       await page.close();
     }

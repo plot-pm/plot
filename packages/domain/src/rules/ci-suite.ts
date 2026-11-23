@@ -82,7 +82,8 @@ const SIGNAL_FORM = /^(--signal(=.*)?|-\d+|-[A-Z]{2,})$/;
  * Whether a simple command reads the process table: after at most one leading
  * `while` or `until`, the program is `pgrep`, `ps` or `lsof`. The command must
  * be one simple command that `readShell` reads, with no heredoc, no word that
- * executes, and no signal option on `pgrep`. Whitespace-split words keep their
+ * executes, no signal option on `pgrep`, and a program word that is plain text
+ * with no `=`, so `X=pgrep` is an assignment and not a read. Whitespace-split words keep their
  * quote characters, so the line is read again with `readShell` and the
  * operands are the quote-free values.
  *
@@ -96,20 +97,42 @@ const isProcessRead = (words: readonly string[]): boolean => {
   if (command.words.some((word) => word.executes)) return false;
   const values = command.words.map((word) => word.value ?? word.raw);
   const at = values[0] === 'while' || values[0] === 'until' ? 1 : 0;
+  const program = command.words[at];
+  if (program === undefined || program.value === null || program.value.includes('=')) return false;
   if (values[at] === undefined || !PROCESS_READERS.has(wordBasename(values[at]))) return false;
   if (wordBasename(values[at]) === 'pgrep' && values.slice(at + 1).some((w) => SIGNAL_FORM.test(w))) return false;
   return true;
 };
 
 /**
+ * The `git` subcommand of a program that starts with `git`: the first word
+ * after `git` that is not a `-C <dir>` pair or `--no-pager`. Every other global
+ * option, `-c` included, is returned as the subcommand.
+ *
+ * @param program - a simple command's words from the program on.
+ * @returns the subcommand word, or `undefined` when none follows.
+ */
+export const gitSubcommand = (program: readonly string[]): string | undefined => {
+  let i = 1;
+  while (program[i] === '-C' || program[i] === '--no-pager') i += program[i] === '-C' ? 2 : 1;
+  return program[i];
+};
+
+/**
  * Whether a simple command's program is a reader: one of `READERS`,
- * `git diff|show|log|grep`, or a process-table read (`isProcessRead`).
+ * `git diff|show|log|grep` (after `gitSubcommand`'s `-C <dir>` and
+ * `--no-pager`), or a process-table read (`isProcessRead`).
  */
 const isReader = (words: readonly string[]): boolean => {
-  const [head, sub] = programWords(words);
-  if (head === undefined) return false;
-  const name = wordBasename(head);
-  return READERS.has(name) || (name === 'git' && GIT_READERS.has(sub)) || isProcessRead(words);
+  const program = programWords(words);
+  if (program[0] === undefined) return false;
+  const name = wordBasename(program[0]);
+  if (READERS.has(name)) return true;
+  if (name === 'git') {
+    const sub = gitSubcommand(program);
+    if (sub !== undefined && GIT_READERS.has(sub)) return true;
+  }
+  return isProcessRead(words);
 };
 
 /**
@@ -144,15 +167,25 @@ const unquotedSplit = (text: string, separator: RegExp): string[] => {
 };
 
 /**
- * The simple commands of a loop body: the text after `do` up to the segment
- * that is `done`, split on `&&`, `||`, `;`, `|` and new lines outside quotes
- * and escapes. An unreadable body splits on every separator.
+ * The simple commands of a loop body: the text after `do` up to the `done`
+ * that closes it, split on `&&`, `||`, `;`, `|` and new lines outside quotes
+ * and escapes. An unreadable body splits on every separator. Each `do` among a
+ * segment's leading keywords (`commandWords`) opens an inner loop, and the
+ * next `done` closes that inner loop, not the body; the inner loop's segments
+ * stay in the body.
  */
 const bodySegments = (after: string): string[][] => {
   const segments: string[][] = [];
+  let depth = 0;
   for (const segment of unquotedSplit(after, /&&|\|\||[;|\n]/)) {
     const words = segment.trim().split(/\s+/).filter((w) => w !== '');
-    if (words[0] === 'done') break;
+    if (words[0] === 'done') {
+      if (depth === 0) break;
+      depth -= 1;
+      continue;
+    }
+    const leading = words.slice(0, words.length - commandWords(words).length);
+    depth += leading.filter((w) => w === 'do').length;
     if (words.length > 0) segments.push(words);
   }
   return segments;
@@ -160,10 +193,12 @@ const bodySegments = (after: string): string[][] => {
 
 /**
  * Removes the word list of a `for` loop whose body only reads: every simple
- * command in the body has a reader as its program (`cmp`, `diff`, `cat`, `ls`,
- * `grep`, `head`, `tail`, `wc`, `shasum`, `sha256sum`, `stat`, `test`, `[`,
- * `git diff|show|log|grep`, `pgrep`, `ps`, `lsof`), and the body holds no command substitution. Any
- * other body keeps the list, so a name in it reads as a run.
+ * command in the body is a read segment (`isReadSegment`), so its program is a
+ * reader (`cmp`, `diff`, `cat`, `ls`, `grep`, `head`, `tail`, `wc`, `shasum`,
+ * `sha256sum`, `stat`, `test`, `[`, `git diff|show|log|grep`, `pgrep`, `ps`,
+ * `lsof`) with no substitution, no assignment or `env` prefix and no `git`
+ * option that runs or writes. Any other body keeps the list, so a name in it
+ * reads as a run.
  *
  * @param command - the command line.
  * @returns the command with such word lists emptied.
@@ -174,7 +209,7 @@ const withoutDataLists = (command: string): string => {
     const { index: at } = match;
     const after = command.slice(at + match[0].length);
     const body = bodySegments(after);
-    if (!body.every(isReader) || body.some(hasSubstitution)) continue;
+    if (!body.every(isReadSegment)) continue;
     const listStart = at + match[0].indexOf(match[2], match[0].indexOf(' in ') + 1);
     out = out.slice(0, listStart) + out.slice(listStart + match[2].length);
   }
@@ -182,25 +217,64 @@ const withoutDataLists = (command: string): string => {
 };
 
 /**
- * Strips what precedes the program a simple command runs: `NAME=value`
- * assignments, and `env` with its options and assignments.
+ * The shell reserved words and grouping words that can precede a simple
+ * command's program after a split on `;`: `!`, `{`, `(`, `do`, `then`,
+ * `else`, `elif`, `if`, `while`, `until` and `time`.
+ */
+export const LEADING_KEYWORDS: ReadonlySet<string> = new Set([
+  '!', '{', '(', 'do', 'then', 'else', 'elif', 'if', 'while', 'until', 'time',
+]);
+
+/** How many more `)` than `(` a word holds. */
+const unmatchedClosers = (word: string): number =>
+  word.split(')').length - word.split('(').length;
+
+/**
+ * Strips the leading keywords of a simple command: any run of
+ * `LEADING_KEYWORDS`, a `-p` after `time`, and a `(` glued to the first word
+ * after them. A `)` glued to the last word is dropped where that word holds
+ * more `)` than `(`, so `(curl x)` reads as `curl x` and `$(date)` keeps its
+ * `)`.
+ *
+ * @param words - one simple command, split on whitespace.
+ * @returns the words from the first word that is not a keyword on.
+ */
+export const commandWords = (words: readonly string[]): string[] => {
+  let i = 0;
+  while (i < words.length && LEADING_KEYWORDS.has(words[i])) {
+    i += words[i] === 'time' && words[i + 1] === '-p' ? 2 : 1;
+  }
+  const out = words.slice(i);
+  if (out.length > 0 && out[0].length > 1 && out[0].startsWith('(')) out[0] = out[0].slice(1);
+  const last = out.length - 1;
+  if (last >= 0 && out[last].length > 1 && out[last].endsWith(')') && unmatchedClosers(out[last]) > 0) {
+    out[last] = out[last].slice(0, -1);
+  }
+  return out;
+};
+
+/**
+ * Strips what precedes the program a simple command runs: the leading
+ * keywords (`commandWords`), then `NAME=value` assignments, and `env` with
+ * its options and assignments.
  *
  * @param words - one simple command, split on whitespace.
  * @returns the words from the program on.
  */
 export const programWords = (words: readonly string[]): string[] => {
+  const command = commandWords(words);
   let i = 0;
-  while (i < words.length && ASSIGNMENT.test(words[i])) i += 1;
-  if (words[i] === 'env') {
+  while (i < command.length && ASSIGNMENT.test(command[i])) i += 1;
+  if (command[i] === 'env') {
     i += 1;
-    while (i < words.length) {
-      const word = words[i];
+    while (i < command.length) {
+      const word = command[i];
       if (word === '-u' || word === '--unset' || word === '-C' || word === '--chdir') i += 2;
       else if (word.startsWith('-') || ASSIGNMENT.test(word)) i += 1;
       else break;
     }
   }
-  return words.slice(i);
+  return command.slice(i);
 };
 
 /**
@@ -285,7 +359,9 @@ export const ciSuiteRefusal = (command: string, suites: readonly string[]): CiSu
  * A quoted or escaped separator splits nothing; a separator inside `$( )`, a
  * backtick or `<( )` splits, and an unreadable command splits on every
  * separator. A gated script name behind a `;`, `&` or `|` inside one word of a
- * segment that is not a read is still a run.
+ * segment that is not a read is still a run. Where the segment's program runs
+ * its argument text (`RUNS_TEXT`), a gated name anywhere inside a word is a
+ * run, as in `awk 'BEGIN{system("plot-approve.sh x")}'`.
  *
  * An unquoted `#` starts a comment: it and the rest of its line are not read.
  * The word after `--who` or `--release` is that flag's value and is never read
@@ -301,9 +377,10 @@ export const controllerInvocation = (command: string): GatedAction | null => {
   for (const words of nonReadSegments(command)) {
     const route = httpRouteAction(words);
     if (route !== null) return route;
+    const runs = runsText(words);
     for (const word of words) {
       if (wordBasename(word) === ASK_MJS && words.includes('release-approve')) return 'release-approve';
-      const script = scriptNamed(word) ?? gluedScript(word);
+      const script = scriptNamed(word) ?? gluedScript(word, runs);
       if (script === null) continue;
       return actionFor(script, words);
     }
@@ -428,25 +505,57 @@ export const commandRunsScript = (command: string, name: string): boolean =>
   command.split(/\s+/).some((word) => wordBasename(word) === name);
 
 /**
- * The gated script a word names, by exact basename or by a glob matching
- * exactly one of the three.
+ * The programs that run their argument text as code. A shell (`sh`, `bash`,
+ * `zsh`, `dash`) counts only where a `-c` option follows it; `python3.<n>`
+ * counts as `python3`.
  */
+export const RUNS_TEXT: ReadonlySet<string> = new Set([
+  'awk', 'gawk', 'mawk', 'python', 'python3', 'node', 'perl', 'ruby', 'eval', 'sh', 'bash', 'zsh', 'dash',
+]);
+
+/** The `RUNS_TEXT` shells, which run argument text only with `-c`. */
+const TEXT_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash']);
+
+/**
+ * Whether a segment's program runs its argument text: a `RUNS_TEXT` program,
+ * read after `programWords`, and for a shell only with a `-c` option (alone or
+ * in a short-option group such as `-lc`).
+ *
+ * @param words - one segment, split on whitespace.
+ * @returns whether the program's operands are code.
+ */
+const runsText = (words: readonly string[]): boolean => {
+  const program = programWords(words);
+  if (program[0] === undefined) return false;
+  const name = wordBasename(program[0]).replace(/^(python3)\.\d+$/, '$1');
+  if (!RUNS_TEXT.has(name)) return false;
+  return !TEXT_SHELLS.has(name) || program.slice(1).some((w) => /^-[A-Za-z]*c[A-Za-z]*$/.test(w));
+};
+
 /**
  * The gated script a word names after a `;`, `&` or `|` inside it, as in
  * `sh -c 'PATH=x:$PATH;plot-deliver.sh y'`, where the quote keeps the
- * separator from splitting the command.
+ * separator from splitting the command. Where the program runs its argument
+ * text, the word also splits on every character outside
+ * `[A-Za-z0-9_./*?[\]-]`, so a name inside program text is found.
  *
  * @param word - one word of a segment that is not a read.
- * @returns the first gated basename after a separator, or `null`.
+ * @param runs - whether the segment's program runs its argument text (`runsText`).
+ * @returns the first gated basename found, or `null`.
  */
-const gluedScript = (word: string): string | null => {
-  for (const piece of word.split(/[;&|]/).slice(1)) {
+const gluedScript = (word: string, runs: boolean): string | null => {
+  const pieces = runs ? word.split(/[^A-Za-z0-9_./*?[\]-]/) : word.split(/[;&|]/).slice(1);
+  for (const piece of pieces) {
     const script = scriptNamed(piece);
     if (script !== null) return script;
   }
   return null;
 };
 
+/**
+ * The gated script a word names, by exact basename or by a glob matching
+ * exactly one of the three.
+ */
 const scriptNamed = (word: string): string | null => {
   const base = wordBasename(word);
   if (base in GATED) return base;
@@ -470,7 +579,7 @@ export const isReadSegment = (words: readonly string[]): boolean => {
   if (!isReader(words)) return false;
   if (hasSubstitution(words)) return false;
   const program = programWords(words);
-  if (program.length !== words.length) return false;
+  if (program.length !== commandWords(words).length) return false;
   if (wordBasename(program[0]) === 'git' && words.some((w) => GIT_RUN_OPTIONS.test(w))) return false;
   return true;
 };

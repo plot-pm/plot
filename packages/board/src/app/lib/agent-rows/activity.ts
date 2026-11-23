@@ -137,22 +137,67 @@ export function activeRowKeys(
 }
 
 /**
- * How long a changed row wears its marker.
+ * How long a changed row wears its marker, in milliseconds, and the length of
+ * the marker's one fade.
  *
- * **Three seconds, and the measurement decides it — not taste.** The value this
- * watches comes from the host's PR refresh (`PR_REFRESH_MS`, 60 s), not from the
- * 4 s fleet pulse, and `PR_BACKOFF_MAX_MS` pushes it to 120 s under a rate
- * limit. So a transition can surface at most once a minute and often less: it is
- * a RARE event, and a 300 ms flash — calibrated for something frequent enough
- * that missing one hardly matters — would be missed nearly every time.
+ * The marker lives exactly as long as its fade: `CHANGE_FADE` reads its
+ * `animationDuration` from this constant, so the element unmounts when the
+ * accent background reaches transparent. Under `prefers-reduced-motion:
+ * reduce` the fade does not run, the accent stays static for the same time and
+ * the row's age cell reads `just now` (`activitySignal`).
  *
- * Three seconds is long enough to catch a reader glancing back and short enough
- * that it plainly reads as a marker rather than as a state. Deliberately NOT
- * "until the next pulse": that would tie the marker's life to whichever clock
- * cleared it (4 s or 60 s), and would leave it lit forever on a board whose
- * server died — which is exactly when nothing is changing.
+ * The value is independent of both poll intervals (the 4 s fleet pulse and the
+ * 60 s PR refresh), so a board whose server stopped answering clears every
+ * marker on time.
  */
-export const CHANGE_MARK_MS = 3_000;
+export const CHANGE_MARK_MS = 2_000;
+
+/**
+ * The inline animation of the change marker (`[data-change-mark]`): one fade
+ * of the accent background to transparent over `CHANGE_MARK_MS`, run once and
+ * held at its end. The `change-fade` keyframes live in `index.css`, which also
+ * turns the animation off under `prefers-reduced-motion: reduce`.
+ */
+export const CHANGE_FADE = {
+  animationName: 'change-fade',
+  animationDuration: `${CHANGE_MARK_MS}ms`,
+  animationTimingFunction: 'ease-out',
+  animationIterationCount: 1,
+  animationFillMode: 'forwards',
+} as const;
+
+/** The age text a changed row shows under reduced motion, in place of its age. */
+export const JUST_NOW = 'just now';
+
+/** The activity signals one Delivery row shows. */
+export interface ActivitySignal {
+  /** The pace of the spinner in the reserved slot before the status; `null` leaves the slot empty. */
+  spinner: ActivityPace | null;
+  /** Whether the row wears the change marker (`[data-change-mark]`). */
+  changed: boolean;
+  /** The text that replaces the row's age; `null` keeps the age. */
+  age: string | null;
+}
+
+/**
+ * The activity signals of one Delivery row: the spinner while it runs, and the
+ * change marker after its watched state changed.
+ *
+ * The two are independent: a running row that changed shows both. A changed
+ * row reads `JUST_NOW` in its age cell under reduced motion, where the marker
+ * does not fade; with motion the age keeps its value.
+ *
+ * @param running - the spinner's pace where the row runs (`isActive`, or a lock
+ *   still echoing), otherwise `null`.
+ * @param changed - whether `ChangeMarks` lights the row now.
+ * @param reducedMotion - whether the reader asked for reduced motion.
+ * @returns the row's signals.
+ */
+export const activitySignal = (running: ActivityPace | null, changed: boolean, reducedMotion: boolean): ActivitySignal => ({
+  spinner: running,
+  changed,
+  age: changed && reducedMotion ? JUST_NOW : null,
+});
 
 /** The six PR states plus *no PR*, as one value — the row's PR slot. */
 export type WatchedPrState = NonNullable<AgentRow['pr']>['state'] | null;
@@ -497,7 +542,7 @@ export function isUnreadable(state: WatchedPrState): boolean {
  *
  * Split out of the hook and exported for test because the restart rule is not
  * observable through the board's own clocks. `FLEET_POLL_MS` is 4 s and a mark
- * lives 3 s, so two changes arriving on consecutive polls can never overlap —
+ * lives 2 s, so two changes arriving on consecutive polls can never overlap —
  * a browser test "asserting" a restart is really watching a second mark replace
  * an expired first, and passes just as happily with the restart removed. (It
  * did: the sabotage was run.) Driven directly with a fake clock, the rule is
@@ -550,6 +595,16 @@ export class ChangeMarks {
     this.lit.clear();
   }
 }
+
+/**
+ * The age a row's age cell shows under its signals: `signal.age` with no
+ * label where the signal replaces the age, otherwise `age` unchanged.
+ *
+ * @param age - the row's own age.
+ * @param signal - the row's signals, from `activitySignal`.
+ */
+export const signalAge = (age: { text: string; label: string }, signal: ActivitySignal): { text: string; label: string } =>
+  signal.age === null ? age : { text: signal.age, label: '' };
 
 /**
  * The activity spinner's frame rate, and the fact each rate states: `fast`

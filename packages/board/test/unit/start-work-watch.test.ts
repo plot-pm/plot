@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { claimedCount, startRefusal, verdictFromPulse } from '../../src/app/components/StartWorkButton.js';
+import { claimedCount, dispatchBody, startRefusal, verdictFromPulse } from '../../src/app/components/StartWorkButton.js';
 import type { Card, DispatchInfo } from '../../src/contract/schema.js';
 
 /**
@@ -214,5 +214,16 @@ describe('startRefusal — refusing before the click, in the right words', () =>
     const preSlice = card({ started: false, phase: 'Design' });
     expect(preSlice.sliceSummary).toBeUndefined();
     expect(startRefusal(preSlice, ready)).toBeUndefined();
+  });
+});
+
+describe('dispatchBody — the branch a Start work click starts', () => {
+  it('names the line\'s branch, so the server starts that slice and not the next eligible one', () => {
+    expect(JSON.parse(dispatchBody('menus', 'feature/one'))).toEqual({ slug: 'menus', branch: 'feature/one' });
+  });
+
+  it('names the plan alone where the caller gives no branch or an empty one', () => {
+    expect(JSON.parse(dispatchBody('menus'))).toEqual({ slug: 'menus' });
+    expect(JSON.parse(dispatchBody('menus', ''))).toEqual({ slug: 'menus' });
   });
 });

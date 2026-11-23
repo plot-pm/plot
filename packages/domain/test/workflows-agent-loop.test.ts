@@ -737,6 +737,37 @@ describe('agentLoop — row 10: prompt exit ran, the agent wrote a PLOT-BLOCKED 
   });
 });
 
+describe('agentLoop — a blocked ending records the asking session', () => {
+  const asked = { ...freeLoop, assignedBranch: BRANCH, resumeId: 'sess-the-asking-agent' };
+
+  it('row 10: a PLOT-BLOCKED marker records readings.resumeId', () => {
+    const result = agentLoop({ ...asked, exit: { answer: 'ran' }, markerWritten: true, markerText: 'PLOT-BLOCKED: which API?' });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'blocked', resumeId: 'sess-the-asking-agent' });
+  });
+
+  it('row 10a: a blocked hand-back records readings.resumeId', () => {
+    const result = agentLoop({ ...asked, exit: { answer: 'ran' }, handBack: 'blocked', handBackSummary: 'which API?' });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'blocked', resumeId: 'sess-the-asking-agent' });
+  });
+
+  it('row 9b: a turn-limit ending records readings.resumeId', () => {
+    const result = agentLoop({ ...asked, exit: { answer: 'turn-limit' } });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'turn-limit', resumeId: 'sess-the-asking-agent' });
+  });
+
+  it('row 9c: a spend-limit ending records readings.resumeId', () => {
+    const result = agentLoop({ ...asked, exit: { answer: 'spend-limit' } });
+    expect(endWrite(result.writes)).toMatchObject({ reason: 'spend-limit', resumeId: 'sess-the-asking-agent' });
+  });
+
+  it('row 10: an empty readings.resumeId writes no resumeId key', () => {
+    const result = agentLoop({ ...asked, resumeId: '', exit: { answer: 'ran' }, markerWritten: true, markerText: 'PLOT-BLOCKED: which API?' });
+    const ending = endWrite(result.writes);
+    expect(ending).toMatchObject({ reason: 'blocked' });
+    expect(ending).not.toHaveProperty('resumeId');
+  });
+});
+
 describe('agentLoop — row 10c: the turn ended with its background work dropped', () => {
   const LINE = 'Background tasks still running after 600s; terminating.';
   const dropped = { ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'dropped' as const, line: LINE }, resumeId: 'sess-7' };

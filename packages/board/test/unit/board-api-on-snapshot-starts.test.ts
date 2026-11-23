@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { fleetdHeartbeatFile, gateContractFile } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn, gateContractFile } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { FLEETD_HEARTBEAT_VERSION } from '@plot-pm/domain';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -177,7 +178,7 @@ describe('GET /api/board while fleetd serves its snapshot', () => {
     const now = Date.now();
     /** fleetd's heartbeat, beating at `at`. */
     const beat = (at: number) =>
-      fleetdHeartbeatFile({ repoRoot }).write({
+      fleetdHeartbeatIn(stateHomeAtSync(repoRoot)).write({
         version: FLEETD_HEARTBEAT_VERSION,
         pid: process.pid,
         startedAt: now - 600_000,

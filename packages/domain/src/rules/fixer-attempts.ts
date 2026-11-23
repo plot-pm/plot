@@ -1,4 +1,4 @@
-import type { FixerAttemptsRecord, FixerFinding } from '../entities/fixer-attempts.js';
+import type { FixerAttemptsRecord, FixerFinding, FixerRerunAnswer } from '../entities/fixer-attempts.js';
 import type { FixerReading } from './slice-pr-next.js';
 
 /** How many fixer attempts a PR may spend before the HIGH goes to a ticket instead. */
@@ -106,17 +106,61 @@ export const fixerInFlight = (record: FixerAttemptsRecord | 'none' | 'unreadable
   return record.attempts.some((attempt) => attempt.inFlight !== undefined);
 };
 
+/** Where a head's CI re-run stands, as `ciRerunArm` reads it. */
+export type RerunOnHead = 'none' | 'running' | 'done' | 'unseen';
+
+/** The clock {@link rerunOnHead} reads: the tick's time and `Checks wait`, both in milliseconds. */
+export interface RerunClock {
+  readonly now: number;
+  readonly checksWaitMs: number;
+}
+
+/**
+ * What the record holds for the re-run of one head's failed CI jobs.
+ *
+ * @param record - the decoded record, or `'none'`/`'unreadable'`.
+ * @param head - the PR's current head SHA.
+ * @returns the entry's answer; `'none'` where no entry names `head`, `head` is
+ *   empty, or the record is missing or unreadable.
+ */
+export const fixerRerunAnswer = (record: AttemptsReading, head: string): FixerRerunAnswer | 'none' => {
+  if (record === 'none' || record === 'unreadable' || head === '') return 'none';
+  return record.reruns?.find((entry) => entry.headSha === head)?.answer ?? 'none';
+};
+
+/**
+ * Where the re-run of one head's failed CI jobs stands.
+ *
+ * @param record - the decoded record, or `'none'`/`'unreadable'`.
+ * @param head - the PR's current head SHA.
+ * @param clock - the tick's time and `Checks wait`.
+ * @returns `none` where no entry names `head`; `done` where the entry is
+ *   cleared or answered `failed` or `unaskable`; `unseen` where it answered
+ *   `asked`, is not cleared, and `Checks wait` has passed since its `at` or
+ *   `at` does not parse; `running` otherwise.
+ */
+export const rerunOnHead = (record: AttemptsReading, head: string, clock: RerunClock): RerunOnHead => {
+  if (record === 'none' || record === 'unreadable' || head === '') return 'none';
+  const entry = record.reruns?.find((rerun) => rerun.headSha === head);
+  if (entry === undefined) return 'none';
+  if (entry.cleared !== undefined || entry.answer !== 'asked') return 'done';
+  const at = Date.parse(entry.at);
+  return Number.isNaN(at) || clock.now - at > clock.checksWaitMs ? 'unseen' : 'running';
+};
+
 /**
  * Reads a PR's attempts record down to the {@link FixerReading} the arms take.
  *
  * @param record - the decoded record, or `'none'`/`'unreadable'`.
  * @param head - the PR's current head SHA; `''` where the row carries none.
  * @param baseTip - the base branch's tip SHA; `''` where it was not read.
+ * @param clock - the clock {@link rerunOnHead} reads; absent, the reading carries no `rerun`.
  * @returns `unread` for an unreadable record, otherwise the in-flight answer,
  *   the three exhaustion answers, whether a conflict attempt exists on `head`
- *   and `baseTip`, and whether the record proves the fixer pushed `head`.
+ *   and `baseTip`, whether the record proves the fixer pushed `head`, and,
+ *   with a clock, where the re-run of `head` stands.
  */
-export const fixerReadingOf = (record: AttemptsReading, head: string, baseTip = ''): FixerReading =>
+export const fixerReadingOf = (record: AttemptsReading, head: string, baseTip = '', clock?: RerunClock): FixerReading =>
   record === 'unreadable'
     ? { read: 'unread' }
     : {
@@ -127,4 +171,5 @@ export const fixerReadingOf = (record: AttemptsReading, head: string, baseTip = 
         conflictExhausted: fixerAttemptsExhausted(record, 'conflict'),
         conflictTried: fixerConflictTried(record, head, baseTip),
         pushedHead: head !== '' && fixerPushedHead(record, head),
+        ...(clock === undefined ? {} : { rerun: rerunOnHead(record, head, clock) }),
       };

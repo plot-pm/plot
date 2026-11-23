@@ -81,7 +81,7 @@ const ROW_DEFAULTS: RowInput = {
   planFile: '2026-08-24-a-plan.md',
   wave: 'Wave',
   state: 'wip',
-  phase: 'Development',
+  phase: 'Development', planState: 'approved',
   group: 'working',
   ageMinutes: 30,
   note: '',

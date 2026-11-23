@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fleetdHeartbeatFile, fleetStateFile } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn, fleetStateIn } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { FLEETD_HEARTBEAT_VERSION, type FleetdHeartbeat } from '@plot-pm/domain';
 import type { BridgedPulse } from '@plot-pm/domain/ports/fleet-state';
 import { rmTree } from '../helpers.mjs';
@@ -64,8 +65,8 @@ afterEach(() => {
 describe('the board refresh and the fleetd heartbeat', () => {
   it('runs plot-fleetctl.sh 0 times in 12 beats while the heartbeat is live', async () => {
     const { dir, opts, ctlRuns } = fixture();
-    await fleetdHeartbeatFile({ repoRoot: dir }).write(beat(Date.now()));
-    await fleetStateFile({ repoRoot: dir }).write(bridge(Date.now() - 2_000));
+    await fleetdHeartbeatIn(stateHomeAtSync(dir)).write(beat(Date.now()));
+    await fleetStateIn(stateHomeAtSync(dir)).write(bridge(Date.now() - 2_000));
     const entry = freshCacheEntry();
     for (let i = 0; i < 12; i += 1) await refresh(opts, entry);
     expect(ctlRuns()).toBe(0);
@@ -74,7 +75,7 @@ describe('the board refresh and the fleetd heartbeat', () => {
 
   it('runs plot-fleetctl.sh 12 times in 12 beats while the heartbeat is stale', async () => {
     const { dir, opts, ctlRuns } = fixture();
-    await fleetdHeartbeatFile({ repoRoot: dir }).write(beat(Date.now() - 120_000));
+    await fleetdHeartbeatIn(stateHomeAtSync(dir)).write(beat(Date.now() - 120_000));
     const entry = freshCacheEntry();
     for (let i = 0; i < 12; i += 1) await refresh(opts, entry);
     expect(ctlRuns()).toBe(12);
@@ -89,7 +90,7 @@ describe('the board refresh and the fleetd heartbeat', () => {
 
   it('runs it every beat for a live heartbeat of a fleetd started by hand', async () => {
     const { dir, opts, ctlRuns } = fixture();
-    await fleetdHeartbeatFile({ repoRoot: dir }).write(beat(Date.now(), 'none'));
+    await fleetdHeartbeatIn(stateHomeAtSync(dir)).write(beat(Date.now(), 'none'));
     const entry = freshCacheEntry();
     for (let i = 0; i < 3; i += 1) await refresh(opts, entry);
     expect(ctlRuns()).toBe(3);
@@ -99,7 +100,7 @@ describe('the board refresh and the fleetd heartbeat', () => {
 describe('/api/fleet liveness facts', () => {
   it('reports the file and the channel as two facts', async () => {
     const { dir, opts } = fixture();
-    await fleetdHeartbeatFile({ repoRoot: dir }).write(beat(Date.now()));
+    await fleetdHeartbeatIn(stateHomeAtSync(dir)).write(beat(Date.now()));
     await refresh({ ...opts, channelLink: () => 'down' }, ensureCache(opts));
     const fleet = await buildFleet({ ...opts, channelLink: () => 'down' });
     expect(fleet.fleetd).toEqual({ file: 'live', channel: 'down' });

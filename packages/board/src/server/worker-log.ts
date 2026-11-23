@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FleetReading } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
-import { pulseFor } from './fleet.js';
+import { lookupBranch, pulseBranchReading, type LogMissReason } from '@plot-pm/domain';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 
 /**
  * What `plot-dispatch.sh` names the worker's log inside the worktree it made
@@ -39,7 +40,7 @@ export const WORKER_LOG_NAME = '.plot-worker.log';
 export const TAIL_BYTES = 64 * 1024;
 
 /**
- * Why a log could not be read — three answers, never one blank panel.
+ * Why a log could not be read — five answers, never one blank panel.
  *
  * `no-worktree`, `no-log` and an EMPTY log are three different situations that
  * a single "nothing to show" would collapse, and each sends the reader
@@ -50,6 +51,8 @@ export const TAIL_BYTES = 64 * 1024;
  * | `no-worktree` | this machine holds no checkout        | ask the machine that has it |
  * | `no-log`      | the worktree is here; no worker wrote | look in the worktree     |
  * | `unreadable`  | the file is there and refused to open | fix the permission       |
+ * | `pulse-partial` | the unfinished scan has not reached the branch | ask after the scan finishes |
+ * | `no-pulse`    | no fleet reading exists yet           | wait for the first scan  |
  * | empty log     | a worker started and has said nothing | wait, or check its pid   |
  *
  * The empty case is deliberately NOT in this union. It is a successful read of
@@ -61,7 +64,7 @@ export const TAIL_BYTES = 64 * 1024;
  * This is the same absence-is-not-emptiness rule the pulse's `local_dirty` and
  * `worker: none` already carry, applied one layer out.
  */
-export type LogMissReason = 'no-worktree' | 'no-log' | 'unreadable';
+export type { LogMissReason };
 
 export type WorkerLog =
   | {
@@ -111,17 +114,10 @@ export type WorkerLog =
  * machine has not been asked what it holds. The caller reports `no-worktree`,
  * which is exactly right — *no worktree is KNOWN* — and the next pulse fixes it.
  */
-export function worktreeForBranch(pulse: FleetReading | null, branch: string): string | null {
-  if (!pulse) return null;
-  for (const plan of pulse.plans) {
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) {
-        if (b.branch === branch && b.local_worktree) return b.local_worktree;
-      }
-    }
-  }
-  return null;
-}
+export const worktreeForBranch = (pulse: FleetReading | null, branch: string): string | null => {
+  const lookup = lookupBranch(pulse, branch);
+  return lookup.kind === 'found' && lookup.desk.worktree !== '' ? lookup.desk.worktree : null;
+};
 
 /**
  * The last {@link TAIL_BYTES} of a file, and whether that was all of it.
@@ -172,8 +168,27 @@ export function readTail(fd: number, size: number): { text: string; truncated: b
  * exceptional — it is the normal state of a branch nobody has dispatched — and
  * the caller has a specific thing to say about each case.
  */
-export function workerLog(opts: BuildBoardOptions, branch: string): WorkerLog {
-  const worktree = worktreeForBranch(pulseFor(opts), branch);
+export function workerLog(
+  opts: BuildBoardOptions,
+  branch: string,
+  deps: {
+    pulse?: (opts: BuildBoardOptions) => ReturnType<typeof pulseFor>;
+    pulseComplete?: (opts: BuildBoardOptions) => boolean;
+    lastComplete?: (opts: BuildBoardOptions) => ReturnType<typeof lastCompletePulseFor>;
+  } = {},
+): WorkerLog {
+  // A partial pulse that has not reached the branch says nothing about its desk,
+  // so the branch is read through `pulseBranchReading` before the desk lookup.
+  const reading = pulseBranchReading(
+    (deps.pulse ?? pulseFor)(opts),
+    (deps.pulseComplete ?? pulseCompleteFor)(opts),
+    (deps.lastComplete ?? lastCompletePulseFor)(opts),
+    branch,
+  );
+  if (reading.kind === 'pulse-partial' || reading.kind === 'no-pulse') {
+    return { ok: false, branch, reason: reading.kind, path: null };
+  }
+  const worktree = reading.kind === 'listed' ? worktreeForBranch(reading.pulse, branch) : null;
   if (!worktree) return { ok: false, branch, reason: 'no-worktree', path: null };
 
   // The ONE path construction in this module, from a scan-reported directory

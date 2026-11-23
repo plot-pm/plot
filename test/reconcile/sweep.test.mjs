@@ -663,6 +663,10 @@ test('a dirty tree a live worker owns is not a leftover', () => {
 
   const out = run(repo, bin, '--dry-run');
   assert.match(out, /dirty_trees=0/, `a live worker owns its dirt:\n${out}`);
+  // The worktree kind's rows and the dirty-tree kinds' rows: the two reports about desks.
+  const deskRows = out.split('-- local branches --')[0] + out.split('-- orphaned claim refs --')[1];
+  const rows = deskRows.split('\n').filter((line) => line.includes(wt) || line.includes(branch));
+  assert.equal(rows.length, 1, `the desk is named in exactly one row:\n${out}`);
 });
 
 test('the main checkout is a person\'s desk, not a leftover', () => {

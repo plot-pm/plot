@@ -8,7 +8,10 @@ import type { PlanRecord } from '../ports/plan-store.js';
 import type { BranchReading, BranchStageReadings, PrDetail } from './plan-walk-branches.js';
 import type { DeskReading, DeskStageReadings } from './plan-walk-desks.js';
 import type { Estate } from './plan-walk-estate.js';
-import { planIsFinished } from '../rules/plan-names-branch.js';
+import type { BbThrottleCause } from '../rules/bb-ledger.js';
+import { pulseOmitsPlan } from '../rules/pulse-omits-plan.js';
+import type { SpikeUnlicensed } from '../rules/spike.js';
+import { spikeCardState } from '../rules/spike-confirm.js';
 
 /** The wire key the shell scan still emits for the per-plan slice list; the name belongs to that foreign process. */
 const WAVES_KEY = 'waves';
@@ -112,6 +115,8 @@ export interface AssembledPlan {
   slices: readonly AssembledSlice[];
   /** Branch-section items that name a branch no claim grammar reads, verbatim from the plan record. */
   unreadBranchItems: PlanRecord['unreadBranchItems'];
+  /** Why a Design plan's `Spike approved:` record licenses no branch; null for a licensed record, a plan not in Design, or a plan with no single spike. */
+  spikeUnlicensed: SpikeUnlicensed | null;
 }
 
 /** Everything the walk decided. */
@@ -297,8 +302,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
   };
 
   const add: PlanWalkAssembler['add'] = (record, readingOf, deskOf) => {
-    if (planIsFinished(record.phase)) return answered(null);
-    if (record.phase === 'delivered' && (record.type === 'docs' || record.type === 'infra')) return answered(null);
+    if (pulseOmitsPlan(record.phase, record.type)) return answered(null);
     summary.plans += 1;
 
     const lines = record.slices.flatMap((slice, sliceIndex) => slice.branches.map((line) => ({ slice, sliceIndex, line })));
@@ -381,6 +385,9 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       tracer: record.tracer === true,
       slices,
       unreadBranchItems: record.unreadBranchItems,
+      spikeUnlicensed: spikeCardState({
+        state: record.phase.toLowerCase(), slices: record.slices, spikeApproved: record.spikeApprovedRaw,
+      })?.reason ?? null,
     };
     plans.push(assembledPlan);
     return answered(assembledPlan);
@@ -469,6 +476,8 @@ export interface FleetReadingHeader {
   planDir: string;
   /** The host word the summary carries. */
   host: string;
+  /** The cause of a `throttled` host word, carried as `summary.hostCause`; absent elsewhere. */
+  hostCause?: BbThrottleCause;
   /** The merge-detection word the summary carries. */
   mergeDetect: string;
   /** The wall clock in epoch seconds, for `changed_at`. */
@@ -542,6 +551,7 @@ export const planRow = (
   phase: plan.phase,
   ...(plan.tracer ? { tracer: true } : {}),
   unreadBranchItems: plan.unreadBranchItems,
+  ...(plan.spikeUnlicensed !== null ? { spikeUnlicensed: plan.spikeUnlicensed } : {}),
   [WAVES_KEY]: plan.slices.map((slice) => ({
     name: slice.name,
     verdict: slice.verdict,
@@ -590,5 +600,6 @@ export const fleetReading = (
     prereq_missing: assembly.summary.prereqMissing,
     merge_detect: header.mergeDetect,
     host: header.host,
+    ...(header.host === 'throttled' && header.hostCause !== undefined ? { hostCause: header.hostCause } : {}),
   },
 });

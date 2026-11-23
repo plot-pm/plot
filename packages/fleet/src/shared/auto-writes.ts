@@ -10,6 +10,7 @@ import { runAutoDeliverPass } from './auto-deliver.js';
 import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
+import { readAllBriefSpent } from './brief-spent.js';
 import type { ActOptions } from './action-log.js';
 import { readMachine, readOnce } from './machine-reading.js';
 import { readFleetSettings } from './fleet-settings-store.js';
@@ -48,6 +49,14 @@ export const fleetAutoWrites = (
   const briefsAsked = new Set<string>();
   // Reset epoch per branch whose brief ask ended at the usage limit; same life.
   const briefWaits = new Map<string, number>();
+  // END COUNTS PER BRANCH, AND THE BRANCHES ALREADY SPENT, seeded from the
+  // spent files so a restart keeps the bound and does not log a spent branch again.
+  const briefEnds = new Map<string, number>();
+  const briefSpent = new Set<string>();
+  for (const record of readAllBriefSpent(opts.repoRoot)) {
+    briefEnds.set(record.branch, record.ends);
+    briefSpent.add(record.branch);
+  }
   // SLUGS ALREADY LOGGED AS HELD FOR A REJECTION, so a plan held across many
   // passes is named in the log once rather than every tick.
   const deliverHeldLogged = new Set<string>();
@@ -87,7 +96,7 @@ export const fleetAutoWrites = (
         const eligible = controls.autoDispatch && pulse.plans.some(
           (p) => dispatchPhase(p.phase) && p.slices.some((w) => w.verdict === 'eligible'),
         );
-        own = maybeAutoDispatch(opts, pulse, controls, entries, own, eligible ? await machine() : undefined, briefsAsked, briefWaits);
+        own = maybeAutoDispatch(opts, pulse, controls, entries, own, eligible ? await machine() : undefined, briefsAsked, briefWaits, undefined, briefEnds, briefSpent);
       }
       await runAutoDeliverPass(opts, pulse, undefined, deliverHeldLogged, deliverCarried);
       await runAutoProgressPass(opts, pulse, progressSent);

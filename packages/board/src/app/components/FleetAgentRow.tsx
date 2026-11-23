@@ -1,18 +1,20 @@
 import type { ReactNode } from 'react';
-import { AGENT_COLUMN_LABELS, type AgentRole, type AgentRowCells, type RoleRun } from '@plot-pm/domain';
+import { AGENT_COLUMN_LABELS, type AgentRole, type AgentRowCells, type RoleRun, type StatusPill } from '@plot-pm/domain';
 import type { FleetRowFacts } from '../lib/agent-rows/working-agents.js';
+import { ActivitySlot } from '../lib/agent-rows/marks.js';
 import { RoleChip } from './RoleChip.js';
-import { RowCell, type LinkHandlers } from './DeliveryRows.js';
+import { RowCell, StatusPills, type LinkHandlers } from './DeliveryRows.js';
 
 /** The column header of a Fleet group's agent rows; `doing` reads `Waits on` in Blocked. */
 export const FleetAgentHeader = ({ blocked }: { blocked: boolean }) => (
-  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] gap-x-3 px-3 delivery-thead">
+  <li role="row" data-fleet-agent-header className="hidden sm:grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1rem_var(--delivery-menu-track)] gap-x-3 px-3 delivery-thead">
     <span role="columnheader">{AGENT_COLUMN_LABELS.agent}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.role}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.actingOn}</span>
     <span role="columnheader">{blocked ? 'Waits on' : AGENT_COLUMN_LABELS.doing}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.tokens}</span>
     <span role="columnheader">{AGENT_COLUMN_LABELS.timeLeft}</span>
+    <span role="columnheader"><span className="sr-only">Details</span></span>
     <span role="columnheader"><span className="sr-only">Actions</span></span>
   </li>
 );
@@ -22,7 +24,8 @@ const DASH = '—';
 /**
  * The six cells of one Fleet agent: Agent · Role · Acting on · Doing now (Waits
  * on in Blocked) · Tokens · Time left, with the idle time beneath Time left,
- * and the row's `⋯` menu. Every value comes from `agentRowCells`; this
+ * the details popover, and the row's `⋯` menu in the last track, whose width
+ * is `--delivery-menu-track`. Every value comes from `agentRowCells`; this
  * component decides nothing. It is the agent's one row.
  *
  * @param id - the agent's placement id.
@@ -32,10 +35,11 @@ const DASH = '—';
  * @param facts - the row's anchor, availability, identity and note (`fleetRowFacts`).
  * @param run - the state-file run the row stands for, where the registry holds none.
  * @param highlighted - the row is the one an agent panel just revealed.
- * @param menu - the row's actions, or nothing where the agent offers none.
+ * @param pills - the agent's state pills (`agentPills`), shown after the spinner slot in the Doing now cell.
+ * @param menu - the row's `⋯` (`FleetAgentMenu`).
  * @param details - the details popover's lines: pid, manifest counts and the like.
  */
-export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, menu = null, details = [] }: {
+export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, highlighted = false, pills = [], menu = null, details = [] }: {
   id: string;
   cells: AgentRowCells;
   handlers: LinkHandlers;
@@ -43,6 +47,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
   facts: FleetRowFacts;
   run?: RoleRun | null;
   highlighted?: boolean;
+  pills?: readonly StatusPill[];
   menu?: ReactNode;
   details?: readonly string[];
 }) => (
@@ -55,7 +60,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
     {...(facts.availability !== '' ? { 'data-agent-availability': facts.availability } : {})}
     {...(facts.undeclared ? { 'data-agent-undeclared': '' } : {})}
     {...(run !== null ? { 'data-role-run': run.role } : {})}
-    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_2.5rem] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
+    className="delivery-row grid grid-cols-[minmax(0,1.2fr)_5rem_minmax(0,1.5fr)_minmax(0,2fr)_4rem_6rem_1rem_var(--delivery-menu-track)] items-baseline gap-x-3 px-3 max-sm:grid-cols-1"
   >
     <span role="gridcell" data-agent-cell="agent" title={cells.agentTitle ?? undefined} className="delivery-truncate">
       <span aria-hidden="true" data-agent-dot className="delivery-dot" />
@@ -69,8 +74,17 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
           <RowCell cell={cells.branch} handlers={handlers} />
         </span>
       )}
+      {(cells.plan !== null || cells.sprint !== null) && (
+        <span data-agent-plan={cells.plan?.value ?? ''} className="delivery-truncate delivery-text-muted block">
+          {cells.plan !== null && <RowCell cell={cells.plan} handlers={handlers} />}
+          {cells.sprint !== null && <span data-agent-sprint={cells.sprint.word} className="ml-1 inline-flex"><StatusPills pills={[cells.sprint]} handlers={handlers} /></span>}
+        </span>
+      )}
     </span>
     <span role="gridcell" data-agent-cell="doing" data-doing-label={cells.doingLabel} className="delivery-truncate">
+      {/* The slot is reserved while the agent is idle, so the Doing now text keeps its place when the spinner comes. */}
+      <span className="mr-1 inline-block"><ActivitySlot pace={cells.doingPace} /></span>
+      {pills.length > 0 && <span data-agent-pills className="mr-1 inline-flex"><StatusPills pills={pills} handlers={handlers} /></span>}
       <RowCell cell={cells.doing} handlers={handlers} />
       {cells.doingDetail !== null && (
         <span data-agent-detail className="delivery-truncate delivery-text-muted block" title={cells.doingDetail}>{cells.doingDetail}</span>
@@ -105,7 +119,7 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
         </span>
       )}
     </span>
-    <span role="gridcell" data-row-cell="do" className="relative flex shrink-0 items-center justify-end gap-1">
+    <span role="gridcell" data-agent-cell="details" className="relative flex shrink-0 items-center justify-end">
       {details.length > 0 && (
         <details data-row-details className="relative shrink-0">
           <summary aria-label="Details" className="cursor-pointer select-none list-none text-xs">ⓘ</summary>
@@ -114,6 +128,8 @@ export const FleetAgentRow = ({ id, cells, handlers, role, facts, run = null, hi
           </ul>
         </details>
       )}
+    </span>
+    <span role="gridcell" data-row-cell="do" className="relative flex w-5 shrink-0 items-center justify-end">
       {menu}
     </span>
   </li>

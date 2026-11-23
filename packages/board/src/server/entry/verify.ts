@@ -7,6 +7,7 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { runProcess } from '@plot-pm/domain/adapters/run-script';
 import { processAnswers } from '@plot-pm/domain/adapters/git-dirs/git-dirs';
+import { stateHomeAt } from '@plot-pm/domain/adapters/state-home/state-home-git';
 import { handOffIssueWrite } from '@plot-pm/domain/adapters/issue-write-spool/hand-off-issue-write';
 import { issueWriteSpoolFile } from '@plot-pm/domain/adapters/issue-write-spool/issue-write-spool-file';
 import { reviewIssueUrl } from '@plot-pm/domain/adapters/tracker/tracker-issue-url';
@@ -851,9 +852,8 @@ const retryWaitFromEnv = (raw: string | undefined): (() => Promise<void>) | unde
  * @returns the root, or `null` outside a repository.
  */
 const resolveRepoRoot = async (cwd: string, scriptDir: string): Promise<string | null> => {
-  const common = await processAnswers.absoluteCommonDir(cwd, process.cwd());
-  const dir = common.stdout.trim();
-  if (common.code === 0 && path.basename(dir) === '.git') return path.dirname(dir);
+  const home = await stateHomeAt(cwd);
+  if ('home' in home) return home.home;
   const probe = await refsGit({ repoRoot: cwd, scriptDir }).repoRoot();
   return probe.ok ? probe.value : null;
 };

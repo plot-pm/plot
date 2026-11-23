@@ -12,6 +12,10 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3611 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-failed-sibling-tag-read-is-cannot-tell`
+- **Started:** 2026-11-23, Jan Wloka, `bug/the-jenkins-sha-refusal-names-its-cause`
+- **Started:** 2026-11-23, Jan Wloka, `bug/desk-dirt-excuses-the-fleets-own-files`
+- **Started:** 2026-11-23, Jan Wloka, `bug/a-plan-pr-runs-the-estate-tests`
+- **Started:** 2026-11-23, Jan Wloka, `bug/an-entry-source-selects-its-bundle-tests`
 
 ## Changelog
 
@@ -117,19 +121,19 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Jenkins sha read
 
-- `bug/the-jenkins-sha-refusal-names-its-cause` — `jen()`'s timeout as an `error:` line, one stderr file per path, a refusal naming the bound or each path's error, and the `host.test.mjs` cases for the bound, SSO order, proxied 302, HTML answers, ledger rows and an early `apiMissing` branch <!-- builds: the Jenkins sha refusal's cause line -->
+- `bug/the-jenkins-sha-refusal-names-its-cause` — `jen()`'s timeout as an `error:` line, one stderr file per path, a refusal naming the bound or each path's error, and the `host.test.mjs` cases for the bound, SSO order, proxied 302, HTML answers, ledger rows and an early `apiMissing` branch <!-- builds: the Jenkins sha refusal's cause line --> → #3684
 
 ### Desk dirt
 
-- `bug/desk-dirt-excuses-the-fleets-own-files` — `desk_dirt` excuses `.plot-worker.limited`, `.plot-worker.log.1` and `.plot-worker.continue.lock`, `firstReapRefusal` refuses `continue-lock-held` through `Trees.continueLock` over the fleet's lock reader, `runDirtyKind` takes the reported paths and prints one row per desk, and the tests <!-- builds: continue-lock-held, the reaper's continue-lock refusal -->
+- `bug/desk-dirt-excuses-the-fleets-own-files` — `desk_dirt` excuses `.plot-worker.limited`, `.plot-worker.log.1` and `.plot-worker.continue.lock`, `firstReapRefusal` refuses `continue-lock-held` through `Trees.continueLock` over the fleet's lock reader, `runDirtyKind` takes the reported paths and prints one row per desk, and the tests <!-- builds: continue-lock-held, the reaper's continue-lock refusal --> → #3693
 
 ### Plan paths
 
-- `bug/a-plan-pr-runs-the-estate-tests` — `estateReaders` for the `// plot-reads: <dir>` marker in `localChecks` and `ciSelection`, exempt from the limit, the `check-estate-readers.sh` gate, the job map that runs them without e2e, and the tests <!-- builds: estateReaders, the plot-reads estate-test selection -->
+- `bug/a-plan-pr-runs-the-estate-tests` — `estateReaders` for the `// plot-reads: <dir>` marker in `localChecks` and `ciSelection`, exempt from the limit, the `check-estate-readers.sh` gate, the job map that runs them without e2e, and the tests <!-- builds: estateReaders, the plot-reads estate-test selection --> → #3694
 
 ### Entry sources
 
-- `bug/an-entry-source-selects-its-bundle-tests` — `BOARD_BUNDLE_ENTRIES` in `bundles.generated.ts`, the selection adds a changed entry's shipped bundle name to its search terms, and the unit and freshness tests <!-- builds: BOARD_BUNDLE_ENTRIES, the entry-to-bundle map for test selection -->
+- `bug/an-entry-source-selects-its-bundle-tests` — `BOARD_BUNDLE_ENTRIES` in `bundles.generated.ts`, the selection adds a changed entry's shipped bundle name to its search terms, and the unit and freshness tests <!-- builds: BOARD_BUNDLE_ENTRIES, the entry-to-bundle map for test selection --> → #3696
 
 ## Notes
 

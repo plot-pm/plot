@@ -2,13 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
+  claimStaleMsOf,
+  fleetScopeRow,
+  repairAdmits,
   REVIEW_START_BUDGET,
-  slicePrNext,
+  reviewPrNext,
   type DefaultBranchReading,
-  type SlicePrNextReadings,
+  type FixerReading,
+  type FleetOwner,
+  type ReviewPrNextReadings,
   type SlicePrStep,
 } from '@plot-pm/domain';
-import { defaultBranchFile, prIndexFile, repairRecordFile } from '@plot-pm/domain/adapters';
+import { agentsFs, defaultBranchFile, fixerAttemptsFile, prIndexFile, repairRecordFile, treesGit } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import {
   liveReviewRuns,
@@ -16,17 +21,19 @@ import {
   startReview,
   type StartReviewOptions,
 } from '@plot-pm/domain/adapters/review-start/review-start-node';
-import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
+import type { FixerAttemptsStore } from '@plot-pm/domain/ports/fixer-attempts';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
+import { fixerReadingOf } from '@plot-pm/domain/rules/fixer-attempts';
 import { repairRoleOf, type RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair } from '@plot-pm/domain/workflows/merge';
 import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
-import { hostOf, refsOf, runLogOf, scriptsOf, type ActOptions } from './action-log.js';
+import { hostOf, refsOf, runLogOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
 import { commonGitDir } from './agent-log.js';
-import { type ConfigReadOptions } from './config-reader.js';
+import { readHeadOwner, type HeadOwnerPorts } from './auto-fixer.js';
+import { readConfigAsync, type ConfigReadOptions } from './config-reader.js';
 import { readSwitch } from './fleet-settings-store.js';
 import { pidAlive } from './fleet-run.js';
 
@@ -63,8 +70,26 @@ export const REVIEW_RUN_LIMIT = 1;
 /** How long a `pending` `plot/review` counts as in flight: `plot-review`'s own bound of 3600 s. */
 export const REVIEW_BOUND_MS = 3_600_000;
 
-/** The readings one tick hands {@link reviewTick} besides the PR's own. */
-export type ReviewTickReadings = Omit<SlicePrNextReadings, 'row' | 'reviewRun' | 'reviewStarts'>;
+/** The owner reading of one PR, as the review pass hands it to `reviewPrNext`. */
+export interface ReviewOwnerReading {
+  /** The owner of the head branch, from `fleetOwner`. */
+  readonly owner: FleetOwner;
+  /** The fixer's attempts record for the PR, read down to the answers the scope rule needs. */
+  readonly fixer: FixerReading;
+}
+
+/** The readings one pass reads besides each PR's own row and owner. */
+export type ReviewPassReadings = Omit<ReviewPrNextReadings, 'row' | 'reviewRun' | 'reviewStarts' | 'owner' | 'fixer'>;
+
+/**
+ * The readings one tick hands {@link reviewTick} besides the PR's own row.
+ *
+ * `owners` holds the owner reading per PR number. A PR with no entry reads its
+ * owner as `unread`.
+ */
+export type ReviewTickReadings = ReviewPassReadings & {
+  readonly owners: ReadonlyMap<number, ReviewOwnerReading>;
+};
 
 /** What one tick did for one PR. */
 export interface ReviewTickResult {
@@ -78,7 +103,7 @@ export interface ReviewTickResult {
  * One tick of the review arm over the open rows.
  *
  * Reads the in-flight and start files fresh for every row, asks
- * {@link slicePrNext}, and starts a review for a `review` step through
+ * `reviewPrNext` with the row's entry in `readings.owners`, and starts a review for a `review` step through
  * `startReview`. A second tick over a live in-flight entry answers
  * `review-in-flight` and starts nothing; the start counts survive a restart
  * because they live in `review-starts.json`. Steps other than `review` are
@@ -89,7 +114,7 @@ export interface ReviewTickResult {
  * `review-in-flight` whoever started that run.
  *
  * @param rows - the open rows.
- * @param readings - the readings that do not depend on the row.
+ * @param readings - the readings that do not depend on the row, and the owner reading per PR.
  * @param start - the paths, ports and bounds, without the mode.
  * @param lockHolder - the pid of a live run holding the review lock of a PR's head, or `null`; no lock by default.
  * @returns one result per row.
@@ -100,6 +125,7 @@ export const reviewTick = (
   start: Omit<StartReviewOptions, 'mode' | 'now'>,
   lockHolder: (pr: number, head: string) => number | null = () => null,
 ): ReviewTickResult[] => {
+  const { owners, ...shared } = readings;
   const results: ReviewTickResult[] = [];
   for (const row of rows) {
     const live = liveReviewRuns(start.repoRoot, start.pidAlive, readings.now);
@@ -112,12 +138,15 @@ export const reviewTick = (
         : locked !== null && row.headSha !== undefined
           ? { head: row.headSha, pid: locked, startedAt: readings.now, live: true }
           : null;
-    const step = slicePrNext({
-      ...readings,
+    const owned = owners.get(row.number);
+    const step = reviewPrNext({
+      ...shared,
       row,
+      owner: owned?.owner ?? 'unread',
+      ...(owned === undefined ? {} : { fixer: owned.fixer }),
       reviewRun,
       reviewStarts: starts?.find((s) => s.pr === row.number) ?? null,
-      config: { ...readings.config, startBudget: readings.config.startBudget || REVIEW_START_BUDGET },
+      config: { ...shared.config, startBudget: shared.config.startBudget || REVIEW_START_BUDGET },
     });
     if (step.step !== 'review') {
       results.push({ pr: row.number, step });
@@ -160,12 +189,54 @@ export interface ReviewPassWorld {
   readonly pidAlive: (pid: number) => boolean;
   /** The text of the review run lock of one head, or `null` where none can be read. */
   readonly readLock: (opts: ActOptions, pr: number, head: string) => string | null;
+  /** The ports the owner reading and the attempts record are read through; the real adapters by default. */
+  readonly owners: (opts: ActOptions) => ReviewOwnerPorts;
 }
 
-/** What one review pass acts on: the open rows and the readings that do not depend on a row. */
+/** The ports {@link readReviewOwners} reads through. */
+export interface ReviewOwnerPorts extends HeadOwnerPorts {
+  readonly attempts: Pick<FixerAttemptsStore, 'read'>;
+}
+
+/**
+ * Reads the owner of each PR's head branch and the fixer's attempts record,
+ * before {@link reviewTick} runs.
+ *
+ * Reads nothing for a PR that `repairAdmits` names, nor for a row that
+ * `fleetScopeRow` puts out of scope: such a PR costs no `Refs` call and gets no
+ * entry. Every other row gets the owner from `readHeadOwner`, and a fixer
+ * reading from `fixerReadingOf` over its attempts record; a failed attempts
+ * read gives `{ read: 'unread' }`, which proves no fixer-pushed head.
+ *
+ * @param rows - the open rows.
+ * @param readings - the pass's readings.
+ * @param claimStaleMs - `Claim stale after`, in milliseconds; `null` where the key does not parse.
+ * @param ports - the worktree listing, the registry, the commit reader and the attempts record.
+ * @returns the owner reading per PR number.
+ */
+export const readReviewOwners = async (
+  rows: readonly PrIndexRow[],
+  readings: Pick<ReviewPassReadings, 'defaultBranchName' | 'repairMerge' | 'baseRepairMerge' | 'now'>,
+  claimStaleMs: number | null,
+  ports: ReviewOwnerPorts,
+): Promise<Map<number, ReviewOwnerReading>> => {
+  const owners = new Map<number, ReviewOwnerReading>();
+  for (const row of rows) {
+    if (repairAdmits({ row, repairMerge: readings.repairMerge, baseRepairMerge: readings.baseRepairMerge })) continue;
+    if (fleetScopeRow(row, readings.defaultBranchName) !== null) continue;
+    const { owner } = await readHeadOwner(ports, row, claimStaleMs, readings.now);
+    const asked = await ports.attempts.read(row.number);
+    owners.set(row.number, { owner, fixer: fixerReadingOf(asked.ok ? asked.value : 'unreadable', row.headSha ?? '') });
+  }
+  return owners;
+};
+
+/** What one review pass acts on: the open rows, the readings that do not depend on a row, and `Claim stale after`. */
 export interface ReviewPassReading {
   readonly rows: readonly PrIndexRow[];
-  readonly readings: ReviewTickReadings;
+  readonly readings: ReviewPassReadings;
+  /** `Claim stale after`, in milliseconds; `null` where the key does not parse. */
+  readonly claimStaleMs: number | null;
 }
 
 /**
@@ -198,12 +269,14 @@ export const readRepairReview = async (
 
 /**
  * Reads what one review pass acts on: the PR index's open rows, the default
- * branch reading, the active sprint's scope on `origin/<default>`, and the
- * repair record through {@link readRepairReview}.
+ * branch reading, the default branch's name, `Claim stale after`, and the
+ * repair record through {@link readRepairReview}. A failed name read leaves
+ * `defaultBranchName` absent, so every row the repair record does not name
+ * answers `base-unread`.
  *
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
- * @returns the reading, or `null` where the host, the index or the open rows give nothing to act on.
+ * @returns the reading, or `null` where the host, the index, the open rows or the state home give nothing to act on.
  */
 export const readReviewPass = async (opts: ActOptions, now: number): Promise<ReviewPassReading | null> => {
   const backend = await hostOf(opts).backend();
@@ -212,17 +285,20 @@ export const readReviewPass = async (opts: ActOptions, now: number): Promise<Rev
   if (!store.ok || store.value === null) return null;
   const rows = store.value.rows.filter((row) => row.state === 'OPEN');
   if (rows.length === 0) return null;
-  const reading = await defaultBranchFile(opts.repoRoot).read();
+  const home = stateHomeOfOpts(opts);
+  if (home === null) return null;
+  const reading = await defaultBranchFile(home).read();
   const defaultBranch: DefaultBranchReading | null = reading.ok ? reading.value : null;
-  const branch = defaultBranch?.branch ?? 'main';
-  const scope = await sprintScopeRef(refsOf(opts), scriptsOf(opts), `origin/${branch}`);
-  const repairMerge = await readRepairReview(rows, defaultBranch, { repair: repairRecordFile(opts.repoRoot), refs: refsOf(opts) });
+  const name = await refsOf(opts).defaultBranch();
+  const claimStaleMs = claimStaleMsOf(await readConfigAsync(opts, 'Claim stale after', '24'));
+  const repairMerge = await readRepairReview(rows, defaultBranch, { repair: repairRecordFile(home), refs: refsOf(opts) });
   return {
     rows,
+    claimStaleMs,
     readings: {
       ...(repairMerge === undefined ? {} : { repairMerge }),
+      ...(name.ok ? { defaultBranchName: name.value } : {}),
       newestMerged: null,
-      scope,
       verdict: { read: 'absent' },
       defaultBranch,
       desk: { dead: false, why: 'live' },
@@ -267,7 +343,8 @@ const logReviewStart = async (
  * Runs the review tick on the daemon's loop.
  *
  * With `Auto-review` off it reads nothing and starts nothing. Otherwise it
- * reads the open rows and the scope, and calls {@link reviewTick}, which starts
+ * reads the open rows, reads each in-scope row's owner through
+ * {@link readReviewOwners}, and calls {@link reviewTick}, which starts
  * `plot-review.mjs` through the `Detached` port on each `review` step, up to
  * {@link REVIEW_RUN_LIMIT} live runs. A head whose review run lock a live pid
  * holds gets no start. Each start and refusal is written to the run log; a
@@ -290,6 +367,7 @@ export const runAutoReviewPass = async (
   if (!world.autoReview(opts)) return null;
   const reading = await read(opts, now);
   if (reading === null) return null;
+  const owners = await readReviewOwners(reading.rows, { ...reading.readings, now }, reading.claimStaleMs, world.owners(opts));
   const stateDir = path.join(opts.repoRoot, '.plot', 'state');
   fs.mkdirSync(stateDir, { recursive: true });
   const lockHolder = (pr: number, head: string): number | null => {
@@ -299,7 +377,7 @@ export const runAutoReviewPass = async (
   };
   const results = reviewTick(
     reading.rows,
-    { ...reading.readings, now },
+    { ...reading.readings, now, owners },
     {
       repoRoot: opts.repoRoot,
       script: path.join(opts.scriptsDir, 'board', 'plot-review.mjs'),
@@ -332,4 +410,10 @@ const defaultReviewPassWorld: ReviewPassWorld = {
   detached: detachedNode(),
   pidAlive,
   readLock: (opts, pr, head) => readOrNull(reviewLockPath(opts.repoRoot, pr, head)),
+  owners: (opts) => ({
+    trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    refs: refsOf(opts),
+    attempts: fixerAttemptsFile(opts.repoRoot),
+  }),
 };

@@ -5,7 +5,7 @@ import type { Fleet } from '../../src/contract/schema.js';
 
 /**
  * EVERY DELIVERY ARTIFACT IS SEEN AS A TUPLE — the four surfaces this slice moved
- * onto `LinkTupleView`: a section header, a Tickets row, the release card and a
+ * onto `LinkTupleView`: a section header, a Tickets row, the Release group title and a
  * release delivery plan row, on `every-delivery-section`.
  *
  * The segments are asserted without a browser in `test/unit/delivery-tuples.test.ts`;
@@ -64,10 +64,10 @@ describe('every Delivery artifact is drawn as a link tuple (real browser renders
     } finally { await page.close(); }
   });
 
-  it('draws the release card title as a bordered release tuple, as text because the payload holds no release URL', async () => {
+  it('draws the Release group title as a bordered release tuple, as text because the payload holds no release URL', async () => {
     const page = await open();
     try {
-      const tuples = await tuplesIn(page, '[data-release-card-title]');
+      const tuples = await tuplesIn(page, '[data-release-group-title]');
       expect(tuples).toHaveLength(1);
       expect(tuples[0]).toMatchObject({ border: 'solid', kinds: ['release'], hrefs: [] });
     } finally { await page.close(); }

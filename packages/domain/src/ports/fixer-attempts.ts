@@ -1,4 +1,4 @@
-import type { FixerAttempt, FixerAttemptsRecord, FixerInFlight } from '../entities/fixer-attempts.js';
+import type { FixerAttempt, FixerAttemptsRecord, FixerInFlight, FixerRerun } from '../entities/fixer-attempts.js';
 import type { PortResult } from '../port-result.js';
 
 /**
@@ -79,4 +79,28 @@ export interface FixerAttemptsStore {
    *   unreadable, `index` names no attempt, or the write did not land.
    */
   markPushed(pr: number, index: number, sha: string): Promise<PortResult<void>>;
+
+  /**
+   * Records the re-run of one head's failed CI jobs, replacing any entry for
+   * the same head.
+   *
+   * Creates a version-1 record with `attempts: []` where the PR has none.
+   *
+   * @param pr - the PR number.
+   * @param rerun - the entry to record.
+   * @returns nothing on success; `failed` where the record is unreadable or
+   *   the write did not land.
+   */
+  markRerun(pr: number, rerun: FixerRerun): Promise<PortResult<void>>;
+
+  /**
+   * Sets `cleared` on the re-run entry of one head; an entry already cleared keeps its time.
+   *
+   * @param pr - the PR number.
+   * @param head - the head whose entry is cleared.
+   * @param at - ISO-8601, the time of the reading.
+   * @returns nothing on success; `failed` where the record is missing or
+   *   unreadable, no entry names `head`, or the write did not land.
+   */
+  markRerunCleared(pr: number, head: string, at: string): Promise<PortResult<void>>;
 }

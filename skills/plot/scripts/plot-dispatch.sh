@@ -276,9 +276,7 @@ dry_run=0
 no_start=0
 no_brief=0
 mode=dispatch
-stop_branch=""
-restart_branch=""
-release_branch=""
+mode_branch=""
 # EMPTY MEANS "THE DEFAULT", AND THE DEFAULT IS THE RULE'S. `fleetSize` owns the
 # number and the argument for it; a literal here would be a second copy of a
 # decision that has one home. It is filled from the rule below.
@@ -294,33 +292,27 @@ agent=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
-    --status)   mode=status ;;
-    --migrate)  mode=migrate ;;
     --yes)      migrate_yes=1 ;;
-    # Only a value containing "/" is taken as the branch: otherwise a bare
-    # `--stop <slug>` would silently treat the plan slug as a branch name and
-    # stop the wrong thing (or nothing) without saying so.
-    --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
-    # Same rule as --stop, for the same reason and one more: a bare
-    # `--restart <slug>` would fall through to the plan gate and report "no
-    # plan for feature/x", which describes neither what was asked nor what
-    # went wrong. The branch is consumed only when it looks like one.
-    --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
-    # The same rule once more: a bare `--release <slug>` must not delete a ref
-    # named after a plan slug.
     # `--claim-only` skips the host's PR question for a caller holding local
     # evidence that the branch carries only its claim; step 3 still refuses work.
     --claim-only) claim_only=1 ;;
-    --release)  mode=release; case "${2:-}" in */*) release_branch="$2"; shift ;; esac ;;
-    # `--start [N]` brings FREE agents into existence — registered, waiting, and
-    # holding no slice. The count is OPTIONAL and only a bare number is consumed,
-    # the same rule `--stop` and `--restart` apply to a branch: a value that does
-    # not look like a count is left for the parser rather than swallowed, so
-    # `--start --dry-run` means what it reads as.
-    --start)    mode=start
-                case "${2:-}" in
-                  ''|*[!0-9]*) ;;
-                  *) start_count="$2"; shift ;;
+    # Two DIFFERENT mode flags refuse; the same flag twice is one mode, and
+    # `mode` still `dispatch` means no mode flag yet. After --stop, --restart or
+    # --release only a value containing "/" is taken as the branch: a bare
+    # `--stop <slug>` would otherwise stop the wrong thing, a bare
+    # `--restart <slug>` would report "no plan for feature/x", and a bare
+    # `--release <slug>` would delete a ref named after a plan slug.
+    # `--start [N]` brings FREE agents into existence, holding no slice; only a
+    # bare number is consumed, so `--start --dry-run` means what it reads as.
+    --status|--migrate|--stop|--restart|--release|--start)
+                [ "$mode" = dispatch ] || [ "$mode" = "${1#--}" ] || { echo "plot-dispatch: --$mode and $1 are different modes; give one; nothing was done" >&2; exit 1; }
+                mode=${1#--}
+                case "$1:${2:-}" in
+                  --start:|--start:*[!0-9]*) ;;
+                  --start:*) start_count="$2"; shift ;;
+                  --stop:*/*|--restart:*/*|--release:*/*)
+                    [ -z "$mode_branch" ] || [ "$mode_branch" = "$2" ] || { echo "plot-dispatch: $1 $mode_branch and $1 $2 name different branches; give one; nothing was done" >&2; exit 1; }
+                    mode_branch="$2"; shift ;;
                 esac ;;
     --no-start) no_start=1 ;;
     --no-brief) no_brief=1 ;;
@@ -997,11 +989,11 @@ resolve_launch() { # $1 = repo root, $2 = agent name ('' when none)
 #
 # It sets `start_cmd_verb` (`run`, `unconfigured`, `declined`, `refused` or
 # `unaskable`), `start_cmd_run`, and `start_cmd_why` / `start_cmd_repair` where
-# they apply. `unaskable` is a bundle that could not answer, which starts
+# they apply; a refusal also sets `start_cmd_defect`, the rule's word. `unaskable` is a bundle that could not answer, which starts
 # nothing.
 ask_start_command() { # $1 = free | assigned
   local answer rc
-  start_cmd_verb="" start_cmd_run="" start_cmd_why="" start_cmd_repair=""
+  start_cmd_verb="" start_cmd_run="" start_cmd_why="" start_cmd_repair="" start_cmd_defect=""
   start_cmd_configured=$("$script_dir/plot-config.sh" get "Worker command" "")
   start_cmd_bundle="$script_dir/board/plot-start-command.mjs"
   answer=$(printf '%s' "$start_cmd_configured" | node "$start_cmd_bundle" "$1" \
@@ -1017,7 +1009,7 @@ ask_start_command() { # $1 = free | assigned
     0:declined) start_cmd_verb=declined ;;
     3:*)
       start_cmd_verb=refused
-      start_cmd_why=${answer%%$'\n'*}
+      IFS=$'\t' read -r start_cmd_defect start_cmd_why <<<"${answer%%$'\n'*}"
       start_cmd_repair=${answer#*$'\n'}
       ;;
     *) start_cmd_verb=unaskable; start_cmd_why="the rule's bundle $start_cmd_bundle answered exit $rc" ;;
@@ -1554,7 +1546,7 @@ fi
 if [ "$mode" = "stop" ]; then
   # An explicit branch is REQUIRED. A --stop that could mean "all" is one
   # fat-finger away from killing a whole fleet.
-  if [ -z "$stop_branch" ]; then
+  if [ -z "$mode_branch" ]; then
     echo "plot-dispatch: --stop needs a branch name, e.g. --stop feature/x" >&2
     echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
     exit 1
@@ -1569,14 +1561,14 @@ if [ "$mode" = "stop" ]; then
   # A refusal that is confidently wrong is worse than one that is terse, so the
   # path-guess survives only as the LAST candidate and the refusal below says
   # which places were looked in.
-  wt=$(worktree_holding_branch "$stop_branch")
-  wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
+  wt=$(worktree_holding_branch "$mode_branch")
+  wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$mode_branch" | tr '/' '-')"
   [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
   if [ ! -d "$wt" ]; then
-    printf "plot-dispatch: no worktree holds '%s' — nothing to stop.\n  Asked git for every worktree, and looked at %s.\n  If a worker is running somewhere this cannot see, that machine is\n  where to stop it: /plot-dispatch --status names the desks here.\n  Nothing was killed.\n" "$stop_branch" "$wt_guess" >&2
+    printf "plot-dispatch: no worktree holds '%s' — nothing to stop.\n  Asked git for every worktree, and looked at %s.\n  If a worker is running somewhere this cannot see, that machine is\n  where to stop it: /plot-dispatch --status names the desks here.\n  Nothing was killed.\n" "$mode_branch" "$wt_guess" >&2
     exit 1
   fi
-  st=$(worker_state "$wt" "$stop_branch")
+  st=$(worker_state "$wt" "$mode_branch")
   # A LIVE LOOP IS STOPPED WHATEVER ITS STATE WORD, so the loop `--restart`
   # refuses on is one this verb can end (`deskLoopAlive`, #1450).
   case "$st" in
@@ -1600,7 +1592,7 @@ if [ "$mode" = "stop" ]; then
         ''|*[!0-9]*|0|1) ;;
         *) [ "$stop_pgid" != "$stop_own_pgid" ] && stop_target="-$stop_pgid" ;;
       esac
-      kill -TERM -- "$stop_target" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
+      kill -TERM -- "$stop_target" 2>/dev/null && echo "stopped $mode_branch (pid $pid)" \
         || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
              echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
              echo "  Nothing else was written; the worktree and the claim stand." >&2
@@ -1614,13 +1606,13 @@ if [ "$mode" = "stop" ]; then
       # desk alone. A worker that exits non-zero with no ending gets a fresh
       # agent from the tick (`killedWorkerEnding`); a `stopped` ending answers
       # `leave` in `endingAction`, and the desk keeps its claim.
-      printf '{"reason":"stopped","actor":"operator","branch":"%s","detail":"plot-dispatch --stop"}\n' "$stop_branch" 2>/dev/null >"$wt/.plot-worker.ending.json" || true
+      printf '{"reason":"stopped","actor":"operator","branch":"%s","detail":"plot-dispatch --stop"}\n' "$mode_branch" 2>/dev/null >"$wt/.plot-worker.ending.json" || true
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
-      printf '  worktree kept at %s — the claim stands until you release it:\n    plot-dispatch.sh --release %s\n' "$wt" "$stop_branch"
+      printf '  worktree kept at %s — the claim stands until you release it:\n    plot-dispatch.sh --release %s\n' "$wt" "$mode_branch"
       ;;
-    finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
-    *)      echo "$stop_branch has no worker" ;;
+    finished*|waiting*|stalled*|failed*|ended*) echo "$mode_branch is not running ($st)" ;;
+    *)      echo "$mode_branch has no worker" ;;
   esac
   exit 0
 fi
@@ -1631,13 +1623,13 @@ if [ "$mode" = "restart" ]; then
   # checkout with no bridged pulse still restarts. `--offline` is passed the
   # same way `reached_review()` above honours it: the PR question is never
   # put, and the restart reads no PR rather than an unanswered one.
-  if [ -z "$restart_branch" ]; then
+  if [ -z "$mode_branch" ]; then
     echo "plot-dispatch: --restart needs a branch name, e.g. --restart feature/x" >&2
     exit 1
   fi
-  PLOT_RESTART_WORKTREE=$(worktree_holding_branch "$restart_branch") \
+  PLOT_RESTART_WORKTREE=$(worktree_holding_branch "$mode_branch") \
     PLOT_RESTART_OFFLINE=$([ -n "$offline" ] && echo 1 || echo 0) PLOT_GIT_COMMON_DIR= \
-    node "$script_dir/board/plot-restart-command.mjs" "$restart_branch" || exit 1
+    node "$script_dir/board/plot-restart-command.mjs" "$mode_branch" || exit 1
   spend_action_receipt "restart"
   exit 0
 fi
@@ -1658,13 +1650,13 @@ if [ "$mode" = "release" ]; then
   #
   # BEFORE THE PHASE GATE, beside --stop and --restart: a claimed branch is
   # work in flight whatever the plan's phase now says.
-  if [ -z "$release_branch" ]; then
+  if [ -z "$mode_branch" ]; then
     echo "plot-dispatch: --release needs a branch name, e.g. --release feature/x" >&2
     echo "  A slug is not enough: which claim is abandoned is your call, and" >&2
     echo "  a release deletes a ref that cannot be re-created." >&2
     exit 1
   fi
-  br="$release_branch"
+  br="$mode_branch"
   MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
   [ -n "$MAIN" ] || MAIN=$(default_branch)
   if [ -z "$MAIN" ]; then
@@ -2120,17 +2112,16 @@ if [ "$mode" = "start" ]; then
   # THE DECISION IS THE DOMAIN'S: `ask_start_command` asks `startCommand`
   # through its bundle. A refusal names the defect and the repair; a bundle that
   # cannot answer starts nothing, as the fleet-size ask above does.
-  # `worker=no-loop` is the footer word the performer reads, the way it reads
-  # `unconfigured` and `declined`.
+  # `worker=<defect>` (`no-loop`, `charter-refused` or `prompt-absent`, the
+  # rule's word) is the footer word the performer reads, the way it reads
+  # `unconfigured` and `declined`; only `no-loop` takes the --restart hint.
   ask_start_command free
   case "$start_cmd_verb" in
     run|declined|unconfigured) ;;
     refused)
-      echo "plot-dispatch: --start refuses — ${start_cmd_why}." >&2
-      echo "  configured: $start_cmd_configured" >&2
-      echo "  Repair: ${start_cmd_repair}." >&2
-      echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
-      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=no-loop"
+      printf 'plot-dispatch: --start refuses — %s.\n  configured: %s\n  Repair: %s.\n' "$start_cmd_why" "$start_cmd_configured" "$start_cmd_repair" >&2
+      [ "$start_cmd_defect" != no-loop ] || echo "  A branch dispatch (--restart <branch>) starts a worker on any command." >&2
+      echo "summary: agents=0 requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=${start_cmd_defect}"
       exit 1
       ;;
     *)

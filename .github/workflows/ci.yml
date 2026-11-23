@@ -54,7 +54,7 @@ on:
 permissions:
   contents: read
 
-# THREE GROUPS, ONE PER KIND OF RUN.
+# FOUR GROUPS, ONE PER KIND OF RUN.
 #
 # A DISPATCHED RUN SHARES `release-dispatch`, so a regeneration cancels the
 # superseded release run. Measured 2026-10-01: the branch regenerated five
@@ -68,16 +68,30 @@ permissions:
 # runs by hand. The group keys on the pull request number and never on
 # `github.ref`.
 #
-# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique. That covers a
-# `main` push run, which a later merge must never cancel, and the release PR's
-# `pull_request` run: `release.yml` force-pushes `changeset-release/main` on
-# every regeneration, and the `validate` of that run is the one the ruleset
-# counts once a person approves it (2.31.0, #3080). `github.head_ref` is empty
-# on `push` and `workflow_dispatch`, so the exception can only match inside the
-# `pull_request` arm.
+# A FIRST ATTEMPT OF A `main` PUSH RUN SHARES `main-push`, with
+# `cancel-in-progress: false`. GitHub keeps the running run and one pending
+# run in the group, and a newer push cancels the pending one before it
+# starts, so one run finishes and the newest head runs next. Measured
+# 2026-11-21: 22 `main` runs queued at once, 21 were cancelled by hand, and
+# the default-branch reading stayed on one commit for 3 h. `true` would
+# cancel the running run: the median gap between two pushes was 1.9 min, a
+# full run took at least 19.9 min, and only 2 gaps in 5 h reached 20 min, so
+# a head would conclude almost never. The `on.push` trigger lists only
+# `main`, so the arm matches no other branch.
+#
+# EVERY OTHER RUN GETS ITS OWN GROUP — `github.run_id` is unique. That covers
+# a re-run of a `main` push run (`github.run_attempt` above `'1'`): fleetd
+# re-runs CI once per red episode, and in `main-push` the re-run would
+# replace the newest head's pending run, or a later push would cancel the
+# re-run, which fleetd reads as pending with no bound. It also covers the
+# release PR's `pull_request` run: `release.yml` force-pushes
+# `changeset-release/main` on every regeneration, and the `validate` of that
+# run is the one the ruleset counts once a person approves it (2.31.0,
+# #3080). `github.head_ref` is empty on `push` and `workflow_dispatch`, so the
+# exception can only match inside the `pull_request` arm.
 concurrency:
-  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || (github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main') && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'release-dispatch' || (github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main') && format('pr-{0}', github.event.pull_request.number) || (github.event_name == 'push' && github.run_attempt == '1') && 'main-push' || github.run_id }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 jobs:
   # ── The selection: which jobs and tests this change needs. ─────────────────
@@ -89,9 +103,24 @@ jobs:
   #
   # THE SELECTION FAILS OPEN. Only an explicit `false` skips a job, so a
   # failed install, build or selection step, an unreadable answer, or a failed
-  # job here selects every job. A push to `main` and a dispatched run also
-  # select every job: the full run on `main` is the safety net for a selection
-  # miss, and it names the suite that missed.
+  # job here selects every job. A dispatched run also selects every job, and
+  # so does a push to `main`, with one exception: the full run on `main` is
+  # the safety net for a selection miss, and it names the suite that missed.
+  #
+  # A `main` PUSH OF PLAN DATA ONLY MAPS AS A PULL REQUEST. Its base is the
+  # head of the newest successful `CI` push run on `main`, where that head is
+  # one of the 50 first-parent commits from `HEAD` (`pushSelectionBase`,
+  # `plot-local-checks.mjs --push-base`), and not `HEAD^1` or
+  # `github.event.before`: a pending run of an older head is cancelled in
+  # `main-push`, so this run covers every commit since the last head CI
+  # proved. The range maps as a pull request's only where `ciSelection`
+  # answers `planDataOnly: true`, every changed path in `syncPathSet`.
+  # Measured 2026-11-21: 53 of 60 pushes changed only such paths. A failed
+  # API call, no green run, a base off the line, a failed ask, or any other
+  # path selects every job, and the step summary names the reason. The
+  # workflow is never skipped on a push: a head with no run reads `unknown`,
+  # and fleetd merges nothing past it. `gates` measures its push ranges from
+  # the same base (`push_base`).
   #
   # A PATH NO CHECK REACHES SELECTS EVERY JOB, unless it is a markdown file
   # outside `skills/`. A lockfile, a workflow or an unnamed script then runs
@@ -124,6 +153,8 @@ jobs:
       contents: read
       actions: read
     outputs:
+      # The base a `main` push run's selection diffed from; empty otherwise.
+      push_base: ${{ steps.base.outputs.base }}
       corpus: ${{ steps.map.outputs.corpus }}
       corpus_tests: ${{ steps.map.outputs.corpus_tests }}
       contracts: ${{ steps.map.outputs.contracts }}
@@ -168,21 +199,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The pull request's merge commit and both its parents: the change
-          # is the diff from the first parent, the base branch.
-          fetch-depth: 2
+          # is the diff from the first parent, the base branch. A push reads
+          # 50 first-parent commits for its base, and the commit before them.
+          fetch-depth: ${{ github.event_name == 'push' && 51 || 2 }}
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
         with:
           node-version: 26
           cache: pnpm
 
       - name: Install
         id: install
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
         continue-on-error: true
         run: pnpm install --frozen-lockfile
 
@@ -190,17 +222,42 @@ jobs:
       # selects by the rule it changes.
       - name: Build the board bundles
         id: build
-        if: ${{ github.event_name == 'pull_request' && steps.install.outcome == 'success' }}
+        if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && steps.install.outcome == 'success' }}
         continue-on-error: true
         run: pnpm run build:board
 
+      # THE PUSH BASE: the shell reads, `pushSelectionBase` decides. A failed
+      # API call leaves no answer file, which the rule reads as `api-failed`.
+      - name: Choose the push base
+        id: base
+        if: ${{ github.event_name == 'push' && steps.build.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          green="$RUNNER_TEMP/green.json"
+          if ! gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" > "$green"; then
+            rm -f "$green"
+          fi
+          git rev-list --first-parent -n 50 HEAD > "$RUNNER_TEMP/first-parent.txt"
+          answer=$(node skills/plot/scripts/board/plot-local-checks.mjs --push-base "$green" "$RUNNER_TEMP/first-parent.txt") || exit 1
+          echo "Push base: $answer"
+          echo "$answer" >> "$GITHUB_OUTPUT"
+
       - name: Ask the rule
         id: ask
-        if: ${{ github.event_name == 'pull_request' && steps.build.outcome == 'success' }}
+        if: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && steps.base.outputs.base != '')) && steps.build.outcome == 'success' }}
         continue-on-error: true
+        env:
+          PUSH_BASE: ${{ steps.base.outputs.base }}
         run: |
           set -euo pipefail
-          git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            git diff --name-only --no-renames "$PUSH_BASE" HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          fi
           echo "Changed paths: $(wc -l < "$RUNNER_TEMP/changed.txt")"
           node skills/plot/scripts/board/plot-local-checks.mjs --ci \
             --corpus 'packages/domain/corpus/**' \
@@ -212,6 +269,8 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           ASKED: ${{ steps.ask.outcome }}
+          PUSH_BASE: ${{ steps.base.outputs.base }}
+          PUSH_EVERY: ${{ steps.base.outputs.every }}
         run: |
           set -uo pipefail
           every() {
@@ -221,8 +280,20 @@ jobs:
             echo "Every job runs: $1" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           }
-          [ "$EVENT" = "pull_request" ] || every "a $EVENT run"
+          # THREE CASES. A pull request maps as below. A push maps as one only
+          # with a base and `planDataOnly: true`; `ciSelection` decides that.
+          # Every other event selects every job.
+          case "$EVENT" in
+            pull_request) ;;
+            push)
+              [ -n "${PUSH_BASE:-}" ] || every "a push with no base: ${PUSH_EVERY:-the base step gave no answer}"
+              ;;
+            *) every "a $EVENT run" ;;
+          esac
           [ "$ASKED" = "success" ] || every "the selection step ended '$ASKED'"
+          if [ "$EVENT" = "push" ] && ! jq -e '.planDataOnly == true' "$RUNNER_TEMP/selection.json" > /dev/null 2>&1; then
+            every "a push that changes more than plan data since $PUSH_BASE"
+          fi
           # THE JOB MAP LIVES IN scripts/ci-job-map.jq, so the reuse read
           # below maps its diff with the same program.
           if ! jq -c --rawfile changed "$RUNNER_TEMP/changed.txt" -f scripts/ci-job-map.jq \
@@ -1856,7 +1927,7 @@ jobs:
       - name: The shell does not grow
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            ./scripts/check-shell-lines.sh push "${{ github.event.before }}"
+            ./scripts/check-shell-lines.sh push "${{ needs.select.outputs.push_base || github.event.before }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             ./scripts/check-shell-lines.sh pr "origin/$GITHUB_BASE_REF"
           else
@@ -1866,7 +1937,7 @@ jobs:
       - name: The shell that decides does not grow
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            ./scripts/check-decision-count.sh push "${{ github.event.before }}"
+            ./scripts/check-decision-count.sh push "${{ needs.select.outputs.push_base || github.event.before }}"
           elif [ "${{ github.event_name }}" = "pull_request" ]; then
             ./scripts/check-decision-count.sh pr "origin/$GITHUB_BASE_REF"
           else
@@ -2054,6 +2125,13 @@ jobs:
       # a person. Measured 2026-10-02: #1196 carried one onto main.
       - name: No desk marker is tracked
         run: ./scripts/check-desk-markers.sh
+
+      # AN ESTATE READER DECLARES WHAT IT READS. A plan PR selects a contract
+      # test that lists the plan or sprint directory only by its
+      # `// plot-reads: <dir>` line. Measured 2026-11-04: #3114 and #3127
+      # passed CI and turned main red from fbf670eaf.
+      - name: Estate readers declare their directory
+        run: ./scripts/check-estate-readers.sh
 
       # THE HELPER TABLE STAYS OUT OF `CLAUDE.md`. Every session, worker and
       # subagent loads that file on its first request; measured 2026-10-02, the

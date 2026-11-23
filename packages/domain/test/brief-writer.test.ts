@@ -13,6 +13,7 @@ import {
  */
 
 const LOG = '.worktrees/plot-implement-a-plan.log';
+const SPENT = { ends: 2, log: '.plot-brief-a-plan.log' };
 
 const reading = (over: Partial<BriefWriterReadings> = {}): BriefWriterReadings => ({
   needsBrief: true,
@@ -22,13 +23,17 @@ const reading = (over: Partial<BriefWriterReadings> = {}): BriefWriterReadings =
   ...over,
 });
 
-describe('briefWriterState — the four answers', () => {
+describe('briefWriterState — the five answers', () => {
   it('reads a running writer for this branch as writing', () => {
     expect(briefWriterState(reading({ writing: true }))).toBe('writing');
   });
 
   it('reads a writer that recorded a failure as failed', () => {
     expect(briefWriterState(reading({ failed: LOG }))).toBe('failed');
+  });
+
+  it('reads a spent record as spent', () => {
+    expect(briefWriterState(reading({ spent: SPENT }))).toBe('spent');
   });
 
   it('reads a recorded ask with nothing running now as asked', () => {
@@ -44,8 +49,15 @@ describe('briefWriterState — the four answers', () => {
     expect(briefWriterState(reading({ failed: LOG, askedAt: 1_000 }))).toBe('failed');
   });
 
+  it('reads writing before spent, and spent before a failure and an ask', () => {
+    expect(briefWriterState(reading({ writing: true, spent: SPENT }))).toBe('writing');
+    expect(briefWriterState(reading({ spent: SPENT, failed: LOG }))).toBe('spent');
+    expect(briefWriterState(reading({ spent: SPENT, askedAt: 1_000 }))).toBe('spent');
+    expect(briefWriterState(reading({ spent: SPENT, failed: LOG, askedAt: 1_000 }))).toBe('spent');
+  });
+
   it('answers only members of BRIEF_WRITER_STATES', () => {
-    expect([...BRIEF_WRITER_STATES]).toEqual(['writing', 'failed', 'asked', 'none']);
+    expect([...BRIEF_WRITER_STATES]).toEqual(['writing', 'spent', 'failed', 'asked', 'none']);
   });
 });
 
@@ -57,6 +69,10 @@ describe('briefWriterState — the brief gates first', () => {
 
   it('answers none for a failed run once the brief is no longer needed', () => {
     expect(briefWriterState(reading({ needsBrief: false, failed: LOG }))).toBe('none');
+  });
+
+  it('answers none for a spent record once the brief is no longer needed', () => {
+    expect(briefWriterState(reading({ needsBrief: false, spent: SPENT }))).toBe('none');
   });
 
   it('answers none for a recorded ask once the brief is no longer needed', () => {
@@ -81,6 +97,10 @@ describe('briefWriterNote — the note and its age', () => {
 
   it('gives an ask its age', () => {
     expect(briefWriterNote('asked', NOW - 45_000, NOW)).toEqual({ kind: 'asked', ageMs: 45_000 });
+  });
+
+  it('gives a spent record no age, also where an ask is recorded', () => {
+    expect(briefWriterNote('spent', NOW - 45_000, NOW)).toEqual({ kind: 'spent', ageMs: null });
   });
 
   it('gives a failure no age, also where an ask is recorded', () => {

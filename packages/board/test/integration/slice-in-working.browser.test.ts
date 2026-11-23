@@ -103,13 +103,15 @@ async function slotsOf(page: Page, wave: string) {
   return sliceRow.evaluate((rowEl) => {
     const kind = rowEl.getAttribute('data-tuple-kind');
     const kindLabel = rowEl.querySelector('[data-tuple-kind-label]');
-    // Slot 3 — the item's own name. A wave projects its name as a text `plan`
-    // link with no href (`tupleFromSlice`), so it is `[data-tuple-text="plan"]`.
-    const nameCell = rowEl.querySelector('[role="gridcell"]:nth-of-type(3)');
+    // The item's own name. A wave projects its name as a text `plan` link with
+    // no href (`tupleFromSlice`), so it is `[data-tuple-text="plan"]`. Found by
+    // `data-row-cell`, because the Work items grid has no kind cell before it.
+    const nameCell = rowEl.querySelector('[data-row-cell="item"]');
     const name = nameCell?.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
-    // Slot 4 — the artifact links. A wave of one carries its branch (and, off a
-    // plan head, its plan) here.
-    const linksCell = rowEl.querySelector('[role="gridcell"]:nth-of-type(4)');
+    // The artifact links. A wave of one carries its branch (and, off a plan
+    // head, its plan) here: the `where` cell, or in the Work items grid the
+    // item cell's PR+branch tuple and the plan cell.
+    const linksCell = rowEl.querySelector('[data-row-cell="where"]') ?? rowEl;
     const linkWhats = [...(linksCell?.querySelectorAll('[data-tuple-what]') ?? [])]
       .map((el) => el.getAttribute('data-tuple-what'));
     const linkLabels = [...(linksCell?.querySelectorAll('[data-tuple-link],[data-tuple-text]') ?? [])]
@@ -204,11 +206,10 @@ describe('a wave row is a wave row in every section', () => {
       expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
 
       const slots = await slotsOf(page, NOT_STARTED_SLICE);
-      // Slot 2 is the kind. The label is `Slice`, uppercased by CSS, and
-      // `.innerText` honours the transform while the attribute does not.
+      // The Work items grid has no kind cell: the icon shows the kind, and a
+      // screen-reader-only word beside it names it.
       expect(slots.kindLabel).toBe('wave');
-      expect(slots.kindLabelText).toBe('SLICE');
-      // Slot 3 leads with the wave's OWN NAME — asserted BY NAME, because
+      // The item cell leads with the wave's OWN NAME — asserted BY NAME, because
       // "not the branch name" also passes on an empty slot.
       expect(slots.name).toBe(NOT_STARTED_SLICE);
     } finally {

@@ -15,26 +15,47 @@ describe('spikeCardState', () => {
     expect(spikeCardState({ state: 'design', slices: [{ name: 'A', branches: [{ branch: 'feature/a' }] }] })).toBeNull();
   });
 
-  it('answers spike-not-approved while the record is empty', () => {
-    expect(spikeCardState({ state: 'design', slices, spikeApproved: '  ', spikeMerged: true })).toBe('spike-not-approved');
+  it('answers spike-not-approved with spike-record-absent while the record is empty', () => {
+    expect(spikeCardState({ state: 'design', slices, spikeApproved: '  ', spikeMerged: true }))
+      .toEqual({ state: 'spike-not-approved', reason: 'spike-record-absent' });
   });
 
   it('answers spike-not-approved for a record that licenses no branch', () => {
     for (const spikeApproved of ['2026-11-03', '2026-10-13, jwloka, in-session, feature/rest', '2026-10-13, jwloka, in-session, feature/gone']) {
-      expect(spikeCardState({ state: 'design', slices, spikeApproved })).toBe('spike-not-approved');
+      expect(spikeCardState({ state: 'design', slices, spikeApproved })?.state).toBe('spike-not-approved');
     }
   });
 
-  it('answers spike-not-approved when no record was read', () => {
-    expect(spikeCardState({ state: 'design', slices })).toBe('spike-not-approved');
+  it.each([
+    ['', 'spike-record-absent'],
+    ['2026-11-03, jwloka, in-session', 'spike-record-branchless'],
+    ['2026-11-03, jwloka, in-session, feature/spike, extra', 'spike-record-unparseable'],
+    ['2026-11-03, jwloka, in-session, feature/rest', 'spike-marker-moved'],
+    ['2026-11-03, jwloka, in-session, feature/gone', 'spike-branch-renamed'],
+  ] as const)('carries the reason for the record %j: %s', (spikeApproved, reason) => {
+    expect(spikeCardState({ state: 'design', slices, spikeApproved })).toEqual({ state: 'spike-not-approved', reason });
   });
 
-  it('answers spike-approved while the approved spike has not merged', () => {
-    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike' })).toBe('spike-approved');
+  it('answers spike-not-approved with spike-record-absent when no record was read', () => {
+    expect(spikeCardState({ state: 'design', slices })).toEqual({ state: 'spike-not-approved', reason: 'spike-record-absent' });
+  });
+
+  it('answers spike-approved with no reason while the approved spike has not merged', () => {
+    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike' }))
+      .toEqual({ state: 'spike-approved', reason: null });
   });
 
   it('answers spike-merged once the spike has merged', () => {
-    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike', spikeMerged: true })).toBe('spike-merged');
+    expect(spikeCardState({ state: 'design', slices, spikeApproved: '2026-10-13, jwloka, in-session, feature/spike', spikeMerged: true }))
+      .toEqual({ state: 'spike-merged', reason: null });
+  });
+
+  it('answers null for a design plan that marks two spikes, whatever its record', () => {
+    const two = [
+      { name: 'A', branches: [{ branch: 'feature/a', spike: true }] },
+      { name: 'B', branches: [{ branch: 'feature/b', spike: true }] },
+    ];
+    expect(spikeCardState({ state: 'design', slices: two, spikeApproved: '2026-11-03, jwloka, in-session, feature/a' })).toBeNull();
   });
 });
 

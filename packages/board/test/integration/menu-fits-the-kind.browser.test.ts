@@ -33,7 +33,7 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 30,
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: null, note: '', pr: null, branchUrl: '', waitingDays: null,
   localDirty: false, localLocked: false, stuck: null, ...over,
 });
@@ -142,6 +142,8 @@ describe('the menu fits the kind, and every row has one', () => {
       await expect
         .poll(() => rowFor(page, 'feature/needs-review').locator('a[data-open-link]').textContent())
         .toBe('Review');
+      // Every kind lists its fixed item set, so the open menu covers the rows below: close it first.
+      await page.keyboard.press('Escape');
 
       await openMenu(page, 'feature/orphan');
       await expect

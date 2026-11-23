@@ -34,6 +34,8 @@ import {
 import { rmTree } from '../helpers.mjs';
 import { boardRunsSettled } from '../../src/server/board-run.js';
 import { implementRunning } from '@plot-pm/fleet/shared/implement-run';
+import { startReadingFromPulses } from '@plot-pm/fleet/shared/dispatch-command';
+import type { FleetReading } from '@plot-pm/domain';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const SLUG = 'an-approved-plan-offers-its-two-starts';
@@ -99,6 +101,8 @@ async function post(
     /** The branch the controller resolves; none by default, so no scan is read. */
     branch?: string | null;
     reading?: DispatchReadingFor;
+    /** Replaces the resolver whole. */
+    startReading?: ImplementDeps['startReading'];
     /** Receives the branch the route hands the resolver. */
     asked?: (branch: string | undefined) => void;
     host?: string;
@@ -109,10 +113,10 @@ async function post(
   const deps: ImplementDeps = {
     config: (_o, key, fallback) =>
       key === IMPLEMENT_COMMAND_KEY ? (opts.command ?? 'true') : fallback,
-    startReading: (_o, _s, named) => {
+    startReading: opts.startReading ?? ((_o, _s, named) => {
       opts.asked?.(named);
       return opts.reading ?? (opts.branch ? { kind: 'branch', branch: opts.branch } : { kind: 'no-reading' });
-    },
+    }),
   };
   await handleImplement(
     request(opts.body ?? { slug: SLUG }, opts.headers),
@@ -315,5 +319,22 @@ describe('a body that names a branch', () => {
       const got = await post({ repoRoot: dir, body: bad });
       assert.equal(got.status, 400, `${JSON.stringify(bad)} must be refused`);
     }
+  });
+});
+
+describe('a partial pulse that has not reached the plan', () => {
+  it('answers 409 pulse-partial and starts no run for a body that names no branch', async () => {
+    const dir = repo();
+    const partial = { main: 'main', plans: [] } as unknown as FleetReading;
+    const got = await post({
+      repoRoot: dir,
+      body: { slug: SLUG },
+      startReading: (_o, s, b) => startReadingFromPulses(partial, false, null, s, b),
+    });
+    assert.equal(got.status, 409);
+    assert.equal(got.body.reason, 'pulse-partial');
+    // `startImplement` opens this log before it spawns; its absence is the run that did not start.
+    assert.equal(fs.existsSync(implementLogPath(dir, SLUG)), false);
+    assert.equal(fs.existsSync(implementBranchRecordPath(dir, SLUG)), false);
   });
 });

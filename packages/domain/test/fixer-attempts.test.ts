@@ -16,6 +16,8 @@ import {
   fixerInFlight,
   fixerPushedHead,
   fixerReadingOf,
+  fixerRerunAnswer,
+  rerunOnHead,
 } from '../src/rules/fixer-attempts.js';
 
 const record = (over: Partial<FixerAttemptsRecord> = {}): FixerAttemptsRecord => ({
@@ -283,5 +285,55 @@ describe('a failed start spends no attempt', () => {
     expect(decoded).not.toBe('unreadable');
     expect(decoded === 'none' || decoded === 'unreadable' ? undefined : decoded.attempts[0]!.start).toBeUndefined();
     expect(FIXER_ATTEMPTS_VERSION).toBe(1);
+  });
+});
+
+describe('the re-run on a head', () => {
+  const HEAD = 'a'.repeat(40);
+  const AT = '2026-11-23T12:00:00.000Z';
+  const clock = { now: Date.parse(AT) + 60_000, checksWaitMs: 3_600_000 };
+  const withRerun = (rerun: Record<string, unknown>): FixerAttemptsRecord => record({ reruns: [{ headSha: HEAD, at: AT, answer: 'asked', ...rerun }] });
+
+  it('round-trips a record with a re-run', () => {
+    const r = withRerun({ cleared: '2026-11-23T12:05:00.000Z' });
+    expect(decodeFixerAttempts(encodeFixerAttempts(r))).toEqual(r);
+  });
+
+  it('reads an unknown re-run answer as unreadable', () => {
+    expect(decodeFixerAttempts(JSON.stringify(withRerun({ answer: 'maybe' })))).toBe('unreadable');
+  });
+
+  it('reads no record, no entry and an empty head as none', () => {
+    expect(rerunOnHead('none', HEAD, clock)).toBe('none');
+    expect(rerunOnHead(record(), HEAD, clock)).toBe('none');
+    expect(rerunOnHead(withRerun({}), '', clock)).toBe('none');
+    expect(rerunOnHead(withRerun({}), 'b'.repeat(40), clock)).toBe('none');
+  });
+
+  it('reads an asked re-run inside Checks wait as running', () => {
+    expect(rerunOnHead(withRerun({}), HEAD, clock)).toBe('running');
+    expect(rerunOnHead(withRerun({}), HEAD, { ...clock, now: Date.parse(AT) + clock.checksWaitMs })).toBe('running');
+  });
+
+  it('reads a cleared re-run, and one never asked, as done', () => {
+    expect(rerunOnHead(withRerun({ cleared: AT }), HEAD, clock)).toBe('done');
+    expect(rerunOnHead(withRerun({ answer: 'failed' }), HEAD, clock)).toBe('done');
+    expect(rerunOnHead(withRerun({ answer: 'unaskable' }), HEAD, clock)).toBe('done');
+  });
+
+  it('reads an asked re-run past Checks wait, or with an unparseable time, as unseen', () => {
+    expect(rerunOnHead(withRerun({}), HEAD, { ...clock, now: Date.parse(AT) + clock.checksWaitMs + 1 })).toBe('unseen');
+    expect(rerunOnHead(withRerun({ at: 'not a time' }), HEAD, clock)).toBe('unseen');
+  });
+
+  it('names the answer recorded on the head, or none', () => {
+    expect(fixerRerunAnswer(withRerun({ answer: 'unaskable' }), HEAD)).toBe('unaskable');
+    expect(fixerRerunAnswer(withRerun({}), 'b'.repeat(40))).toBe('none');
+    expect(fixerRerunAnswer('unreadable', HEAD)).toBe('none');
+  });
+
+  it('adds the re-run to the fixer reading only when a clock is given', () => {
+    expect(fixerReadingOf(withRerun({}), HEAD)).not.toHaveProperty('rerun');
+    expect(fixerReadingOf(withRerun({}), HEAD, '', clock)).toMatchObject({ rerun: 'running' });
   });
 });

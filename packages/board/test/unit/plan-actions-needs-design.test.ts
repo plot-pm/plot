@@ -9,7 +9,7 @@ import { SOME_FACTS } from '../fixtures/card-facts.js';
 // The plan row's menu offers Needs design where `controls.needsDesign` holds,
 // which `cardControls` answers on a `draft` plan only — `needsDesign` shares
 // the Approve binding rather than a route of its own, so the menu opens
-// whenever Approve (the only prop both acts read) will act.
+// on every plan row, listing each act it cannot run disabled with its reason.
 const render = (phase: 'Discovery' | 'Design'): string =>
   renderToStaticMarkup(createElement(PlanActions, {
     plan: 'a-plan',
@@ -27,7 +27,9 @@ describe('PlanActions — needs design', () => {
     expect(html).not.toContain('aria-disabled');
   });
 
-  it('stays shut on a Design plan, where needsDesign is not offered and Approve is refused', () => {
+  // The trigger is never disabled while its list holds an item: a refused Approve is listed disabled with its
+  // reason inside the menu (`rowMenuOf`, test/unit/row-menu-items.test.ts), not on the trigger.
+  it('opens on a Design plan too, where needsDesign is not offered and Approve is refused', () => {
     const html = renderToStaticMarkup(createElement(PlanActions, {
       plan: 'a-plan',
       card: CardSchema.parse({
@@ -36,7 +38,7 @@ describe('PlanActions — needs design', () => {
       }),
       approve: { available: false, reason: 'approve refused' },
     }));
-    expect(html).toContain('aria-label="approve refused"');
-    expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('aria-label="Actions for a-plan"');
+    expect(html).not.toContain('aria-disabled');
   });
 });

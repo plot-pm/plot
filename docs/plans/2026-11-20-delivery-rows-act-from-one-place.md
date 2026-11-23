@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -13,6 +13,11 @@
 - **Approved:** 2026-11-20, Jan Wloka, plan-PR #3583 merged
 - **Started:** 2026-11-20, Jan Wloka, `feature/mine-means-mine-or-my-plan`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-row-menu-column`
+- **Started:** 2026-11-21, Jan Wloka, `feature/delivery-you-rows-verb-first`
+- **Started:** 2026-11-22, Jan Wloka, `feature/delivery-work-items-grid`
+- **Started:** 2026-11-22, Jan Wloka, `feature/release-delivery-plan-rows-unfold`
+- **Started:** 2026-11-23, Jan Wloka, `feature/fleet-switches-in-fleet-section`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -108,19 +113,19 @@ Today actions sit in different columns per section, some rows hold buttons and s
 
 ### You rows
 
-- `feature/delivery-you-rows-verb-first` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — You rows as verb, object tuple, consequence and ⋯ from a `REASON_DO` record of verb, action, tone and consequence per `YouReason`, the loose rows under Unblock grouped into one row with each branch in the ⋯, `looseActions` with `{ enabled, reason }` and the loose row's fixed items with their unit test, `todo-list.test.ts` updated, `CleanUpBulkDelete`, `bulkDeleteWords` and `cleanUpBranches` removed with their tests, `rowSprintMembership` with the scope and Mine cells, and the triage footer linked to `#tickets` <!-- builds: youRowForm and rowSprintMembership, a verb-first You row with grouping -->
+- `feature/delivery-you-rows-verb-first` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — You rows as verb, object tuple, consequence and ⋯ from a `REASON_DO` record of verb, action, tone and consequence per `YouReason`, the loose rows under Unblock grouped into one row with each branch in the ⋯, `looseActions` with `{ enabled, reason }` and the loose row's fixed items with their unit test, `todo-list.test.ts` updated, `CleanUpBulkDelete`, `bulkDeleteWords` and `cleanUpBranches` removed with their tests, `rowSprintMembership` with the scope and Mine cells, and the triage footer linked to `#tickets` <!-- builds: youRowForm and rowSprintMembership, a verb-first You row with grouping --> → #3648
 
 ### Work items grid
 
-- `feature/delivery-work-items-grid` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — one Work items grid of item tuple, plan tuple, status pills, by, age and ⋯ replacing `WORK_ITEM_COLUMNS`, `workItemPills` over the Gates, Progress and Waits-on values with linked gate pills and the grey *no sprint* pill from `rowSprintMembership`, a status column that sizes to its content and a branch segment that gives way, plan blocks with indented slice rows, and `delivery-work-columns.test.ts` rewritten <!-- builds: workItemsGrid and statusPills, the Work items columns and status pills -->
+- `feature/delivery-work-items-grid` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-section-empty-kinds --> — one Work items grid of item tuple, plan tuple, status pills, by, age and ⋯ replacing `WORK_ITEM_COLUMNS`, `workItemPills` over the Gates, Progress and Waits-on values with linked gate pills and the grey *no sprint* pill from `rowSprintMembership`, a status column that sizes to its content and a branch segment that gives way, plan blocks with indented slice rows, and `delivery-work-columns.test.ts` rewritten <!-- builds: workItemsGrid and statusPills, the Work items columns and status pills --> → #3660
 
 ### Release delivery unfold
 
-- `feature/release-delivery-plan-rows-unfold` <!-- waits: feature/every-delivery-section-folds --> — each Release delivery plan row with plan 2's fold control, opening to `PlanLine` slice lines with name, PR+branch tuple, a status pill from `slicePills` with `LINE_STATE` moved into it, and a ⋯ that holds Start work with the slice line's item unit test <!-- builds: releasePlanSlices, the unfolded slice lines of a release plan row -->
+- `feature/release-delivery-plan-rows-unfold` <!-- waits: feature/every-delivery-section-folds --> — each Release delivery plan row with plan 2's fold control, opening to `PlanLine` slice lines with name, PR+branch tuple, a status pill from `slicePills` with `LINE_STATE` moved into it, and a ⋯ that holds Start work with the slice line's item unit test <!-- builds: releasePlanSlices, the unfolded slice lines of a release plan row --> → #3665
 
 ### Fleet switches
 
-- `feature/fleet-switches-in-fleet-section` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tab-has-one-header, feature/delivery-section-empty-kinds --> — the switch row with `#fleet-controls` at the top of the open Fleet section from `fleetSwitchRow`, visible above the stopped frame, `WorkingCounts` and `FleetAlert` below it, agent rows with circle, agent, role, working-on tuple, a status pill from `agentPills` with its unit test, tokens, time left and a ⋯ that holds `BrokenAgentMenu`'s actions for a broken agent and `BranchMenu`'s items for every other agent with the Fleet agent item unit test, and no switch outside the Fleet section <!-- builds: fleetSwitchRow, the Fleet section's switch row -->
+- `feature/fleet-switches-in-fleet-section` <!-- waits: feature/mine-means-mine-or-my-plan, feature/delivery-tab-has-one-header, feature/delivery-section-empty-kinds --> — the switch row with `#fleet-controls` at the top of the open Fleet section from `fleetSwitchRow`, visible above the stopped frame, `WorkingCounts` and `FleetAlert` below it, agent rows with circle, agent, role, working-on tuple, a status pill from `agentPills` with its unit test, tokens, time left and a ⋯ that holds `BrokenAgentMenu`'s actions for a broken agent and `BranchMenu`'s items for every other agent with the Fleet agent item unit test, and no switch outside the Fleet section <!-- builds: fleetSwitchRow, the Fleet section's switch row --> → #3673
 
 ## Notes
 

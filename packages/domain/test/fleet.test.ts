@@ -288,6 +288,12 @@ describe('the pulse is the whole document', () => {
     expect(FleetReadingSchema.parse({ ...barePulse, read_ref: 'unknown' }).read_ref).toBe('unknown');
   });
 
+  it('reads a pulse with no throttle cause, and an unknown cause as absent', () => {
+    expect(FleetReadingSchema.parse(barePulse).summary.hostCause).toBeUndefined();
+    expect(FleetReadingSchema.parse({ ...barePulse, summary: { ...bareSummary, hostCause: 'ceiling' } }).summary.hostCause).toBe('ceiling');
+    expect(FleetReadingSchema.parse({ ...barePulse, summary: { ...bareSummary, hostCause: 'storm' } }).summary.hostCause).toBeUndefined();
+  });
+
   it('requires every counter of the summary', () => {
     const { deferred, ...short } = bareSummary;
     expect(deferred).toBe(0);

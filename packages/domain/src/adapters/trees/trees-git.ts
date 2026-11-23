@@ -3,8 +3,9 @@ import { basename, dirname, isAbsolute, join } from 'node:path';
 
 import type { Mergeability } from '../../entities/pr.js';
 import type { Worktree } from '../../entities/worktree.js';
-import { answered, failed, type PortResult } from '../../port-result.js';
+import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
+import type { ContinueLockReading } from '../../rules/continue-lock.js';
 import type { TreePresence } from '../../rules/reapable.js';
 import { bundlePathsOf, deskDirtFilter } from '../../rules/desk-dirt-filter.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
@@ -246,12 +247,15 @@ const worktreesOf = (stdout: string): Worktree[] => {
  * @param context - where the repository is.
  * @param answers - the held answers for each checkout's common git dir; this process's own by default.
  * @param files - the ref file reader; `null` asks git for every answer.
+ * @param continueLock - reads a desk's continue lock and throws where the file
+ *   cannot be read; `null` makes `continueLock` answer `unaskable`.
  * @returns a `Trees` backed by the worktree files, `git worktree` and the filesystem.
  */
 export const treesGit = (
   context: ShellContext,
   answers: FixedAnswers = processAnswers,
   files: RefFiles | null = refFilesFs(context.repoRoot),
+  continueLock: ((worktree: string) => ContinueLockReading) | null = null,
 ): Trees => {
   const inRepo = { cwd: context.repoRoot };
 
@@ -385,6 +389,14 @@ export const treesGit = (
         (stdout) => stdout.split('\n').filter((line) => line.length > 0),
         inRepo,
       ),
+    continueLock: async (path) => {
+      if (continueLock === null) return unaskable('no continue lock reader');
+      try {
+        return answered(continueLock(path));
+      } catch {
+        return failed();
+      }
+    },
     // THE SHELL'S `plot_worker_tree_quiet_seconds`, with `deskDirtFilter` and
     // no bundle exclusion, as the shell calls the filter with no worktree.
     // `-uall` is for this reading only: a directory's mtime does not move when a file inside it is

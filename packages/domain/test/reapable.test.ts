@@ -36,6 +36,34 @@ const landed = (over: Partial<TreeReadings> = {}): TreeReadings => ({
 
 const refusalsOf = (readings: TreeReadings) => reapProblems(readings).map((p) => p.refusal);
 
+describe('reapProblems — the continue lock', () => {
+  it('refuses continue-lock-held for a held lock, naming the pid and the seconds left', () => {
+    expect(firstReapRefusal(landed({ continueLock: { held: true, pid: 4242, expiresInMs: 41_200 } }))).toEqual({
+      refusal: 'continue-lock-held',
+      detail: '4242 42',
+    });
+  });
+
+  it('refuses nothing for a lock that holds nothing: expired, dead holder or unparseable body', () => {
+    // `continueLockHolder` reads each of those three as `held: false`.
+    expect(reapProblems(landed({ continueLock: { held: false } }))).toEqual([]);
+  });
+
+  it('keeps the desk where the lock could not be read', () => {
+    expect(firstReapRefusal(landed({ continueLock: 'unread' }))).toEqual({
+      refusal: 'continue-lock-held',
+      detail: 'unread',
+    });
+  });
+
+  it('ranks a live worker before a held lock', () => {
+    expect(refusalsOf(landed({ workerPid: '7', continueLock: { held: true, pid: 8, expiresInMs: 1000 } }))).toEqual([
+      'live-worker',
+      'continue-lock-held',
+    ]);
+  });
+});
+
 describe('reapProblems — a finished desk whose work landed', () => {
   it('refuses nothing when every reading passes', () => {
     expect(reapProblems(landed())).toEqual([]);

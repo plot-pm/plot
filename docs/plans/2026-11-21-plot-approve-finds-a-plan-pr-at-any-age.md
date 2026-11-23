@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Issue:** #3608
 - **Review:** pr
@@ -12,6 +12,9 @@
 - **Rounds:** 1
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3617 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-host-names-the-prs-of-a-commit`
+- **Started:** 2026-11-21, Jan Wloka, `bug/plot-approve-asks-the-pr-of-the-adding-merge`
+- **Started:** 2026-11-23, Jan Wloka, `bug/plot-approve-refuses-a-slice-on-the-plan-branch`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
@@ -95,11 +98,11 @@ The check sits in `approve` because approval is the last step before dispatch an
 
 ### Approve route
 
-- `bug/plot-approve-asks-the-pr-of-the-adding-merge` — `planPrOf`'s `commit` ask with the list fallback and the `unnamed` outcome, `choosePlanPr`'s answer, the entry's `approveHostOf` with only `prsOfCommit` in-process, the same-branch route on the default branch, `pr-merge-unnamed` in `approve` and `approveSpike` with its two texts, `SKILL.md:273`, a changeset, and the tests <!-- builds: pr-merge-unnamed, the plan-PR lookup by commit --> <!-- waits: bug/the-host-names-the-prs-of-a-commit -->
+- `bug/plot-approve-asks-the-pr-of-the-adding-merge` — `planPrOf`'s `commit` ask with the list fallback and the `unnamed` outcome, `choosePlanPr`'s answer, the entry's `approveHostOf` with only `prsOfCommit` in-process, the same-branch route on the default branch, `pr-merge-unnamed` in `approve` and `approveSpike` with its two texts, `SKILL.md:273`, a changeset, and the tests <!-- builds: pr-merge-unnamed, the plan-PR lookup by commit --> <!-- waits: bug/the-host-names-the-prs-of-a-commit --> → #3653
 
 ### Slice branch
 
-- `bug/plot-approve-refuses-a-slice-on-the-plan-branch` — the `slice-on-plan-branch` refusal in `workflows/approve.ts` at its stated position, the in-session read of the adding merge's PR branch, its entry text, a `SKILL.md` sentence, a changeset, and the tests <!-- builds: slice-on-plan-branch, the approve refusal for a slice on the plan PR's branch --> <!-- waits: bug/plot-approve-asks-the-pr-of-the-adding-merge -->
+- `bug/plot-approve-refuses-a-slice-on-the-plan-branch` — the `slice-on-plan-branch` refusal in `workflows/approve.ts` at its stated position, the in-session read of the adding merge's PR branch, its entry text, a `SKILL.md` sentence, a changeset, and the tests <!-- builds: slice-on-plan-branch, the approve refusal for a slice on the plan PR's branch --> <!-- waits: bug/plot-approve-asks-the-pr-of-the-adding-merge --> → #3681
 
 ## Notes
 

@@ -25,7 +25,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
-  wave: 'w', state: 'wip', phase: 'Development', group: 'waiting-on-you', ageMinutes: 30,
+  wave: 'w', state: 'wip', phase: 'Development', planState: 'approved', group: 'waiting-on-you', ageMinutes: 30,
   waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: null,
   localDirty: false, localLocked: false, stuck: null,
   ...over,
@@ -105,8 +105,9 @@ describe('the issue row has one action, and it creates a Draft', () => {
         body: JSON.stringify({ ok: true, number: 228 }),
       });
     });
-    // The status poll the button issues while a click is outstanding.
-    await page.route('**/api/idea/*', (route) =>
+    // The status poll the button issues while a click is outstanding. A RegExp rather than a glob ending in a slash
+    // and a star: `stripComments` in `test/gate/needs-real-board.ts` reads that pair in a string as a comment's start.
+    await page.route(/\/api\/idea\/[^/?]+(\?.*)?$/, (route) =>
       route.fulfill({
         contentType: 'application/json',
         body: JSON.stringify({ state: 'running', message: '', log: '' }),
@@ -121,34 +122,23 @@ describe('the issue row has one action, and it creates a Draft', () => {
   const section = (page: Page) => page.locator('ul[role="grid"][aria-label="Tickets"]');
   const issueRow = (page: Page, n: number) => section(page).locator(`li[data-issue-row="${n}"]`);
   const button = (page: Page, n: number) => issueRow(page, n).locator(`[data-create-plan="${n}"]`);
-  // THE `⋯` MENU the action now lives behind — `every-action-is-in-the-menu`.
-  // *Create plan* is no longer inline in the row; it hangs in the issue row's
-  // menu with the same `data-create-plan` hook, so every assertion below reaches
-  // the same control once the menu is open.
-  // The Tickets section shows the action inline in Do; there is no menu to open.
+  // THE `⋯` MENU the action lives behind. *Create plan* hangs in the issue
+  // row's menu with the same `data-create-plan` hook, so every assertion below
+  // reaches the same control once the menu is open.
+  const trigger = (page: Page, n: number) => issueRow(page, n).locator(`[data-issue-actions="${n}"]`);
+  const item = (page: Page, n: number) => issueRow(page, n).locator('[data-menu-item="create-plan"]');
   const openMenu = async (page: Page, n: number) => {
-    await button(page, n).waitFor({ timeout: 10_000 });
+    await trigger(page, n).waitFor({ timeout: 10_000 });
+    if ((await item(page, n).count()) === 0) await trigger(page, n).click();
+    await item(page, n).waitFor({ timeout: 10_000 });
   };
 
-  /**
-   * Click a control that announces itself as disabled.
-   *
-   * `locator.click()` waits for actionability and would hang for its full
-   * timeout here — which is the wrong failure, since the assertion is that the
-   * click DOES NOTHING rather than that it cannot be delivered. `aria-disabled`
-   * is deliberately not the native `disabled` attribute (the #160 decision:
-   * a natively disabled button leaves the tab order, taking its own explanation
-   * out of reach of the reader who most needs it), so the browser really does
-   * deliver this event and the handler really must refuse it.
-   */
-  const clickAnyway = (page: Page, n: number) =>
-    button(page, n).dispatchEvent('click');
-
-  it('offers Plan it › inline in the Do column', async () => {
+  it('offers Create plan in the ⋯ menu of the row', async () => {
     const { page } = await open();
     try {
+      await openMenu(page, 228);
       await expect.poll(() => button(page, 228).count()).toBe(1);
-      await expect.poll(() => button(page, 228).textContent()).toContain('Plan it');
+      await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
       await expect.poll(() => button(page, 228).getAttribute('aria-disabled')).toBe(null);
     } finally {
       await page.close();
@@ -199,7 +189,7 @@ describe('the issue row has one action, and it creates a Draft', () => {
       // should leave one of them behind. So re-open and prove the control came
       // back UNARMED: the arm was cancelled, not merely hidden.
       await openMenu(page, 228);
-      await expect.poll(() => button(page, 228).textContent()).toContain('Plan it');
+      await expect.poll(() => button(page, 228).textContent()).toContain('Create plan');
       await expect.poll(() => button(page, 228).getAttribute('aria-pressed')).toBe('false');
       expect(posts).toEqual([]);
     } finally {
@@ -284,15 +274,15 @@ describe('the issue row has one action, and it creates a Draft', () => {
     });
     try {
       // The `⋯` is always there — the row IS a thing you can act on, the board
-      // just cannot act right now. Open it and the item inside refuses itself,
-      // rather than the whole menu vanishing and reading as a healthy row.
+      // just cannot act right now. Open it and the item inside is listed
+      // disabled with its reason, rather than the whole menu vanishing.
       await openMenu(page, 228);
-      await expect.poll(() => button(page, 228).getAttribute('aria-disabled')).toBe('true');
-      await clickAnyway(page, 228);
+      await expect.poll(() => item(page, 228).getAttribute('aria-disabled')).toBe('true');
+      await item(page, 228).dispatchEvent('click');
       expect(posts).toEqual([]);
-      // Announced, not merely dimmed: the reason must reach a reader who cannot
-      // see the page has greyed. `aria-disabled` rather than `disabled` keeps
-      // the control in the tab order so it can be heard at all.
+      // Announced, not merely dimmed: the reason is text in the item, so it
+      // reaches a reader who cannot see the page has greyed.
+      await expect.poll(() => item(page, 228).getAttribute('data-menu-reason')).toContain('not localhost');
       await expect.poll(() => issueRow(page, 228).textContent()).toContain('not localhost');
     } finally {
       await page.close();

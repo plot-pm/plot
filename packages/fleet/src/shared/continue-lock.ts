@@ -5,6 +5,7 @@ import {
   decodeContinueHolder,
   encodeContinueHolder,
   type ContinueHolder,
+  type ContinueLockReading,
   type ProcessProbe,
   type ProcessSighting,
 } from '@plot-pm/domain';
@@ -73,6 +74,27 @@ const holdingRecord = (text: string, probe: ProcessProbe, now: number): Continue
 
 /** Whether the lock text names a call that still holds the desk. A text that is no record holds nothing. */
 const lockHolds = (text: string, probe: ProcessProbe, now: number): boolean => holdingRecord(text, probe, now) !== null;
+
+/**
+ * Reads what the continue lock of `worktree` says now, with the same file read,
+ * record decoding and process probe {@link takeContinueLock} uses.
+ *
+ * @param worktree - the desk, absolute.
+ * @param deps - test seams; `onStep` is not called.
+ * @returns `held: true` with the holder's pid and the milliseconds left before
+ *   {@link CONTINUE_LOCK_BOUND_MS} expires the lock, or `held: false` where no
+ *   lock file exists, its body is no record, the lock expired or its holder died.
+ * @throws where the lock file exists and cannot be read.
+ */
+export const continueLockHolder = (worktree: string, deps: ContinueLockDeps = {}): ContinueLockReading => {
+  const text = readLock(continueLockPath(worktree));
+  if (text === null) return { held: false };
+  const now = (deps.now ?? Date.now)();
+  const holder = holdingRecord(text, deps.probe ?? processProbeSystem(), now);
+  return holder === null
+    ? { held: false }
+    : { held: true, pid: holder.pid, expiresInMs: holder.at + CONTINUE_LOCK_BOUND_MS - now };
+};
 
 /**
  * Publishes `text` under `lock` where no file has the name: written whole to a

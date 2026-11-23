@@ -6,8 +6,8 @@ export const TICKETS_SHOWN = 5;
 /** The DOM id the section's anchor carries; plans 1 and 2's `triage` links point at it. */
 export const TICKETS_ANCHOR = 'tickets';
 
-/** Why the control of the section's *Plan it ›* refuses; `null` where it acts. */
-export type PlanItReason = 'tracker-unsupported' | 'tracker-failed' | 'unavailable';
+/** Why the control of the section's *Plan it ›* refuses; `null` where it acts. `plan-named`: a plan already names the ticket. */
+export type PlanItReason = 'tracker-unsupported' | 'tracker-failed' | 'unavailable' | 'plan-named';
 
 /** What the Tickets section reads and the reader chose. */
 export interface TicketsSectionInput<T> {

@@ -1,6 +1,7 @@
 import type { Mergeability } from '../../entities/pr.js';
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
+import type { ContinueLockReading } from '../../rules/continue-lock.js';
 import type { Trees } from '../../ports/trees.js';
 import type { TreePresence } from '../../rules/reapable.js';
 import type { CommitReading } from '../../rules/sample.js';
@@ -49,6 +50,11 @@ export interface TreesFixture {
    * table holds none.
    */
   dirtyWithStatus?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * What each desk's continue lock says, keyed by path; `'unread'` makes
+   * `continueLock` fail. A path absent from the table holds no lock.
+   */
+  continueLocks?: Readonly<Record<string, ContinueLockReading | 'unread'>>;
   /**
    * The unfiltered changed paths each checkout holds, keyed by path; read by
    * `changedUnder`, which answers those under a given pathspec. A path absent
@@ -229,6 +235,10 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     dirtyPaths: async (path) => answered(dirty[path] ?? []),
     dirtyPathsWithStatus: async (path) => answered(fixture.dirtyWithStatus?.[path] ?? []),
+    continueLock: async (path) => {
+      const reading = fixture.continueLocks?.[path] ?? { held: false };
+      return reading === 'unread' ? failed() : answered(reading);
+    },
     changedUnder: async (path, pathspecs) =>
       answered((fixture.changed?.[path] ?? []).filter((file) => pathspecs.some((spec) => file.startsWith(spec)))),
 

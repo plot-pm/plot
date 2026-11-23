@@ -11,7 +11,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.7.0
+  version: 0.7.1
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git and python3. No git-host
   CLI needed — the pulse reads refs, not pull requests.
@@ -83,7 +83,7 @@ still defaults to writing nothing).
 |-------|-----------|-------|
 | 1. Run the scan | Small | One script call; output is machine-countable |
 | 2. Lead with the delta | Small | Lift the scan's own lines; the rule already decided |
-| 2b. Report state | Small | Read the footer counts, print the body |
+| 2b. Report state | Small | Read the footer counts, print the body, map `spikeUnlicensed` to its line |
 | 3. Advise next action | Mid | Which eligible branch to start is judgment |
 | 4. Flag stalls | Mid–Frontier | Distinguishing "slow" from "stuck" needs context |
 
@@ -267,6 +267,18 @@ one-line orientation the counts support, e.g.:
 
 > Wave 1 (Tracer) is eligible: 1 branch free, 0 claimed. Waves 2–4 blocked
 > behind it.
+
+**A Design plan whose spike record licenses no branch names its reason.** The scan's `--json` plan row carries `spikeUnlicensed` for a Design plan with one `<!-- spike -->` branch whose `Spike approved:` record licenses nothing. Name that reason on the plan's `unapproved` line, then name the command that records a fresh spike approval:
+
+| `spikeUnlicensed` | What to say |
+|---|---|
+| `spike-record-absent` | the spike is not approved yet |
+| `spike-record-branchless` | the spike record names no branch |
+| `spike-record-unparseable` | the spike record does not parse |
+| `spike-marker-moved` | the spike approval names a branch the spike marker no longer marks |
+| `spike-branch-renamed` | the spike approval names a branch no slice names |
+
+The command is `skills/plot/scripts/board/plot-approve-command.mjs --spike --who <handle> <slug>`. A row with no `spikeUnlicensed`, or with `null`, gives no reason to show: it does not mean the spike is licensed.
 
 ### 3. Advise the Next Action
 

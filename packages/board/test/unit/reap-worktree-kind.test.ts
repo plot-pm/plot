@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { answered } from '@plot-pm/domain';
+import { answered, failed, type ContinueLockReading, type PortResult } from '@plot-pm/domain';
 import type { Processes, Trees, Worktree } from '@plot-pm/domain';
 import { runWorktreeKind, type Context } from '../../src/server/entry/reap.js';
 
@@ -50,7 +50,11 @@ const idleProcesses = {
   isAlive: async (pid: number) => answered(pidAnswers(pid)),
 } as unknown as Processes;
 
-const ctxFor = (markers: readonly string[], dirty: readonly string[]): Context =>
+const ctxFor = (
+  markers: readonly string[],
+  dirty: readonly string[],
+  lock: PortResult<ContinueLockReading> = answered({ held: false }),
+): Context =>
   ({
     repoRoot: root,
     invokedFrom: root,
@@ -62,6 +66,7 @@ const ctxFor = (markers: readonly string[], dirty: readonly string[]): Context =
       list: async () => answered([tree()]),
       markers: async () => answered(markers),
       dirtyPathsWithStatus: async () => answered(dirty),
+      continueLock: async () => lock,
       unpushedCommits: async () => answered([]),
       unpushedPatches: async () => answered([]),
     } as unknown as Trees,
@@ -91,6 +96,22 @@ describe('runWorktreeKind', () => {
     const out = await reapOutput(ctxFor([], []), manifestDir);
 
     expect(out).toContain(`worker alive (pid ${process.pid})`);
+  });
+
+  it('keeps a merged, clean desk whose continue lock is held, naming the holder and the time left', async () => {
+    const out = await reapOutput(ctxFor([], [], answered({ held: true, pid: 4242, expiresInMs: 41_200 })));
+
+    expect(out).toContain('keep');
+    expect(out).toContain('continue lock held by pid 4242, expires in 42 s');
+    expect(out).not.toContain('would');
+  });
+
+  it('keeps a merged, clean desk whose continue lock cannot be read', async () => {
+    const out = await reapOutput(ctxFor([], [], failed()));
+
+    expect(out).toContain('keep');
+    expect(out).toContain('continue lock unread');
+    expect(out).not.toContain('would');
   });
 
   it('reads a live wrapper in .plot-worker.pid with no agent under it as no loop', async () => {

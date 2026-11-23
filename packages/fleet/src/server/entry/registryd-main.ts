@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -19,6 +19,7 @@ import {
   removeBaseRepair,
   repairRecordFile,
   scriptsShell,
+  stateHomeAt,
   treesGit,
   machineSystem,
   planStoreShell,
@@ -38,7 +39,7 @@ import {
   runLogFile,
   deskFs,
   agentsFs,
-  fleetStateFile,
+  fleetStateIn,
   clockSystem,
   watchFs,
   deskFingerprint,
@@ -46,7 +47,7 @@ import {
   startChannel,
   bindableChannelAddress,
   fleetdStartFile,
-  fleetdHeartbeatFile,
+  fleetdHeartbeatIn,
   writeProbeShell,
   appKeyShell,
   budgetAccount,
@@ -68,7 +69,7 @@ import { removeStageDirsOnExit } from '@plot-pm/domain/adapters/stage-dirs';
 import { unpushedAfterMerge } from '@plot-pm/domain/workflows/unpushed-after-merge';
 import { FLEETD_START_VERSION, type FleetdStart } from '@plot-pm/domain/entities/fleetd-start';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
-import type { WriteProbe } from '@plot-pm/domain/ports/write-probe';
+import type { ProbePrompt, WriteProbe } from '@plot-pm/domain/ports/write-probe';
 import { writeProbeNeeded, writeProbeOutcome } from '@plot-pm/domain/rules/write-probe';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import type { Clock } from '@plot-pm/domain/ports/clock';
@@ -99,7 +100,8 @@ import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { Host, MergedAnswer, PrListingRow } from '@plot-pm/domain/ports/host';
 import { earliestDeadline, ISSUE_REFRESH_MS, nextDeadline, PR_READ_BEAT_MS, settledRed, type NextDeadline } from '@plot-pm/domain';
-import type { FleetdLoop, HeldSlice, PortResult } from '@plot-pm/domain';
+import type { FleetdLoop, HeldSlice, PortResult, StateHome, StateHomeAnswer } from '@plot-pm/domain';
+import { stateHomeOfOpts } from '../../shared/action-log.js';
 import { answered, failed } from '@plot-pm/domain';
 import { agentFindingsOver } from '../../shared/agent-findings.js';
 import { startFleetdHeartbeat, supervisedFrom, trackBridgeWrites } from '../../shared/fleetd-heartbeat.js';
@@ -162,6 +164,9 @@ import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
 import { budgetSpendReader, type SpendReader } from '../../shared/spend-reader.js';
 import { readFleetSettings } from '../../shared/fleet-settings-store.js';
 import { readConfigAsync } from '../../shared/config-reader.js';
+import { sliceAgentOf } from '../../shared/slice-agent.js';
+import { startPromptOf, type StartPromptReadings } from '../../shared/probe-prompt.js';
+import { answer as promptAnswer } from './prompt.js';
 import { markerReading, markerText } from '../../shared/worker-question.js';
 import { mainCheckout } from '../../shared/main-checkout.js';
 import { deskDeadFromWorkerState } from '../../shared/auto-fixer.js';
@@ -234,7 +239,8 @@ import {
 import type { SupervisionReportStore } from '@plot-pm/domain/ports/supervision-report';
 import { logDir, processLog, truncateInherited } from '../../shared/process-log.js';
 import { readConfig } from '../../shared/config-reader.js';
-import { continueOnDesk, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { continueOnDesk, deskTranscriptHandles, type DeskContinuation, type DeskContinuationInput } from '../../shared/continuation.js';
+import { recordRoleSessions } from '../../shared/role-sessions.js';
 import { readDeskLoop } from '../../shared/desk-loop.js';
 import type { Desk } from '@plot-pm/domain/ports/desk';
 import { randomUUID } from 'node:crypto';
@@ -1163,7 +1169,10 @@ export const queueWorldForRepo = (
     // READS THE FILE FLEETD WRITES AND NEVER THE HOST. A missing, unparseable
     // or other-version file is no reading, and no reading holds nothing.
     defaultBranchRed: async () => {
-      const held = await defaultBranchFile(repoRoot).read();
+      // AN UNREAD STATE HOME HOLDS NOTHING, as a failed read does.
+      const home = stateHomeOfOpts({ repoRoot });
+      if (home === null) return false;
+      const held = await defaultBranchFile(home).read();
       if (!held.ok) return false;
       return defaultBranchRed(held.value, Date.now(), await checksWaitMs());
     },
@@ -1594,6 +1603,9 @@ export const unblockPortsFor = (deps: {
       const settings = agentSettingsFile(main);
       const fragment =
         settings === null ? command.command : `${command.command} --settings '${settings.replace(/'/g, `'\\''`)}'`;
+      // The run starts its own transcript in the desk's transcript directory,
+      // and the record keeps a later continuation from resuming it.
+      const before = deskTranscriptHandles(worktree);
       const result = await agentRun(fragment).run({
         worktree,
         prompt: question,
@@ -1611,6 +1623,7 @@ export const unblockPortsFor = (deps: {
         env: { PLOT_ROLE_GATE: join(main, 'skills', 'plot', 'scripts', 'board', 'plot-gate.mjs'), PLOT_ROLE_BRANCH: branch },
         logFile,
       });
+      recordRoleSessions(worktree, [...deskTranscriptHandles(worktree)].filter((handle) => !before.has(handle)));
       if (!result.ok) return { ok: false, detail: result.why };
       if (result.value.end.answer !== 'ran') return { ok: false, detail: `run ended ${result.value.end.answer}` };
       return { ok: true, output: result.value.finalText ?? '' };
@@ -1934,9 +1947,8 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * Proves the configured `Worker command` can write before `startAgents` hands
  * any `worker-start` write over to it.
  *
- * **ONE PROMPT FILE GOVERNS EVERY AGENT**, so the probe asks the command
- * string itself rather than branching on it — the same reason
- * `plot-fleetctl.sh`'s `--start` probes ahead of `launchctl bootstrap`. A
+ * **EACH STARTED AGENT'S PROMPT IS PROBED**: `promptsOf` resolves one prompt
+ * per `worker-start` write, and the probe tests each distinct file once. A
  * refused write here means a dispatched agent would meet the same refusal, so
  * nothing in this tick's `worker-start` writes is handed over.
  *
@@ -1951,9 +1963,10 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * proceeds and reports its fix (`writeProbeOutcome`).
  *
  * @param report - what the tick decided.
- * @param probe - what runs the configured command once, in a scratch desk.
+ * @param probe - what runs the prompt files once, in a scratch desk.
  * @param readWorkerCommand - reads the configured `Worker command`.
  * @param warn - where a refusal is reported.
+ * @param promptsOf - resolves the prompt of each `worker-start` write, in order.
  * @returns `true` to let `startAgents` proceed, `false` to skip it entirely.
  */
 export const probeBeforeStarting = async (
@@ -1961,14 +1974,15 @@ export const probeBeforeStarting = async (
   probe: WriteProbe,
   readWorkerCommand: () => Promise<string>,
   warn: (s: string) => void,
+  promptsOf: (writes: readonly { readonly branch: string; readonly worktree: string }[]) => Promise<readonly ProbePrompt[]>,
 ): Promise<boolean> => {
-  const hasWorkerStart = (report.handOver?.writes ?? []).some((item) => item.kind === 'worker-start');
-  if (!hasWorkerStart) return true;
+  const starts = (report.handOver?.writes ?? []).flatMap((item) => (item.kind === 'worker-start' ? [item] : []));
+  if (starts.length === 0) return true;
 
   const command = await readWorkerCommand();
   if (!writeProbeNeeded(command)) return true;
 
-  const outcome = writeProbeOutcome(await probe.check(command));
+  const outcome = writeProbeOutcome(await probe.check(command, await promptsOf(starts)));
   if (outcome.message !== undefined) warn(`plot-fleetd: ${outcome.message}\n`);
   return outcome.answer === 'proceed';
 };
@@ -2956,6 +2970,8 @@ export interface RunSeams {
   snapshotGeneration?: () => number;
   /** The App key probe at start; reads every declared key through the adapter by default. */
   probeAppKeys?: (repoRoot: string, scriptsDir: string, write: (line: string) => void) => void;
+  /** The state home fleetd reads and writes its state files under; resolved from the repo root by default. */
+  stateHome?: StateHomeAnswer;
 }
 
 /**
@@ -3022,18 +3038,21 @@ const probeAppKeysFor = (repoRoot: string, scriptsDir: string, write: (line: str
  * @param context - the checkout and its scripts directory.
  * @param channel - the channel to publish on.
  * @param write - receives one log line per publish and per clear.
+ * @param home - the state home the default-branch file lives under; `null`
+ *   reads no default-branch reading. Resolved from `context.repoRoot` when omitted.
  * @returns one run of the monitor.
  */
 export const indexMonitorOver = (
   context: { repoRoot: string; scriptDir: string },
   channel: Pick<RunningChannel, 'findings' | 'publish' | 'seen'>,
   write: (s: string) => void,
+  home: StateHome | null = stateHomeOfOpts(context),
 ): (() => Promise<void>) => {
   const host = hostShell(context);
   const refs = refsGit(context);
   const plans = fleetPlanStore(context, refs);
   const index = prIndexFile({ cwd: context.repoRoot });
-  const defaultBranch = defaultBranchFile(context.repoRoot);
+  const defaultBranch = home === null ? null : defaultBranchFile(home);
   // THE PLANS ARE PARSED WHERE THEIR COMMIT MOVED: `origin/<default>` is read
   // from the ref files, so an idle beat starts no `plot-config.sh` and no
   // `plot-plan-meta.sh`.
@@ -3052,6 +3071,7 @@ export const indexMonitorOver = (
         return held.ok ? held.value : null;
       },
       defaultBranch: async () => {
+        if (defaultBranch === null) return null;
         const held = await defaultBranch.read();
         return held.ok ? held.value : null;
       },
@@ -3154,6 +3174,12 @@ export const run = async (
 
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
+  // THE STATE HOME, ONCE PER START: the repair record and the default-branch and
+  // base readings live under the main checkout, also from a linked worktree.
+  // Where it cannot be told, no arm that reads or writes those files runs.
+  const stateHome = seams.stateHome ?? await stateHomeAt(repoRoot);
+  const home = 'home' in stateHome ? stateHome.home : null;
+  if (home === null) warn(`plot-fleetd: the state home of ${repoRoot} is unread — the default-branch, merge, review, fixer, repair and revert arms do not run\n`);
 
   // WRITTEN ONCE, HERE, AT THE TOP OF THIS PROCESS'S LIFE — never again this
   // run, and never read back by the daemon itself (#2728, `docs/plans/
@@ -3480,7 +3506,7 @@ export const run = async (
   // The last answered listing, set by the default branch's tip read and taken by
   // the per-base pass that follows it; `null` where no read answered this pass.
   let sprintTips: Readonly<Record<string, string>> | null = null;
-  const defaultBranchWorld = args.once
+  const defaultBranchWorld = args.once || home === null
     ? null
     : {
         // SHARES THE TICK LOOP'S CACHE (`checksWaitMs` ABOVE), rather than
@@ -3514,8 +3540,8 @@ export const run = async (
           firstParentCommits: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentCommits,
         },
         build: ci,
-        store: defaultBranchFile(repoRoot),
-        repair: repairRecordFile(repoRoot),
+        store: defaultBranchFile(home),
+        repair: repairRecordFile(home),
         // The host-slot bound is GitHub's account budget; other systems call direct.
         // The in-process client claims its own slot per request.
         slot: <T,>(call: () => Promise<T>): Promise<T> =>
@@ -3560,7 +3586,7 @@ export const run = async (
   // `origin/<default>` does not is read when the default branch's reading is
   // next due, at most once per half `Checks wait`.
   const readDefaultBranch = seams.readDefaultBranch ?? (
-    refreshDefault === null || defaultBranchWorld === null
+    refreshDefault === null || defaultBranchWorld === null || home === null
       ? async (): Promise<void> => undefined
       : refreshWithBases(
           refreshDefault,
@@ -3571,15 +3597,15 @@ export const run = async (
           },
           {
             shared: defaultBranchWorld,
-            storeFor: (base) => baseBranchFile(repoRoot, base),
-            repairFor: (base) => baseRepairFile(repoRoot, base),
+            storeFor: (base) => baseBranchFile(home, base),
+            repairFor: (base) => baseRepairFile(home, base),
             held: async () => {
-              const names = await baseBranchNames(repoRoot);
+              const names = await baseBranchNames(home);
               return names.ok ? names.value : null;
             },
             remove: async (base) => {
-              const reading = await removeBaseBranch(repoRoot, base);
-              const record = await removeBaseRepair(repoRoot, base);
+              const reading = await removeBaseBranch(home, base);
+              const record = await removeBaseRepair(home, base);
               return reading.ok && record.ok;
             },
           },
@@ -3604,7 +3630,7 @@ export const run = async (
     passes[loop] = Date.now();
     return value;
   };
-  const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
+  const bridge = trackBridgeWrites(fleetStateIn(stateHome));
   // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
   // returns, so a failing scan would otherwise read as a loop that keeps up.
   const scanPassed = (scan: (plan: ScanPlan) => Promise<void>): ((plan: ScanPlan) => Promise<boolean>) => async (plan) => {
@@ -3645,7 +3671,7 @@ export const run = async (
     ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
-        fleetdHeartbeatFile({ repoRoot }),
+        fleetdHeartbeatIn(stateHome),
         {
           pid: process.pid,
           startedAt: fleetdStartedAt,
@@ -3671,7 +3697,7 @@ export const run = async (
   const overChannel =
     seams.overChannel ??
     ((channel: RunningChannel) => ({
-      indexMonitor: indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
+      indexMonitor: indexMonitorOver({ repoRoot, scriptDir: scriptsDir }, channel, write, home),
       deskRelay: deskRelayOver({ repoRoot, scriptDir: scriptsDir }, channel, write),
     }));
   const openChannel = seams.openChannel ?? startChannel;
@@ -3765,6 +3791,7 @@ export const run = async (
             {
               repoRoot,
               scriptsDir,
+              stateHome,
               scripts,
               // THE PULSE'S PLAN SOURCE, so the rejection hold reads the plan
               // the pulse named rather than the daemon's lagging checkout.
@@ -3829,8 +3856,8 @@ export const run = async (
     const boundMs = idle === undefined ? null : await idle.boundMs();
     const clock = (seams.clock ?? clockSystem()).now();
     const now = clock.ok ? clock.value : Date.now();
-    const held = await defaultBranchFile(repoRoot).read();
-    const reading = held.ok ? held.value : null;
+    const held = home === null ? null : await defaultBranchFile(home).read();
+    const reading = held !== null && held.ok ? held.value : null;
     const redAskedAt = reading !== null && settledRed(reading) ? Date.parse(reading.askedAt) : Number.NaN;
     return earliestDeadline([
       last?.deadline,
@@ -3842,8 +3869,8 @@ export const run = async (
   // THE EARLIEST DEADLINE FLEETD HOLDS READINGS FOR: the tick's own, and the PR and
   // issue reads' next beats and the default-branch re-ask.
   const nextDeadlineOf = async (last: TickReport): Promise<NextDeadline | null> => {
-    const held = await defaultBranchFile(repoRoot).read();
-    const askedAt = held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
+    const held = home === null ? null : await defaultBranchFile(home).read();
+    const askedAt = held !== null && held.ok && held.value !== null ? Date.parse(held.value.askedAt) : Number.NaN;
     return earliestDeadline([
       await tickDeadlineOf(last),
       nextDeadline(
@@ -4031,6 +4058,18 @@ export const run = async (
         probe,
         () => readConfigAsync({ repoRoot, scriptsDir }, 'Worker command', ''),
         warn,
+        async (writes) => {
+          const planDir = writes.some((w) => w.branch !== '')
+            ? resolvePath(repoRoot, await readConfigAsync({ repoRoot, scriptsDir }, 'Plan directory', 'docs/plans/'))
+            : '';
+          const readings: StartPromptReadings = {
+            repoRoot,
+            sliceAgent: (branch) => sliceAgentOf(repoRoot, scriptsDir, planDir, branch),
+            resolvePrompt: promptAnswer,
+            exists: existsSync,
+          };
+          return writes.map((write) => startPromptOf(write, readings));
+        },
       ))
     ) {
       await startAgents(report, performer, handOverWorld, write, warn);
@@ -4110,12 +4149,13 @@ export const run = async (
     // THE REPAIR-START ARM drives the red-main re-run, claim and role start, and
     // records the fix PR; the auto-review pass reviews the PR the record names. It starts an agent, so `--start-agents` gates it as it gates
     // every other start; a `--once` pass acts on nothing.
-    if (args.startAgents && !args.once) {
+    if (args.startAgents && !args.once && home !== null) {
       try {
         const outcome = await repairStartTick(
           repairStartWorldOf({
             repoRoot,
             scriptsDir,
+            stateHome: home,
             build: ci,
             slot: <T,>(call: () => Promise<T>): Promise<T> =>
               ci.system() === 'github-actions' ? withHostSlot(prState, call) : call(),
@@ -4135,12 +4175,13 @@ export const run = async (
     // THE REVERT ARM takes the half of the repair arc the repair-start arm
     // leaves: the last green re-run, the revert PR, and closing the episode's
     // PRs. Gated as the repair-start arm is.
-    if (args.startAgents && !args.once) {
+    if (args.startAgents && !args.once && home !== null) {
       try {
         const outcome = await repairRevertTick(
           revertWorldOf({
             repoRoot,
             scriptsDir,
+            stateHome: home,
             build: ci,
             release: releaseClaimOf,
             slot: <T,>(call: () => Promise<T>): Promise<T> =>
@@ -4152,6 +4193,7 @@ export const run = async (
             checksWaitMs: checksWaitMsOf(await readConfigAsync(boardOpts, 'Checks wait', '3600')),
             mainRepairBoundMs: mainRepairBoundMsOf(await readConfigAsync(boardOpts, 'Main repair bound', '3600')),
             checks: checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', '')),
+            jobForm: ci.system() === 'github-actions',
           }),
           warn,
         );

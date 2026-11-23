@@ -8,9 +8,9 @@ import { walkStep, type EnvelopeNext, type ListedPage, type ListingPaging } from
  * query through unchanged. A version is listed once it is measured to:
  * on `quatico/quaweb-website`, bb 1.9.0 returned 50 merged rows in one request
  * on 2026-09-30, and on 2026-10-01 answered `pagelen: 50` with 50 rows, a
- * `next` and `size: 895`. craftamap/bb has no `--json` and never reaches this
- * listing. `plot-host.sh` holds the same table as `BB_LIST_PAGE_VERSIONS`, and
- * `corpus/listing-page.corpus.test.ts` holds the pair.
+ * `next` and `size: 895`. `plot-host.sh` holds the same table as
+ * `BB_LIST_PAGE_VERSIONS`, and `corpus/listing-page.corpus.test.ts` holds the
+ * pair.
  */
 export const BITBUCKET_PAGE_LENGTHS: Readonly<Record<string, number>> = {
   '1.9.0': 50,
