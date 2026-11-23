@@ -128,7 +128,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Plan paths
 
-- `bug/a-plan-pr-runs-the-estate-tests` — `estateReaders` for the `// plot-reads: <dir>` marker in `localChecks` and `ciSelection`, exempt from the limit, the `check-estate-readers.sh` gate, the job map that runs them without e2e, and the tests <!-- builds: estateReaders, the plot-reads estate-test selection -->
+- `bug/a-plan-pr-runs-the-estate-tests` — `estateReaders` for the `// plot-reads: <dir>` marker in `localChecks` and `ciSelection`, exempt from the limit, the `check-estate-readers.sh` gate, the job map that runs them without e2e, and the tests <!-- builds: estateReaders, the plot-reads estate-test selection --> → #3694
 
 ### Entry sources
 
