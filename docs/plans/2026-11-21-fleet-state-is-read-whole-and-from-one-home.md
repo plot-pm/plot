@@ -6,6 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
+- **Sprint:** plot-describes-itself
 - **Issue:** #3207, #3136, #3208
 - **Review:** pr
 - **Impl:** own branches
