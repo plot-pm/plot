@@ -162,9 +162,7 @@ platform() { case "$(uname -s)" in
 # a consumer with no `.nvmrc` got an empty pin and refusal 2 was skipped
 # without a word — the one refusal that keeps a wrong node out of a unit.
 pinned_major() {
-  local v
-  v=$(tr -d ' \tv\n' < "$plot_nvmrc" 2>/dev/null)
-  printf '%s' "${v%%.*}"
+  tr -d ' \tv\n' < "$plot_nvmrc" 2>/dev/null | cut -d. -f1
 }
 
 # Is the label loaded? Answered by the init system, never by a pidfile: a
