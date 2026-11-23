@@ -1,3 +1,5 @@
+import { LEADING_KEYWORDS } from './ci-suite.js';
+
 /**
  * Refuses a tool call shaped to wait for a background task.
  *
@@ -34,9 +36,6 @@ const refuse = (shape: string): string => `${POLL_REFUSAL_PREFIX}: ${shape} — 
 
 /** The tool names a background start can come from. */
 const BACKGROUNDABLE = new Set(['Bash', 'Agent']);
-
-/** The shell keywords stripped from a segment's front before its first word is read. */
-const LEADING_KEYWORDS = new Set(['while', 'until', 'if', 'elif', 'do', 'then', 'else', '!', '{', '(']);
 
 /** The shell keywords that close a loop or a group and carry no command. */
 const CLOSING_KEYWORDS = new Set(['done', 'fi', '}', ')']);

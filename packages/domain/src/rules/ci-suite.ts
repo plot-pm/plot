@@ -207,25 +207,64 @@ const withoutDataLists = (command: string): string => {
 };
 
 /**
- * Strips what precedes the program a simple command runs: `NAME=value`
- * assignments, and `env` with its options and assignments.
+ * The shell reserved words and grouping words that can precede a simple
+ * command's program after a split on `;`: `!`, `{`, `(`, `do`, `then`,
+ * `else`, `elif`, `if`, `while`, `until` and `time`.
+ */
+export const LEADING_KEYWORDS: ReadonlySet<string> = new Set([
+  '!', '{', '(', 'do', 'then', 'else', 'elif', 'if', 'while', 'until', 'time',
+]);
+
+/** How many more `)` than `(` a word holds. */
+const unmatchedClosers = (word: string): number =>
+  (word.match(/\)/g)?.length ?? 0) - (word.match(/\(/g)?.length ?? 0);
+
+/**
+ * Strips the leading keywords of a simple command: any run of
+ * `LEADING_KEYWORDS`, a `-p` after `time`, and a `(` glued to the first word
+ * after them. A `)` glued to the last word is dropped where that word holds
+ * more `)` than `(`, so `(curl x)` reads as `curl x` and `$(date)` keeps its
+ * `)`.
+ *
+ * @param words - one simple command, split on whitespace.
+ * @returns the words from the first word that is not a keyword on.
+ */
+export const commandWords = (words: readonly string[]): string[] => {
+  let i = 0;
+  while (i < words.length && LEADING_KEYWORDS.has(words[i])) {
+    i += words[i] === 'time' && words[i + 1] === '-p' ? 2 : 1;
+  }
+  const out = words.slice(i);
+  if (out.length > 0 && out[0].length > 1 && out[0].startsWith('(')) out[0] = out[0].slice(1);
+  const last = out.length - 1;
+  if (last >= 0 && out[last].length > 1 && out[last].endsWith(')') && unmatchedClosers(out[last]) > 0) {
+    out[last] = out[last].slice(0, -1);
+  }
+  return out;
+};
+
+/**
+ * Strips what precedes the program a simple command runs: the leading
+ * keywords (`commandWords`), then `NAME=value` assignments, and `env` with
+ * its options and assignments.
  *
  * @param words - one simple command, split on whitespace.
  * @returns the words from the program on.
  */
 export const programWords = (words: readonly string[]): string[] => {
+  const command = commandWords(words);
   let i = 0;
-  while (i < words.length && ASSIGNMENT.test(words[i])) i += 1;
-  if (words[i] === 'env') {
+  while (i < command.length && ASSIGNMENT.test(command[i])) i += 1;
+  if (command[i] === 'env') {
     i += 1;
-    while (i < words.length) {
-      const word = words[i];
+    while (i < command.length) {
+      const word = command[i];
       if (word === '-u' || word === '--unset' || word === '-C' || word === '--chdir') i += 2;
       else if (word.startsWith('-') || ASSIGNMENT.test(word)) i += 1;
       else break;
     }
   }
-  return words.slice(i);
+  return command.slice(i);
 };
 
 /**
@@ -530,7 +569,7 @@ export const isReadSegment = (words: readonly string[]): boolean => {
   if (!isReader(words)) return false;
   if (hasSubstitution(words)) return false;
   const program = programWords(words);
-  if (program.length !== words.length) return false;
+  if (program.length !== commandWords(words).length) return false;
   if (wordBasename(program[0]) === 'git' && words.some((w) => GIT_RUN_OPTIONS.test(w))) return false;
   return true;
 };
