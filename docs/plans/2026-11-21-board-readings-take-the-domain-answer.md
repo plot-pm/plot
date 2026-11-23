@@ -170,7 +170,7 @@ All evidence is on origin/main `b21961602`.
 
 ### Escalation post
 
-- `bug/the-escalation-reads-the-issue-once` — `planIssueValue` shared by `planIssueId` and `planIssue`, one answer-record store per `workerQuestions` call with a counting test, the `trackerFixture` stub, and the browser note from the exported `questionNote` <!-- builds: planIssueValue, the shared Issue field parse -->
+- `bug/the-escalation-reads-the-issue-once` — `planIssueValue` shared by `planIssueId` and `planIssue`, one answer-record store per `workerQuestions` call with a counting test, the `trackerFixture` stub, and the browser note from the exported `questionNote` <!-- builds: planIssueValue, the shared Issue field parse --> → #3692
 
 ## Notes
 
