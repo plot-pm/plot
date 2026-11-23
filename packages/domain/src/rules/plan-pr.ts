@@ -337,15 +337,16 @@ export const planPrOf = (readings: PlanPrReadings): PlanPrAnswer => {
   const { byCommit } = readings;
   if (byCommit === undefined) return { outcome: 'ask', ask: 'commit' };
   if (byCommit !== 'unaskable') {
-    const row = byCommit.find((pr) =>
-      pr.state === 'MERGED' && shaMatches(pr.headSha ?? '', addition.secondParent) && pr.mergeCommit === addition.sha);
+    const row = byCommit.find((pr): pr is Pr & { headSha: string } =>
+      pr.state === 'MERGED' && pr.headSha !== undefined && shaMatches(pr.headSha, addition.secondParent)
+      && pr.mergeCommit === addition.sha);
     if (row === undefined) return { outcome: 'unnamed', mergeCommit: addition.sha, via: 'commit' };
     return {
       outcome: 'found',
       number: row.number,
       state: 'MERGED',
       draft: false,
-      headSha: row.headSha ?? '',
+      headSha: row.headSha,
       branch: row.head,
       rivals: [],
       carried: [],
