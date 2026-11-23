@@ -133,7 +133,7 @@ Building is not the gap. CI builds the bundles from the pull request's source be
 
 ### Entry sources
 
-- `bug/an-entry-source-selects-its-bundle-tests` — `BOARD_BUNDLE_ENTRIES` in `bundles.generated.ts`, the selection adds a changed entry's shipped bundle name to its search terms, and the unit and freshness tests <!-- builds: BOARD_BUNDLE_ENTRIES, the entry-to-bundle map for test selection -->
+- `bug/an-entry-source-selects-its-bundle-tests` — `BOARD_BUNDLE_ENTRIES` in `bundles.generated.ts`, the selection adds a changed entry's shipped bundle name to its search terms, and the unit and freshness tests <!-- builds: BOARD_BUNDLE_ENTRIES, the entry-to-bundle map for test selection --> → #3696
 
 ## Notes
 
