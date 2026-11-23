@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { fleetStateFile } from '../src/adapters/fleet-state/fleet-state-file.js';
 import { repairRecordFile } from '../src/adapters/repair-record/repair-record-file.js';
 import { stateHomeOf, stateHomeReadOf } from '../src/rules/state-home.js';
 
@@ -45,5 +46,12 @@ describe('stateHomeOf', () => {
   it('refuses a raw path where a state home is asked', () => {
     // @ts-expect-error a repo root is not a state home; only stateHomeOf makes one
     expect(typeof repairRecordFile('/x').read).toBe('function');
+  });
+
+  it('refuses a raw repository root where the bridge asks for a state home', () => {
+    // Built and not called: the cell is the type error, and a call would join an undefined path.
+    // @ts-expect-error a repo root is not a state home; the bridge takes `home`
+    const build = () => fleetStateFile({ repoRoot: '/x' });
+    expect(typeof build).toBe('function');
   });
 });

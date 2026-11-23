@@ -1,7 +1,8 @@
 // The AgentMonitor's findings, written by fleetd on every scan and by the
 // worker wrapper when no fleetd runs.
 import { agentsFs, deskFs, hostShell, refsGit, treesGit } from '@plot-pm/domain/adapters';
-import { fleetdHeartbeatFile } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
+import { fleetdHeartbeatIn } from '@plot-pm/domain/adapters/fleetd-heartbeat/fleetd-heartbeat-file';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import type { ShellContext } from '@plot-pm/domain/adapters/scripts';
 import type { WorkerState } from '@plot-pm/domain/entities/fleet';
 import type { Finding } from '@plot-pm/domain/entities/finding';
@@ -79,7 +80,7 @@ export const wrapperFinalPassDeps = (context: ShellContext): WrapperFinalPassDep
   const trees = treesGit(context);
   return {
     fleetdLive: async () => {
-      const heartbeat = await fleetdHeartbeatFile({ repoRoot: context.repoRoot }).read();
+      const heartbeat = await fleetdHeartbeatIn(stateHomeAtSync(context.repoRoot)).read();
       return heartbeat.ok && fleetdLiveness(heartbeat.value, Date.now()) === 'live';
     },
     ports: {

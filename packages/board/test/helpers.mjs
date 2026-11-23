@@ -862,7 +862,9 @@ export function liveFleetdHeartbeat(repo, everyMs = 5_000) {
  * state this plants: a kept-fresh `.plot/state/fleetd.json`
  * ({@link liveFleetdHeartbeat}) and `.plot/state/last-pulse.json` in `repo`
  * holding `pulse`. Replaces any `plot-fleetctl.sh` already in `scriptsDir`,
- * which still reports the supervisor up for the readers that ask it.
+ * which still reports the supervisor up for the readers that ask it. A `repo`
+ * that is not a git repository is initialised as one: both files live under
+ * its state home, and a plain directory has none.
  *
  * @param {string} scriptsDir - a scripts directory this test owns.
  * @param {string} repo - the repository the board serves.
@@ -872,6 +874,7 @@ export function ownTheScan(scriptsDir, repo, pulse) {
   const ctl = path.join(scriptsDir, 'plot-fleetctl.sh');
   fs.rmSync(ctl, { force: true });
   fs.writeFileSync(ctl, '#!/usr/bin/env bash\necho "summary: supervisor=up"\nexit 0\n', { mode: 0o755 });
+  if (!fs.existsSync(path.join(repo, '.git'))) execFileSync('git', ['init', '-q', '-b', 'main', repo], { stdio: 'ignore' });
   const file = path.join(repo, '.plot/state/last-pulse.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({

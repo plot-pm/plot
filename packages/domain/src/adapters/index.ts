@@ -207,6 +207,7 @@ export { agentStartShell, workerRecordsFile } from './worker-records/worker-reco
 // (`packages/board`) defined before this port existed.
 export {
   fleetStateFile,
+  fleetStateIn,
   fleetStateVouched,
   bridgePath,
   BRIDGE_MAX_AGE_MS,
@@ -235,9 +236,9 @@ export {
 // FLEETD'S HEARTBEAT. One file under the repository's `.plot/state/`, replaced
 // every `HEARTBEAT_MS` by the daemon's `run()` and read by whoever asks whether
 // fleetd is alive.
-export { mainRootOf, stateHomeAtSync } from './main-checkout.js';
+export { stateHomeAtSync } from './main-checkout.js';
 export { stateHomeAt } from './state-home/state-home-git.js';
-export { fleetdHeartbeatFile, fleetdHeartbeatPath, readFleetdHeartbeatSync } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
+export { fleetdHeartbeatFile, fleetdHeartbeatIn, fleetdHeartbeatPath, readFleetdHeartbeatSync } from './fleetd-heartbeat/fleetd-heartbeat-file.js';
 
 // THE GATE-NUMBER READER. Resolves which gate a Claude Code session would
 // load for a repository and reads its `--spawn-contract` answer; used by both

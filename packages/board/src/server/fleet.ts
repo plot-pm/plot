@@ -114,7 +114,8 @@ import { fixerAttemptsFile } from '@plot-pm/domain/adapters/fixer-attempts/fixer
 import { fixerInFlight } from '@plot-pm/domain/rules/fixer-attempts';
 import type { PortResult } from '@plot-pm/domain';
 import type { Worktree } from '@plot-pm/domain/entities/worktree';
-import { fleetdHeartbeatFile, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { fleetdHeartbeatIn, agentsFs, refsGit, shellContext, treesGit, planStoreRef, planStoreShell, processesFiles, issueIndexFile, readerLockIndexDir, HOST_ISSUE_LISTERS, TRACKER_LISTERS, TICKET_SOURCES, trackerForIssues } from '@plot-pm/domain/adapters';
+import { stateHomeFor } from './state-home.js';
 import type { IssueIndexStore } from '@plot-pm/domain/ports/issue-index';
 import type { CarriedListing } from '@plot-pm/domain/rules/scan-listing';
 import { fleetOwnsScan, ownedBridgeNote } from '@plot-pm/domain/rules/scan-owner';
@@ -2832,7 +2833,7 @@ const fleetOwnsPrs = async (opts: BuildBoardOptions): Promise<boolean> => {
  * @returns the heartbeat, or `null` where there is none to read.
  */
 const fleetdHeartbeatFor = async (opts: BuildBoardOptions): Promise<FleetdHeartbeat | null> => {
-  const read = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+  const read = await fleetdHeartbeatIn(stateHomeFor(opts)).read();
   return read.ok ? read.value : null;
 };
 
@@ -3530,7 +3531,7 @@ export async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promi
     // WHICH SOURCE, FIRST. The heartbeat is a file read and starts no process;
     // on `snapshot` the beat installs fleetd's view and returns before any read
     // below. On `own` and `idle` the board reads for itself, as it always did.
-    const heartbeatRead = await fleetdHeartbeatFile({ repoRoot: opts.repoRoot }).read();
+    const heartbeatRead = await fleetdHeartbeatIn(stateHomeFor(opts)).read();
     const heartbeat = heartbeatRead.ok ? heartbeatRead.value : null;
     entry.heartbeat = heartbeat;
     const held = snapshotToServe(opts, entry, heartbeat, Date.now());

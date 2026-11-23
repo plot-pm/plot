@@ -14,7 +14,7 @@ import {
   type ProcessRow,
 } from '../../rules/pid-current.js';
 import { processAnswers, scriptRunner, type FixedAnswers, type ProcessRunner } from '../git-dirs/git-dirs.js';
-import { mainRootOf } from '../main-checkout.js';
+import { stateHomeAtSync } from '../main-checkout.js';
 import { runProcess } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 import { scriptsShell } from '../scripts/scripts-shell.js';
@@ -427,7 +427,9 @@ const manifestDirOf = (context: ShellContext, answers: FixedAnswers): Promise<st
   const known = manifestDirs.get(context.repoRoot);
   if (known !== undefined) return known;
   const resolving = (async () => {
-    const mainCheckout = mainRootOf(context.repoRoot);
+    // Falls back to `repoRoot` where the home is unread: this reads config and writes nothing a gate reads.
+    const home = stateHomeAtSync(context.repoRoot);
+    const mainCheckout = 'home' in home ? home.home : context.repoRoot;
     const answer = await scriptsShell({ ...context, repoRoot: mainCheckout }, answers).config('Agent registry', '', {
       env: { PLOT_REPO_ROOT: mainCheckout },
     });
@@ -502,7 +504,9 @@ export const deskFilesIo = (context: ShellContext, options: ProcessesFilesOption
     if (/^\d+$/.test(given)) return Promise.resolve(Number(given) * 1000);
     const known = workerBounds.get(context.repoRoot);
     if (known !== undefined) return known;
-    const reading = scriptsShell({ ...context, repoRoot: mainRootOf(context.repoRoot) }, answers)
+    // Falls back to `repoRoot` where the home is unread: this reads config and writes nothing a gate reads.
+    const home = stateHomeAtSync(context.repoRoot);
+    const reading = scriptsShell({ ...context, repoRoot: 'home' in home ? home.home : context.repoRoot }, answers)
       .config('Worker bound', '')
       .then((answer) => {
         const text = answer.ok ? answer.value.trim() : '';

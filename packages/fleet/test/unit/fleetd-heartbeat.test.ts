@@ -4,7 +4,9 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, fleetdHeartbeatFile, fleetStateFile, fleetStateVouched } from '@plot-pm/domain/adapters';
+import { clockManual, fleetdHeartbeatFile, fleetdHeartbeatIn, fleetStateIn, fleetStateVouched } from '@plot-pm/domain/adapters';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
+import type { StateHome } from '@plot-pm/domain';
 import { answered, decodeFleetdHeartbeat, encodeFleetdHeartbeat, failed, fleetdLiveness, lateLoops, FleetReadingSchema, type FleetdHeartbeat } from '@plot-pm/domain';
 import { bridgeVouched } from '@plot-pm/domain/rules/fleetd-live';
 import { fleetOwnsScan } from '@plot-pm/domain/rules/scan-owner';
@@ -298,7 +300,7 @@ const advanceToBeat = async (clock: ReturnType<typeof clockManual>, store: Fleet
 describe('run — the heartbeat', () => {
   let dir = '';
   beforeEach(() => {
-    // A plain directory: no git host, no registry.
+    // A plain directory: no git host, no registry. The state home is handed in as a seam.
     dir = mkdtempSync(join(tmpdir(), 'fleetd-heartbeat-run-'));
   });
   afterEach(() => {
@@ -315,12 +317,13 @@ describe('run — the heartbeat', () => {
     readIssueWrites: async () => undefined,
     openChannel: (async () => ({ stop: async () => undefined })) as never,
     overChannel: () => ({ indexMonitor: null, deskRelay: async () => undefined }),
+    stateHome: { home: dir as StateHome },
     ...overrides,
   });
 
   it('writes fleetd.json at start and moves beatAt on every 5 s beat for 1 minute, with no git host and idle loops', async () => {
     const clock = clockManual(1_700_000_000_000);
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     const beats: number[] = [];
     let stopped = false;
     let sleeps = 0;
@@ -356,7 +359,7 @@ describe('run — the heartbeat', () => {
       },
     };
     const clock = clockManual(1_000);
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let read: Awaited<ReturnType<typeof store.read>> | null = null;
     let sleeps = 0;
     await run(
@@ -383,7 +386,7 @@ describe('run — the heartbeat', () => {
   it('stamps lastSafetyNetAt once the first full read finishes, with no missed change', async () => {
     execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
     const clock = clockManual(1_000);
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let read: Awaited<ReturnType<typeof store.read>> | null = null;
     let sleeps = 0;
     let scanned = false;
@@ -416,7 +419,7 @@ describe('run — the heartbeat', () => {
 
   it('writes the generation the seam reports', async () => {
     const clock = clockManual(1_000);
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let read: Awaited<ReturnType<typeof store.read>> | null = null;
     let sleeps = 0;
     await run(
@@ -438,7 +441,7 @@ describe('run — the heartbeat', () => {
 
   it('records the tick pass, and leaves a stale heartbeat after a clean stop', async () => {
     const clock = clockManual(1_700_000_000_000);
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let sleeps = 0;
     let during: Awaited<ReturnType<typeof store.read>> | null = null;
     await run(
@@ -465,7 +468,7 @@ describe('run — the heartbeat', () => {
   it('starts no scan for ten quiet minutes on a repository, and the heartbeat reads live with no late loop', async () => {
     execFileSync('git', ['init', '-q', '-b', 'main', dir]);
     const clock = clockManual(Date.now());
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let scans = 0;
     let sleeps = 0;
     let last: FleetdHeartbeat | null = null;
@@ -500,7 +503,7 @@ describe('run — the heartbeat', () => {
 
   it('registers every loop at start, and keeps a scan whose first pass never resolves on time while the beat runs', async () => {
     const clock = clockManual(Date.now());
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let sleeps = 0;
     let first: FleetdHeartbeat | null = null;
     let last: FleetdHeartbeat | null = null;
@@ -541,7 +544,7 @@ describe('run — the heartbeat', () => {
     const start = Date.now();
     const clock = clockManual(start);
     const old = start - bridgeAge;
-    await fleetStateFile({ repoRoot: dir, now: () => old }).write({
+    await fleetStateIn({ home: dir as StateHome }, { now: () => old }).write({
       at: old,
       pulse: FleetReadingSchema.parse({
         main: 'main',
@@ -556,7 +559,7 @@ describe('run — the heartbeat', () => {
       ideaPlans: new Map(),
       prError: null,
     });
-    const store = fleetdHeartbeatFile({ repoRoot: dir });
+    const store = fleetdHeartbeatFile({ home: dir as StateHome });
     let sleeps = 0;
     let last: FleetdHeartbeat | null = null;
     await run(
@@ -581,7 +584,7 @@ describe('run — the heartbeat', () => {
     expect(seen.loops.scan?.lastPassAt).toBeNull();
     expect(seen.bridgeAt).toBeNull();
     // A bridge under 15 minutes old still takes the scan's own `failed` attempt record.
-    const bridge = await fleetStateFile({ repoRoot: dir }).read();
+    const bridge = await fleetStateIn({ home: dir as StateHome }).read();
     if (bridgeAge < 15 * 60_000) expect(bridge.ok && bridge.value?.attempt?.outcome).toBe('failed');
     expect(fleetOwnsScan({ heartbeat: seen, now: seen.beatAt })).toBe(true);
     expect(bridgeVouched({ at: old }, seen, seen.beatAt)).toBe(false);
@@ -601,6 +604,7 @@ describe('the heartbeat vouches for the bridge fleetd wrote', () => {
   let dir = '';
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'fleetd-heartbeat-bridge-'));
+    execFileSync('git', ['init', '-q', '-b', 'main', dir], { stdio: 'ignore' });
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
@@ -625,9 +629,9 @@ describe('the heartbeat vouches for the bridge fleetd wrote', () => {
 
   const beatWith = async (beatClockAt: number): Promise<number> => {
     const bridgeAt = Date.now() - 20 * 60_000;
-    const bridge = trackBridgeWrites(fleetStateFile({ repoRoot: dir }));
+    const bridge = trackBridgeWrites(fleetStateIn(stateHomeAtSync(dir)));
     await bridge.state.write(emptyPulse(bridgeAt));
-    const heartbeat = fleetdHeartbeatFile({ repoRoot: dir });
+    const heartbeat = fleetdHeartbeatIn(stateHomeAtSync(dir));
     startFleetdHeartbeat(
       clockManual(beatClockAt),
       heartbeat,

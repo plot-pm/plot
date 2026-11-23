@@ -308,7 +308,8 @@ export const run = async (
     const driftText = drifted && record.ok && record.value ? bundleDriftText(record.value.bundlePath) : null;
     if (argv.includes('--lines')) {
       // The transport fleetd published with its heartbeat: in-process or shell, and why.
-      const beating = readFleetdHeartbeatSync(opts.repoRoot);
+      const home = stateHomeFor(opts);
+      const beating = 'home' in home ? readFleetdHeartbeatSync(home.home) : null;
       write(spawnerStatusLines(verdict, driftText) + hostTransportStatusLine(beating?.hostTransport) + trackerTransportStatusLine(beating?.trackerTransport));
       return 0;
     }

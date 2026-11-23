@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clockManual, defaultBranchFile, fleetStateFile, startChannel, stateHomeAtSync } from '@plot-pm/domain/adapters';
+import { clockManual, defaultBranchFile, fleetStateIn, startChannel, stateHomeAtSync } from '@plot-pm/domain/adapters';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 
 import {
@@ -579,7 +579,7 @@ describe('run — the PR reader\'s failure reaches the bridge', () => {
     const { repo, here } = fixture();
     const clock = clockManual(0);
     const stop = manualStop();
-    const state = fleetStateFile({ repoRoot: repo });
+    const state = fleetStateIn(stateHomeAtSync(repo));
     const bridgedError = async (): Promise<string | null> => {
       const read = await state.read();
       return read.ok && read.value !== null ? read.value.prError : null;

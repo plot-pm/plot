@@ -39,7 +39,7 @@ import {
   runLogFile,
   deskFs,
   agentsFs,
-  fleetStateFile,
+  fleetStateIn,
   clockSystem,
   watchFs,
   deskFingerprint,
@@ -47,7 +47,7 @@ import {
   startChannel,
   bindableChannelAddress,
   fleetdStartFile,
-  fleetdHeartbeatFile,
+  fleetdHeartbeatIn,
   writeProbeShell,
   appKeyShell,
   budgetAccount,
@@ -3630,7 +3630,7 @@ export const run = async (
     passes[loop] = Date.now();
     return value;
   };
-  const bridge = trackBridgeWrites(fleetStateFile({ repoRoot }));
+  const bridge = trackBridgeWrites(fleetStateIn(stateHome));
   // A scan passes only when it landed a bridge: `fleetScan` contains its own failures and
   // returns, so a failing scan would otherwise read as a loop that keeps up.
   const scanPassed = (scan: (plan: ScanPlan) => Promise<void>): ((plan: ScanPlan) => Promise<boolean>) => async (plan) => {
@@ -3671,7 +3671,7 @@ export const run = async (
     ? async () => undefined
     : startFleetdHeartbeat(
         seams.clock ?? clockSystem(),
-        fleetdHeartbeatFile({ repoRoot }),
+        fleetdHeartbeatIn(stateHome),
         {
           pid: process.pid,
           startedAt: fleetdStartedAt,
