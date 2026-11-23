@@ -3,7 +3,7 @@ import path from 'node:path';
 import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { channelAddressFor, installObjectsReader, machineSystem, shellContext } from '@plot-pm/domain/adapters';
-import { isAnswered } from '@plot-pm/domain';
+import { isAnswered, logMissNotFound } from '@plot-pm/domain';
 import { planStoreFor, scriptsFor, primeAgentSettings, renderPlanPage, renderStoryPage, renderDesignDocPage, startBundleFor, type BuildBoardOptions } from './board.js';
 import { fleetSnapshotArrived, issuesClosedReading, watchFleet } from './fleet.js';
 import { fleetState } from './controllers/fleet-state.js';
@@ -636,7 +636,7 @@ async function handleRequest(
     }
     try {
       const log = workerLog(opts, branch);
-      // 404 for `no-worktree`, 200 for everything else the read can say.
+      // 404 for `no-worktree`, `pulse-partial` and `no-pulse`, 200 for everything else the read can say.
       //
       // The split is between *this machine cannot answer for that branch* and
       // *here is the answer*, NOT between good and bad news. A worktree with no
@@ -645,7 +645,7 @@ async function handleRequest(
       // should keep offering. `reason` carries the three-way distinction in the
       // body, where a client can render each differently; the status code only
       // says whether this server had anything to look at.
-      const status = !log.ok && log.reason === 'no-worktree' ? 404 : 200;
+      const status = !log.ok && logMissNotFound(log.reason) ? 404 : 200;
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(log));
     } catch (err) {

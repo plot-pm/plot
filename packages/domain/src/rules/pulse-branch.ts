@@ -1,4 +1,5 @@
 import type { FleetReading } from '../entities/fleet.js';
+import { dispatchReadingFor, planSlug, type DispatchReadingFor } from './auto-dispatch.js';
 
 /** What {@link pulseBranchReading} answers. */
 export type PulseBranchReading =
@@ -38,4 +39,74 @@ export const pulseBranchReading = (
   if (liveComplete) return { kind: 'unknown-branch' };
   if (lastComplete !== null && lists(lastComplete, branch)) return { kind: 'listed', pulse: lastComplete };
   return { kind: 'pulse-partial' };
+};
+
+/** What {@link pulsePlanReading} answers. */
+export type PulsePlanReading =
+  /** `pulse` lists the plan; read its slices from that pulse. */
+  | { kind: 'listed'; pulse: FleetReading }
+  /** There is no live fleet reading. */
+  | { kind: 'no-pulse' }
+  /** The live scan is unfinished, and neither it nor the last finished scan lists the plan. */
+  | { kind: 'pulse-partial' }
+  /** A finished reading does not list the plan. */
+  | { kind: 'unknown-plan' };
+
+const listsPlan = (pulse: FleetReading, slug: string): boolean => pulse.plans.some((plan) => planSlug(plan.file) === slug);
+
+/**
+ * Chooses the fleet reading a plan is looked up in.
+ *
+ * A plan absent from a partial pulse has not been reached by the scan, so the
+ * absence says nothing about the plan. The last finished scan is asked before
+ * the lookup refuses.
+ *
+ * @param live - the board's current pulse, or `null` on a cold cache.
+ * @param liveComplete - whether the scan that produced `live` finished.
+ * @param lastComplete - the pulse of the last scan that finished, or `null`.
+ * @param slug - the plan's file slug, as {@link planSlug} derives it.
+ * @returns `no-pulse` for a `null` live pulse; `listed` with `live` where it lists the plan; for an unfinished scan, `listed` with `lastComplete` where that lists it, else `pulse-partial`; otherwise `unknown-plan`.
+ */
+export const pulsePlanReading = (
+  live: FleetReading | null,
+  liveComplete: boolean,
+  lastComplete: FleetReading | null,
+  slug: string,
+): PulsePlanReading => {
+  if (live === null) return { kind: 'no-pulse' };
+  if (listsPlan(live, slug)) return { kind: 'listed', pulse: live };
+  if (liveComplete) return { kind: 'unknown-plan' };
+  if (lastComplete !== null && listsPlan(lastComplete, slug)) return { kind: 'listed', pulse: lastComplete };
+  return { kind: 'pulse-partial' };
+};
+
+/**
+ * What the board's pulses say about starting `slug`, at `branch` where one is named.
+ *
+ * The plan is looked up through {@link pulsePlanReading}. Where neither the
+ * unfinished live scan nor the last finished scan lists the plan, the answer is
+ * `pulse-partial`: a `branch-refused` reading of that reason where a branch is
+ * named, else a `pulse-partial` reading. Every other case is
+ * {@link dispatchReadingFor} over the pulse the lookup chose, or over `live`
+ * where none lists the plan.
+ *
+ * @param live - the board's current pulse, or `null` on a cold cache.
+ * @param liveComplete - whether the scan that produced `live` finished.
+ * @param lastComplete - the pulse of the last scan that finished, or `null`.
+ * @param slug - the plan slug.
+ * @param branch - the branch the caller names, or `undefined`.
+ * @returns the reading.
+ */
+export const dispatchReadingForPulses = (
+  live: FleetReading | null,
+  liveComplete: boolean,
+  lastComplete: FleetReading | null,
+  slug: string,
+  branch?: string,
+): DispatchReadingFor => {
+  const reading = pulsePlanReading(live, liveComplete, lastComplete, slug);
+  if (reading.kind === 'listed') return dispatchReadingFor(reading.pulse, slug, branch);
+  if (reading.kind !== 'pulse-partial') return dispatchReadingFor(live, slug, branch);
+  const detail = `the fleet scan has not reached plan ${slug} yet; ask again after the scan finishes`;
+  return branch === undefined ? { kind: 'pulse-partial', detail } : { kind: 'branch-refused', reason: 'pulse-partial', branch, detail };
 };

@@ -3,9 +3,9 @@ import http from 'node:http';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
-import { pulseFor } from './fleet.js';
+import { lastCompletePulseFor, pulseCompleteFor, pulseFor } from './fleet.js';
 import { localCapability } from './controllers/caller.js';
-import { bodyBranch, dispatchHome, startReadingFromPulse, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
+import { bodyBranch, dispatchHome, startReadingFromPulses, startDispatch } from '@plot-pm/fleet/shared/dispatch-command';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
 import type { DispatchReadingFor } from '@plot-pm/domain/rules/auto-dispatch';
 
@@ -194,7 +194,7 @@ export type DispatchLog =
       /** Last write to the log, ISO-8601. */
       modifiedAt: string;
     }
-  | { ok: false; slug: string; reason: Exclude<LogMissReason, 'no-worktree'>; path: string };
+  | { ok: false; slug: string; reason: Exclude<LogMissReason, 'no-worktree' | 'pulse-partial' | 'no-pulse'>; path: string };
 
 /**
  * The dispatcher log for a slug, bounded, with absence and emptiness told apart.
@@ -260,7 +260,7 @@ export function dispatchLogExists(repoRoot: string, slug: string): boolean {
 export interface DispatchDeps {
   /** Read a Plot Config key, or return the fallback. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** What to do about starting a plan; `startReadingFromPulse` over the board's pulse where absent. */
+  /** What to do about starting a plan; `startReadingFromPulses` over the board's pulses where absent. */
   startReading?: (opts: BuildBoardOptions, slug: string, branch?: string) => DispatchReadingFor;
 }
 
@@ -385,7 +385,10 @@ export async function handleDispatch(
   // and — only after it exits 0 — the receipt and `plot-dispatch.sh`. This route
   // keeps the HTTP half: the origin gate, the body, the status mapping.
   const startReading = (s: string, b?: string): DispatchReadingFor =>
-    (deps.startReading ?? ((o, planSlug, br) => startReadingFromPulse(pulseFor(o), planSlug, br)))(opts, s, b);
+    (
+      deps.startReading ??
+      ((o, planSlug, br) => startReadingFromPulses(pulseFor(o), pulseCompleteFor(o), lastCompletePulseFor(o), planSlug, br))
+    )(opts, s, b);
   // The plan's sprint branch, read before the synchronous start: the implement
   // prompt names it as `--branch`, as `/api/implement`'s does.
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
