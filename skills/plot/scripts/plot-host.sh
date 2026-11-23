@@ -875,9 +875,10 @@ pr_list_failed() { # $1=stderr text
   # the repair for the first is a login this connector can name — see
   # `host_repair`, which asks the CLI this backend drives rather than assuming
   # one. A failure that is neither costs the reader one `auth status`.
+  # A `bb` exit of 75 still exits 5 here, whatever the stderr text says.
   echo "plot-host: pr-list: ${err:-the host failed the request and said nothing}" >&2
   host_repair "$(backend)"
-  exit 3
+  exit "$(failed_code)"
 }
 
 # Run one `pr-list` host call, or die reporting which failure it was.
