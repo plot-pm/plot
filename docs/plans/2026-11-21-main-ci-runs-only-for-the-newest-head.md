@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Review:** pr
 - **Impl:** own branches
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3638 merged
 - **Started:** 2026-11-21, Jan Wloka, `infra/main-ci-cancels-an-older-head`
 - **Started:** 2026-11-23, Jan Wloka, `infra/a-bookkeeping-push-runs-only-the-gates`
+- **Delivered:** 2026-11-23
 
 ## Changelog
 
