@@ -683,10 +683,12 @@ gh_edit_or_post_comment() { if [ -n "$1" ]; then gh api -X PATCH "repos/{owner}/
 # Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
-# Exit 5 instead where the last `bb()` call exited 75: `bb` refused it on its
-# hourly ceiling, a pause, or a 429, so the op is throttled. Only `bb()` writes
-# `BB_RC`, so a GitHub, Jira or Jenkins op keeps exit 3 whatever its stderr says.
-die3() { echo "plot-host: $*" >&2; [ "$(cat "$BB_RC" 2>/dev/null)" = 75 ] && exit 5; exit 3; }
+# `failed_code` answers 5 instead where the last `bb()` call exited 75: `bb`
+# refused it on its hourly ceiling, a pause, or a 429, so the op is throttled.
+# Only `bb()` writes `BB_RC`, and each call overwrites it, so a GitHub, Jira or
+# Jenkins op keeps exit 3 whatever its stderr says.
+failed_code() { [ "$(cat "$BB_RC" 2>/dev/null)" = 75 ] && echo 5 || echo 3; }
+die3() { echo "plot-host: $*" >&2; exit "$(failed_code)"; }
 
 # THE ONE FOLD of a PR's check rollup into a word. `pr-list` and `pr-state` both
 # read it, so what `green` means cannot differ between a listing and a merge.
@@ -2301,7 +2303,8 @@ is_rate_refusal() {
 
 # Emits the miss payload on a genuine miss and exits non-zero on anything else,
 # after putting the CLI's own words on stderr. Callers get: stdout parseable or
-# empty, exit code decisive.
+# empty, exit code decisive. The failure code is `failed_code`'s: 5 after a
+# `bb` 75, else 3.
 # A FAILURE WITH NO DIAGNOSTIC AT ALL IS TREATED AS A MISS, and that is a
 # deliberate exception to the allowlist above rather than an oversight.
 #
@@ -2328,7 +2331,7 @@ host_miss_or_fail() {
     return 0
   fi
   echo "plot-host: $err" >&2
-  return 3
+  return "$(failed_code)"
 }
 
 # WHY A SECOND PATH EXISTS AT ALL: GitHub meters GraphQL and REST separately,
