@@ -2020,16 +2020,19 @@ jenkins_job_url_path() { # $1 = job path, $2 = branch or ""
 # `jen api` request, HTML, empty body — gets the generic "did not answer"
 # refusal, since nothing there proves Jenkins was even reached.
 jenkins_sha_runs() {
-  local op="$1" branch="$2" limit="$3" sha="$4" instance slug job tree body try path plain="" default_job root_path branch_path branch_answered="" err_tmp err_line
+  local op="$1" branch="$2" limit="$3" sha="$4" instance slug job tree body try path plain="" default_job root_path branch_path branch_answered="" err_tmp err_branch err_root err_line timed_out=""
   instance="$(jenkins_instance)"; [ -n "$instance" ] || jenkins_no_instance
   slug="${instance%%/*}"; job="${instance#*/}"; [ "$job" = "$instance" ] && job=""
   default_job=$(bash "$here/plot-config.sh" get "Default branch job" "" 2>/dev/null || true); [ -n "$default_job" ] && [ "$branch" = "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')" ] && job="$default_job"
   [ -n "${PLOT_JENKINS_JOB:-}" ] && job="$PLOT_JENKINS_JOB"; [ -n "$job" ] || { echo "plot-host: $op — the Jenkins instance names no job path; a sha lives in a job's builds, so it must be <slug>/<job/path>, not a bare host" >&2; exit 4; }
   tree="tree=builds%5Bnumber,result,building,timestamp,url,actions%5BlastBuiltRevision%5BSHA1,branch%5Bname%5D%5D%5D%5D%7B0,$((limit * 3))%7D"
   body=""; root_path="$(jenkins_job_url_path "$job" "")"; branch_path="$(jenkins_job_url_path "$job" "$branch")"
+  # ONE STDERR FILE PER PATH, so the refusal can say which path wrote which line.
+  plot_tmpfile err_branch host-jenkins-sha-err && plot_tmpfile err_root host-jenkins-sha-err || { echo "plot-host: $op — no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+  err_tmp="$err_branch"
   for path in "$branch_path" "$root_path"; do
-    plot_tmpfile err_tmp host-jenkins-sha-err || { echo "plot-host: $op — no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
-    try=$(PLOT_JEN_BOUND_S="${PLOT_JENKINS_SHA_BOUND_S:-30}" jen -I "$slug" api "$path/api/json?$tree" 2>"$err_tmp") || true
+    # Exit 143 is `jen()` killing a call at its bound: the exit code decides, never empty stderr.
+    try=$(PLOT_JEN_BOUND_S="${PLOT_JENKINS_SHA_BOUND_S:-30}" jen -I "$slug" api "$path/api/json?$tree" 2>"$err_tmp") || { [ $? = 143 ] && timed_out=1; }
     if printf '%s' "$try" | jq -e 'has("builds")' >/dev/null 2>&1; then body="$try"; break; fi
     # A branch path that came back as REAL JSON (jq could parse and evaluate
     # it, just found no `builds` key) means Jenkins answered and indexed no
@@ -2045,21 +2048,26 @@ jenkins_sha_runs() {
     # body shape" keeps the empty-history reading from ever depending on what
     # a branch-level answer happens to contain.
     [ "$path" = "$root_path" ] && printf '%s' "$try" | jq -e '._class == "org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject"' >/dev/null 2>&1 && { body='{"builds":[]}'; break; }
-    plain=1
+    plain=1; err_tmp="$err_root"
   done
   if [ -z "$body" ]; then
     if [ -n "$branch_answered" ]; then
       echo "plot-host: $op — Jenkins has no branch '$branch' indexed for '$job'" >&2
     else
-      err_line="$(grep -m1 '^error:' "$err_tmp" 2>/dev/null || true)"
-      if grep -qi 'unknown command: api' "$err_tmp" 2>/dev/null; then
+      if grep -qi 'unknown command: api' "$err_branch" "$err_root" 2>/dev/null; then
         echo "plot-host: $op — the sha read needs jen 0.4.0 or later with \`api\`" >&2
-      elif grep -qiE 'command not found|no such file or directory' "$err_tmp" 2>/dev/null; then
+      elif grep -qiE 'command not found|no such file or directory' "$err_branch" "$err_root" 2>/dev/null; then
         echo "plot-host: $op — \`jen\` is not installed; the sha read needs jen 0.4.0 or later with \`api\`" >&2
       else
         printf '%s\n' "plot-host: $op — Jenkins did not answer for Jenkins instance '$slug'" >&2
-        [ -n "$err_line" ] && printf '  jen: %s\n' "$err_line" >&2
-        printf '  Plot reaches Jenkins only through `jen`; run `jen auth login`.\n' >&2
+        # Each path's first `error:` line, branch path first; a path with none shows nothing.
+        err_line="$(grep -m1 '^error:' "$err_branch" 2>/dev/null)" && printf '  jen at %s: %s\n' "$branch_path" "$err_line" >&2
+        err_line="$(grep -m1 '^error:' "$err_root" 2>/dev/null)" && printf '  jen at %s: %s\n' "$root_path" "$err_line" >&2
+        if [ -n "$timed_out" ]; then
+          printf '  A call ran past the %s s bound; raise PLOT_JENKINS_SHA_BOUND_S if Jenkins needs longer.\n' "${PLOT_JENKINS_SHA_BOUND_S:-30}" >&2
+        else
+          printf '  Plot reaches Jenkins only through `jen`; run `jen auth login`.\n' >&2
+        fi
       fi
     fi
     exit 4
@@ -3847,47 +3855,40 @@ host_slot_give() {
   PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
 }
 
-gh() {
-  host_slot_take github github
-  command gh "$@"
-  local rc=$?
+# Runs one host CLI call inside its connector's slot and records it on the
+# ledger, failed or not. $1=connector $2=backend-for-account $3=bucket ("" lets
+# `budget_record_call` choose), then the command line to run.
+host_cli_call() {
+  local connector="$1" account_be="$2" bucket="$3" rc; shift 3
+  host_slot_take "$connector" "$account_be"
+  "$@"; rc=$?
   host_slot_give
-  budget_record_call github github "$(gh_bucket_of_argv "$@")"
+  budget_record_call "$connector" "$account_be" "$bucket"
   return $rc
 }
 
-bb() {
-  host_slot_take bitbucket bitbucket
-  command bb "$@"
-  local rc=$?
-  host_slot_give
-  budget_record_call bitbucket bitbucket
-  return $rc
-}
+gh() { host_cli_call github github "$(gh_bucket_of_argv "$@")" command gh "$@"; }
 
-jen() {
-  host_slot_take jenkins ''
-  local rc
-  if [ -n "${PLOT_JEN_BOUND_S:-}" ]; then
-    local pid watcher was_m
-    case $- in *m*) was_m=yes ;; *) was_m=no ;; esac; set -m
-    command jen "$@" & pid=$!
-    ( sleep "$PLOT_JEN_BOUND_S"; kill -TERM "-$pid" ) >/dev/null 2>&1 & watcher=$!
-    wait "$pid"; rc=$?
-    kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
-    [ "$was_m" = yes ] || set +m
-    [ $rc = 143 ] && echo "jen api gave no answer within ${PLOT_JEN_BOUND_S} s" >&2
-  else
-    command jen "$@"
-    rc=$?
-  fi
-  host_slot_give
-  # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
-  # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
-  # against a server the git host knows nothing about.
-  budget_record_call jenkins ''
-  return $rc
-}
+bb() { host_cli_call bitbucket bitbucket '' command bb "$@"; }
+
+# Jenkins is the CI axis, a connector of its own — this repo is GitHub +
+# Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
+# against a server the git host knows nothing about.
+jen() { host_cli_call jenkins '' '' ${PLOT_JEN_BOUND_S:+jen_bounded} command jen "$@"; }
+
+# Runs its argv with a `PLOT_JEN_BOUND_S` bound and exits 143 when the bound
+# kills it. A SUBSHELL HOLDS `set -m`, so the caller's job-control mode never
+# changes; job control gives the call its own process group, which the watcher
+# kills.
+jen_bounded() (
+  set -m
+  "$@" & pid=$!
+  ( sleep "$PLOT_JEN_BOUND_S"; kill -TERM "-$pid" ) >/dev/null 2>&1 & watcher=$!
+  wait "$pid"; rc=$?
+  kill "$watcher" 2>/dev/null; wait "$watcher" 2>/dev/null
+  [ $rc = 143 ] && echo "error: jen api gave no answer within ${PLOT_JEN_BOUND_S} s" >&2
+  exit $rc
+)
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
 shift
