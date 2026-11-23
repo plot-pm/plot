@@ -45,7 +45,7 @@ The reading becomes a status on each PR head, and GitHub enforces the status.
 
 ### Status
 
-- `feature/the-main-reading-becomes-a-pr-status` — `mainHoldStatus` decides `plot/main` for each open PR into the default branch, and a fleetd pass writes it through `Host.commitStatus` when the wanted status differs from the last one written for that head <!-- builds: mainHoldStatus, the plot/main status rule, and fleetd's plot/main write pass --> <!-- tests: mainHoldStatus — red with no admitted PR fails and names the red commit, the repair PR passes, green passes, a stale reading passes, a PR into a sprint base gets none; the pass writes once per change and nothing on an unchanged tick -->
+- `feature/the-main-reading-becomes-a-pr-status` — `mainHoldStatus` decides `plot/main` for each open PR into the default branch, and a fleetd pass writes it through `Host.commitStatus` when the wanted status differs from the last one written for that head <!-- builds: mainHoldStatus, the plot/main status rule, and fleetd's plot/main write pass --> <!-- tests: mainHoldStatus — red with no admitted PR fails and names the red commit, the repair PR passes, green passes, a stale reading passes, a PR into a sprint base gets none; the pass writes once per change and nothing on an unchanged tick --> → #3695
 
 ### Rollout
 
