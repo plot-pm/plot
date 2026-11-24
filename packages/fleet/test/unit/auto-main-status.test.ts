@@ -1,12 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { answered } from '@plot-pm/domain';
+import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
+import type { StateHome } from '@plot-pm/domain/entities/state-home';
 import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
-import { hostFixture } from '@plot-pm/domain/adapters';
+import { defaultBranchFile, hostFixture, refsFixture } from '@plot-pm/domain/adapters';
 import {
+  mainStatusPath,
+  mainStatusState,
   mainStatusTick,
+  readMainStatusMemory,
+  readMainStatusPass,
   runAutoMainStatusPass,
+  type MainStatusCache,
   type MainStatusMemory,
   type MainStatusPassReading,
   type MainStatusWorld,
@@ -160,10 +171,136 @@ describe('mainStatusTick', () => {
     expect(r.writes).toHaveLength(0);
   });
 
+});
+
+const homes: string[] = [];
+const home = (): StateHome => {
+  const dir = mkdtempSync(join(tmpdir(), 'main-status-'));
+  homes.push(dir);
+  mkdirSync(join(dir, '.plot', 'state'), { recursive: true });
+  return dir as StateHome;
+};
+afterEach(async () => {
+  const { rmSync } = await import('node:fs');
+  for (const dir of homes.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+describe('runAutoMainStatusPass', () => {
   it('runs no pass where nothing was read', async () => {
     const r = rig();
-    const memory: MainStatusMemory = new Map();
-    expect(await runAutoMainStatusPass(opts, memory, r.logged, NOW, r.world, async () => null)).toBeNull();
+    const state = mainStatusState(opts);
+    expect(await runAutoMainStatusPass(opts, state, NOW, r.world, async () => null)).toBeNull();
     expect(r.writes).toHaveLength(0);
+  });
+
+  it('keeps the statuses written in a file, so a restart writes only what changed', async () => {
+    const h = home();
+    const at = { ...opts, stateHome: { home: h } };
+    const r = rig();
+    await runAutoMainStatusPass(at, mainStatusState(at), NOW, r.world, async () => reading());
+    expect(r.writes).toHaveLength(2);
+    expect(readMainStatusMemory(mainStatusPath(h)).get(1)).toEqual({
+      head: HEAD1,
+      state: 'failure',
+      description: 'main is red on 17a7fc438; merge the repair PR first',
+    });
+    const restarted = mainStatusState(at);
+    const again = await runAutoMainStatusPass(at, restarted, NOW, r.world, async () => reading());
+    expect(again?.map((x) => x.outcome)).toEqual(['unchanged', 'unchanged']);
+    expect(r.writes).toHaveLength(2);
+    await runAutoMainStatusPass(at, restarted, NOW, r.world, async () => reading({ rows: [row(1, HEAD1)] }));
+    expect([...readMainStatusMemory(mainStatusPath(h)).keys()]).toEqual([1]);
+  });
+
+  it('leaves the file unwritten on a pass that changed nothing', async () => {
+    const h = home();
+    const at = { ...opts, stateHome: { home: h } };
+    const r = rig();
+    const state = mainStatusState(at);
+    await runAutoMainStatusPass(at, state, NOW, r.world, async () => reading());
+    writeFileSync(mainStatusPath(h), 'sentinel');
+    await runAutoMainStatusPass(at, state, NOW, r.world, async () => reading());
+    expect(readFileSync(mainStatusPath(h), 'utf8')).toBe('sentinel');
+  });
+
+  it('keeps the memory in the process where no state home is read', async () => {
+    const at = { ...opts, stateHome: { unread: true as const } };
+    const r = rig();
+    const state = mainStatusState(at);
+    await runAutoMainStatusPass(at, state, NOW, r.world, async () => reading());
+    await runAutoMainStatusPass(at, state, NOW, r.world, async () => reading());
+    expect(r.writes).toHaveLength(2);
+  });
+});
+
+describe('readMainStatusMemory', () => {
+  it('reads a missing, unparseable or other-version file as empty', () => {
+    const h = home();
+    const path = mainStatusPath(h);
+    expect(readMainStatusMemory(path).size).toBe(0);
+    writeFileSync(path, '{');
+    expect(readMainStatusMemory(path).size).toBe(0);
+    writeFileSync(path, 'null');
+    expect(readMainStatusMemory(path).size).toBe(0);
+    writeFileSync(path, JSON.stringify({ v: 2, prs: { 1: { head: HEAD1, state: 'success', description: 'x' } } }));
+    expect(readMainStatusMemory(path).size).toBe(0);
+    writeFileSync(path, JSON.stringify({ v: 1, prs: null }));
+    expect(readMainStatusMemory(path).size).toBe(0);
+  });
+
+  it('drops a malformed entry and keeps the rest', () => {
+    const path = mainStatusPath(home());
+    writeFileSync(path, JSON.stringify({
+      v: 1,
+      prs: {
+        1: { head: HEAD1, state: 'success', description: 'main is not red' },
+        x: { head: HEAD1, state: 'success', description: 'x' },
+        2: null,
+        3: { head: 3, state: 'success', description: 'x' },
+        4: { head: HEAD1, state: 'pending', description: 'x' },
+      },
+    }));
+    expect([...readMainStatusMemory(path).keys()]).toEqual([1]);
+  });
+});
+
+describe('readMainStatusPass', () => {
+  const counted = (h: StateHome, rows: readonly PrIndexRow[] = [row(1, HEAD1)]) => {
+    const calls = { backend: 0, defaultBranch: 0 };
+    const host = hostFixture({});
+    const refs = refsFixture({ defaultBranch: 'trunk' });
+    const at = {
+      ...opts,
+      stateHome: { home: h },
+      hostAdapter: { ...host, backend: async () => { calls.backend += 1; return host.backend(); } },
+      refs: { ...refs, defaultBranch: async () => { calls.defaultBranch += 1; return refs.defaultBranch(); } },
+    };
+    const prIndex = { read: async () => answered({ rows }) } as unknown as PrIndexStore;
+    const cache: MainStatusCache = { prIndex };
+    return { calls, at, cache };
+  };
+
+  it('asks the backend and the default branch once, and nothing on a later tick', async () => {
+    const { calls, at, cache } = counted(home());
+    const first = await readMainStatusPass(at, NOW, cache);
+    expect(first).toMatchObject({ defaultBranch: null, defaultName: 'trunk', repair: undefined, checksWaitMs: WAIT });
+    await readMainStatusPass(at, NOW, cache);
+    expect(calls).toEqual({ backend: 1, defaultBranch: 1 });
+  });
+
+  it('names the default branch from the reading and asks git nothing', async () => {
+    const h = home();
+    await defaultBranchFile(h).write(green);
+    const { calls, at, cache } = counted(h);
+    expect(await readMainStatusPass(at, NOW, cache)).toMatchObject({ defaultName: 'main', defaultBranch: green });
+    expect(calls.defaultBranch).toBe(0);
+  });
+
+  it('answers null where no row is open or the index holds none', async () => {
+    const { at } = counted(home(), [row(1, HEAD1, { state: 'MERGED' })]);
+    const none = { read: async () => answered(null) } as unknown as PrIndexStore;
+    expect(await readMainStatusPass(at, NOW, { prIndex: none })).toBeNull();
+    const merged = counted(home(), [row(1, HEAD1, { state: 'MERGED' })]);
+    expect(await readMainStatusPass(merged.at, NOW, merged.cache)).toBeNull();
   });
 });
