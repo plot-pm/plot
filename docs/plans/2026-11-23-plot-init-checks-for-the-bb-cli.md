@@ -46,7 +46,7 @@ Issue #2533 reports that `/plot-init` records `Git host: bitbucket` and adds a "
 
 ### Reading
 
-- `bug/plot-init-reads-which-bb-answers` — `plot-detect-repo.sh` reports `bb_version_line` and `bb_paths` on a Bitbucket repository, `proposeBbCli` turns them into a state, and `composeAdoption` adds the gap line <!-- builds: proposeBbCli, the bb CLI proposal --> <!-- tests: stack.test.ts — `bb 1.15.1 (quatico-bb — …)` and `bb 1.12.0` answer quatico, `bb version 0.6.0 (abc1234)` answers other, an empty line answers absent, two paths with a non-Homebrew first answer shadowed; bb-identity.corpus.test.ts — rule and bb_identity_check agree on each line; adoption.test.ts — an absent bb adds the brew install gap -->
+- `bug/plot-init-reads-which-bb-answers` — `plot-detect-repo.sh` reports `bb_version_line` and `bb_paths` on a Bitbucket repository, `proposeBbCli` turns them into a state, and `composeAdoption` adds the gap line <!-- builds: proposeBbCli, the bb CLI proposal --> <!-- tests: stack.test.ts — `bb 1.15.1 (quatico-bb — …)` and `bb 1.12.0` answer quatico, `bb version 0.6.0 (abc1234)` answers other, an empty line answers absent, two paths with a non-Homebrew first answer shadowed; bb-identity.corpus.test.ts — rule and bb_identity_check agree on each line; adoption.test.ts — an absent bb adds the brew install gap --> → #3711
 
 ### Skill
 
