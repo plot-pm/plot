@@ -3,67 +3,53 @@
 - **Plan (canonical):** docs/plans/2026-11-23-the-board-refuses-unauthenticated-remote-writes.md on main
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Branch:** `bug/the-board-refuses-the-remote-write-opt-in` (base: `main`)
-- **Ends as:** one PR to `main`
-- **Review of the code:** `Review: pr` — plot-review on the PR, per repo convention
+- **Ends as:** one PR to main, opened with `plot-open-pr.sh`
+- **Review of the code:** `plot/review` on the PR, per repo convention
 
-This is the plan's only slice. Nothing waits on it and it waits on nothing.
+This is the only slice of the plan. No other branch waits on it.
 
 ### What to build
 
-Issue #3311: `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opens every route in `WRITE_ROUTES` (`packages/board/src/server/index.ts`) on any bind, with no authentication. `writeGate` in `packages/board/src/server/write-gate.ts` returns `allowed` when the opt-in is set, whatever `host` is. `isSameOrigin` (`dispatch.ts`) passes a request with no `Origin` header, so `curl` from any machine that reaches the address can claim branches, approve plans and start agents. On a loopback bind the opt-in changes nothing, because `writeGate` allows loopback before it reads the opt-in. The opt-in therefore has one effect, and that effect is the defect.
+`PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opens every route in `WRITE_ROUTES` (`packages/board/src/server/index.ts`) on any bind (issue #3311). `writeGate` in `packages/board/src/server/write-gate.ts` returns `allowed` when `remoteWritesAllowed(env)` is true, whatever `host` is, and `isSameOrigin` (`dispatch.ts`) passes a request with no `Origin` header. So `curl` from any machine that reaches the address can claim branches, approve plans and start agents.
 
-Change, in this order:
+Change `writeGate(host, env)` so that it allows a loopback host and refuses every other host. Delete `remoteWritesAllowed`, `ALLOW_REMOTE_ENV` and `ALLOW_REMOTE_VALUE`. Keep importing `dispatchAvailability` for the loopback set; do not restate it.
 
-1. `write-gate.ts`: `writeGate(host, env)` allows a loopback host (via `dispatchAvailability(host).available`, imported as today) and refuses every other host. Delete `remoteWritesAllowed`, `ALLOW_REMOTE_ENV` and `ALLOW_REMOTE_VALUE`. Keep the `env` parameter only where the refusal still reads it: where `PLOT_BOARD_ALLOW_REMOTE_WRITES` is set to any value, the refusal says that the variable no longer opens the gate. Do not import the removed name from a constant; write the literal string in the one place that mentions it.
-2. The refusal text names both routes that keep the board on loopback: `tailscale serve` with `PLOT_BOARD_ORIGINS` (the board stays bound to loopback, the tailnet decides who reaches it), and `ssh -L <port>:localhost:<port> <machine>`. It no longer names an escape that grants access, and it no longer says what the escape costs.
-3. `index.ts` (the `WRITE_ROUTES` comment above the table) and `mock-fleet.ts` (the doc comment on the mock variable) mention the opt-in. Edit those comments so no comment describes a switch that no longer exists. Edit no code in either file beyond that.
-4. Documentation: `skills/plot-board/README.md` states the two remote routes and what each trusts (the tailnet's access rules for `tailscale serve`, the SSH account for a tunnel). It states that `tailscale funnel` publishes the board to the internet and must not front it. `skills/plot/README.md` line 92 says "set `HOST=0.0.0.0` to expose the board": correct it to say that a non-loopback bind serves reads only.
-5. Tests, below.
-6. A changeset for `@plot-pm/board` (patch), description first, `bumps:` block last.
+The refusal text has three parts:
 
-### Settled — do not re-derive
+- what was refused: the bind and the write endpoints;
+- the two routes that keep the board on loopback: `tailscale serve` with `PLOT_BOARD_ORIGINS`, and `ssh -L <port>:localhost:<port> <machine>`;
+- where the old variable is still set in `env`, a sentence that it no longer opens the gate. Read the name from a local constant, since the exports go.
 
-**Remove the opt-in; do not restrict it to some hosts.** The triage proposed "refuse the opt-in on a non-loopback bind". Read `writeGate`: loopback is allowed before the opt-in is consulted, so that restriction leaves an opt-in that does nothing anywhere. Removal is the same behaviour with no dead switch.
+Then update `skills/plot-board/README.md`: state the two remote routes and what each trusts (the tailnet's access rules for `tailscale serve`, the SSH account for a tunnel), and state that `tailscale funnel` publishes the board to the internet and must not front it. Also fix the stale comments that name the opt-in: `index.ts` (the `WRITE_ROUTES` comment) and `mock-fleet.ts` (it cites the variable only as an example of env configuration; name another variable).
 
-**No new authentication.** A passkey on every route conflicts with the proxy route: the passkey verifies against `http://localhost:<port>` only (`passkey.ts`). A shared secret is the scheme `dispatch.ts` states it refuses to invent. Do not add either.
+### Settled decisions — do not re-derive them
 
-**Reads stay served on a non-loopback bind.** `test/write-gate.test.mjs` asserts `/api/board`, `/api/fleet` and `/api/attention` answer 200 on `0.0.0.0`; keep that test. A phone may read a board bound wide.
-
-**The board starts when the old variable is set.** Plan Open Question `question-refuse-start` recommends: the board starts, logs one line naming the removed variable, and refuses writes per request. Do not make startup fail. If the one log line needs a place, put it where `HOST` is read in `index.ts` and say so in the PR.
-
-**Local callers are unchanged.** Every process on the machine reaches a loopback board with no `Origin` header, as today. This is the boundary `dispatch.ts` states; the plan accepts it (`question-local-callers`). `Tailscale-User-Login` is out of scope (`question-tailnet-identity`).
-
-**The loopback set stays `dispatchAvailability`'s.** `writeGate` imports it. Do not restate `localhost`, `127.0.0.1`, `::1` in `write-gate.ts`, and change no domain rule.
-
-**Rules carried over:** the router table `WRITE_ROUTES` is the only place a route is gated, and `refuseIfGated` stays the one check in the router. A refusal precedes any spawn.
+- **Remove the opt-in; do not refuse it only on a non-loopback bind.** On a loopback bind the opt-in changes nothing, because `writeGate` allows loopback before it reads the opt-in. The opt-in has one effect, and that effect is the defect.
+- **No new authentication.** A passkey on every route conflicts with the proxy route, because the passkey verifies against `http://localhost:<port>` only (`passkey.ts`). A shared secret is the scheme `dispatch.ts` refuses to invent. Neither is in this plan.
+- **Reads stay served** on a non-loopback bind (`write-gate.test.mjs`, "still serves the READ endpoints"). Only write routes change.
+- **The board does not refuse to start** when the old variable is set (plan question `question-refuse-start`, recommendation no). It may log one line that names the removed variable; it refuses writes per request.
+- **Out of scope:** `Tailscale-User-Login` identity, and local callers with no `Origin` header (the boundary `dispatch.ts` states).
+- **The operator's setup needs no opt-in.** The board stays on loopback, `tailscale serve` proxies to it, and `PLOT_BOARD_ORIGINS` admits the origin (#3527). A test must prove that path still works.
+- Draft PR #3635 documents the opt-in in the same README. This slice edits only what main holds. Do not merge or rebase onto #3635's text; a person amends #3635.
+- Carried rules: the gate sits in the router, not in handlers; the refusal stays 403, not 404.
 
 ### Done when
 
-The plan's slice line is the specification: `writeGate` refuses every non-loopback host whatever the environment holds, the refusal names `tailscale serve` with `PLOT_BOARD_ORIGINS` and an SSH tunnel, and `skills/plot-board/README.md` documents both routes.
+The plan's slice line is the specification:
 
-Assertions a naive implementation passes without:
+- `packages/board/test/unit/write-gate.test.ts`: remove the `remoteWritesAllowed` and `ALLOW_REMOTE_*` cases. Add: `writeGate('0.0.0.0', { PLOT_BOARD_ALLOW_REMOTE_WRITES: 'i-understand' })` refuses and the reason names the removed variable, `tailscale serve`, `PLOT_BOARD_ORIGINS` and an SSH tunnel. Also assert that loopback hosts (`localhost`, `127.0.0.1`, `::1`) stay allowed with an empty env. The old-variable case is the one a naive implementation passes without: a gate that only deletes the opt-in branch still never tells the operator why their setting stopped working.
+- `packages/board/test/write-gate.test.mjs`: replace the "opt-in is deliberate and exact" block, which expects 202, with `POST /api/dispatch` on `HOST=0.0.0.0` plus the old variable answering 403 and spawning nothing (`stub.runs()` is empty). Update the first block's `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` assertion to the new wording. Add a loopback board with `PLOT_BOARD_ORIGINS` that admits the declared origin on a write route. The "covers EVERY write route" test reads the built artifact's router table, so it needs a built board; `test:board` rebuilds it.
 
-- `packages/board/test/unit/write-gate.test.ts`: `writeGate('0.0.0.0', { PLOT_BOARD_ALLOW_REMOTE_WRITES: 'i-understand' })` is refused, and its reason names the variable as removed. A test that only drops the opt-in branch passes the "refuses without env" case and proves nothing about the env.
-- The same file: the refusal contains `tailscale serve`, `PLOT_BOARD_ORIGINS` and `ssh -L`, and does not contain `i-understand` as an instruction to set. The removed-variable sentence may name the variable; assert it says "no longer".
-- Delete the `remoteWritesAllowed` and constants tests (`describe('remoteWritesAllowed…')`, the `OPTED_IN` constant and the "truthy guess" cases); a test importing a deleted export fails typecheck, which is the intended signal.
-- `packages/board/test/write-gate.test.mjs`: replace the "opt-in is deliberate and exact" suite, which asserts a 202 on `0.0.0.0` with the opt-in, by one that asserts `POST /api/dispatch` on `HOST=0.0.0.0` with the old variable answers 403 and `stub.runs()` is empty. Change the assertion at the refusal-content test that matches `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` ("names the escape exactly") to match the two remote routes instead. Keep the "covers EVERY write route" test: it reads the route table out of the built artifact, so build before running it.
-- Add a case in `test/write-gate.test.mjs`: a loopback board with `PLOT_BOARD_ORIGINS=https://zio.example.ts.net` admits a request with that `Origin` and still refuses another origin. This is the supported remote route; it must keep working after the opt-in goes.
-- `rg 'ALLOW_REMOTE|REMOTE_WRITES'` over `packages/` and `skills/` outside `skills/plot/scripts/board/*.mjs` and `CHANGELOG.md` returns only the removed-variable sentence in `write-gate.ts`, its tests, the changeset and (after #3635's text is dropped) the README line that says the variable is removed.
+Gates: run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` key run in CI, and a failure there comes back as a correction. Run no full suite and no `test:e2e`. Do not commit `skills/plot/scripts/board/board-server.mjs` (`check-no-bundle-diff.sh`); `main` rebuilds it. Add a changeset for `@plot-pm/board` (patch) and `plot-board` (patch) with the description first and the `bumps:` block last, and `plan: docs/plans/2026-11-23-the-board-refuses-unauthenticated-remote-writes.md`. Run `./scripts/check-changeset-packages.sh`. Do not edit versions by hand.
 
-Plus: add the changeset (`.changeset/<slug>.md`, package `@plot-pm/board`, then run `./scripts/check-changeset-packages.sh`). Do not commit `skills/plot/scripts/board/board-server.mjs`; `scripts/check-no-bundle-diff.sh` refuses a generated bundle in a PR, and `main` rebuilds it. Run `pnpm build:board` only to run the board tests locally, then restore the generated paths before you push.
-
-For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. List no full suite.
-
-`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice touches no `.sh` file; if that changes, pay for growth in the same change by removing shell elsewhere or by writing the rule in the domain and asking it through a bundle. The gate counts commands, not lines, and has no override.
+The slice touches no `.sh` file, so `check-shell-lines.sh` stays unchanged.
 
 ### Bookkeeping
 
-Open the PR with `skills/plot/scripts/plot-open-pr.sh`, never `gh pr create`. Then append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists. Commit subject: `plot-board: refuse remote writes on a non-loopback bind`.
+Open the PR with `../plot/scripts/plot-open-pr.sh` (never `gh pr create`). When it exists, append `→ #<number>` to the slice line in the plan's `## Slices`. Push the first real commit as soon as it exists.
 
 ### Scope guard
 
-This branch owns `packages/board/src/server/write-gate.ts`, its two tests (`packages/board/test/unit/write-gate.test.ts`, `packages/board/test/write-gate.test.mjs`), the comment edits in `packages/board/src/server/index.ts` and `mock-fleet.ts`, `skills/plot-board/README.md`, line 92 of `skills/plot/README.md`, and one changeset.
-
-Collision, verified 2026-11-24: draft PR #3635 (`plot-board: document the board's environment variables and remote access`) edits `skills/plot-board/README.md`, `skills/plot-board/SKILL.md` and adds a changeset, and it documents `PLOT_BOARD_ALLOW_REMOTE_WRITES` as an opt-in in four places. Plan Open Question `question-pr-3635` says to amend #3635 before it merges. If #3635 is still open when you start, edit only what is on `main` and say in your PR that #3635 must drop the opt-in text; if it has merged, edit its text to state the variable is removed. Do not edit `SKILL.md` for it: report it.
+This branch owns `packages/board/src/server/write-gate.ts`, `packages/board/src/server/index.ts` (comment only), `packages/board/src/server/mock-fleet.ts` (comment only), the two write-gate test files, `skills/plot-board/README.md` and one changeset. It changes no route table entry, no `dispatch.ts` rule and no domain code. Draft PR #3635 edits `skills/plot-board/README.md` too; expect a README conflict there and resolve it by keeping the loopback-only text.
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
