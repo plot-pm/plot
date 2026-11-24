@@ -13,6 +13,7 @@
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-release-reading-names-unbooked-plans`
 - **Started:** 2026-11-24, Jan Wloka, `bug/a-person-books-a-merged-release`
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-release-finish-leaves-a-record`
+- **Started:** 2026-11-24, Jan Wloka, `bug/reconcile-counts-unbooked-docs-plans`
 
 ## Changelog
 
