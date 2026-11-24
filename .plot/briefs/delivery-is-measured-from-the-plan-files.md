@@ -6,83 +6,54 @@
 - **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
 - **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority for e2e
 
-One slice, one branch. Nothing waits on it and it waits on nothing.
+This is the plan's only slice. Nothing waits on it and it waits on nothing.
 
 ### What to build
 
-Plot has no figure for how fast it delivers. The research dossier of 2026-11-20 (`gap-delivery-metrics`) found no lead-time or rework metric in the source. The plan files already hold the data: each carries dated `Approved:`, `Delivered:` and `Released:` lines, and some carry `Design:` lines. The PR index holds each merged PR's `mergedAt`. This slice adds two things:
+`node skills/plot/scripts/board/plot-ask.mjs metrics [--weeks N]` prints one row per ISO week: merged PRs, plans approved, delivered and released, and the median days from `Approved:` to `Delivered:` for plans delivered that week. The default is the last 8 weeks. The failure it answers: Plot cannot say whether it delivers faster. The research dossier of 2026-11-20 (`gap-delivery-metrics`) found no lead-time metric in Plot's source, and 708 `Approved:` lines sit unread in the plan files.
 
-1. A domain rule `deliveryMetrics(plans, mergedPrs, weeks)` that returns one row per ISO week. It takes parsed transition lines and merged rows as values and awaits nothing.
-2. A question on the existing entry point: `plot-ask.mjs metrics [--weeks N]` (default 8) that reads the plan files and the PR index and prints the rows. It calls no host.
+The build has two parts, in the layering order `CLAUDE.md` settles:
 
-Row content (the plan's Changelog and Design are the specification): merged PRs; plans approved; plans delivered; plans released; the median days from `Approved:` to `Delivered:` for plans delivered that week; the median days from `Design:` to `Approved:` for plans that carry a `Design:` line, in its own column; approvals per approver.
+1. **A domain rule**, `deliveryMetrics(plans, mergedPrs, weeks)` in `packages/domain/src/rules/` (new file, arrow function, TSDoc that states behaviour and nothing of history). It takes parsed transition lines and the index's merged rows **as values** and returns rows. It awaits nothing, imports no port and reads no file.
+2. **An entry** in `packages/board/src/server/entry/main.ts`, next to `release-claim`, `merge` and `spike` in the `argv[0] ===` chain, with its `usage:` strings (both of them, near `:449`) updated. The entry reads the plan files on the default branch and the PR index, calls the rule, and prints. `skills/plot/scripts/board/plot-ask.mjs` is generated output: never edit it, and never commit a rebuild (`scripts/check-no-bundle-diff.sh`).
 
-Where the pieces live today (read them before you choose a place):
+### Decisions the plan settles — do not re-derive them
 
-- The entry point is `packages/board/src/server/entry/main.ts`. It dispatches on `argv[0]` (`release-claim`, `release-finish`, `spike`, …) and carries the usage string at about line 449. `spike` is the closest model: it prints one answer from a `PlanStore` and picks the exit code itself (`spikeAnswerOf`). Add `metrics` beside it and extend the usage line and the header comment.
-- `plot-ask.mjs` under `skills/plot/scripts/board/` is a generated bundle. Commit no bundle.
-- Plan records come from the `PlanStore` port (`packages/domain/src/ports/plan-store.ts`): `listPlans()` then `readPlans(files)`. A `PlanRecord` already carries `approvedRaw`, `deliveredRaw`, `releasedRaw` and `designRaw` verbatim. Parse dates from those fields; do not re-read plan text.
-- The index comes from the `PrIndexStore` port (`ports/pr-index.ts`, `read(connector)`), decoded through `decodePrIndex` (`entities/pr-index.ts`, `PR_INDEX_VERSION` 8). The connector word is the host backend (`github` or `bitbucket`), the same string `entry/pr-index-lookup.ts` takes.
+**Lead time is approval to delivery, in the week of delivery.** A plan with `Approved:` and `Delivered:` counts once, in the ISO week of its `Delivered:` date. A plan with a `Design:` line also reports design-to-approval, in its own column. Rejected alternative: lead time from first commit or from `Started:`. The plan fixes the two dated lines every plan carries; `Started:` appears once per slice and has no single value.
 
-### The decisions the plan settles — do not re-derive them
+**Medians, not means.** One plan that waited a month must not move the figure. An even count takes the mean of the two middle values; the plan's tests name this case.
 
-**The index never says no.** A missing store, an unparseable store, an other-version store and a failed read all print `merged: unread`, never `0`. Only a store that decodes gives a number. This is the invariant a later consumer breaks first (`CLAUDE.md`, *A Decision Reads The Index*). Measured 2026-08-27: an empty result read as "no PRs" refused four fully-merged plans.
+**Merged PRs come from the index and never from a host call.** The index is `.plot/state/index/github.json` under the common git dir. Decode it with `decodePrIndex` (`packages/domain/src/entities/pr-index.ts:245`), never `jq` and never a second `JSON.parse`: `PR_INDEX_VERSION` is 8 today and a second reader drifts when it moves. Take MERGED rows and read `mergedAt`.
 
-**Count MERGED rows only, and only a row with a parseable `mergedAt`.** A row in another state, a draft row and a MERGED row with no `mergedAt` have no merge week. Count none of them. A `complete: false` store is allowed to under-count; say nothing more than the row count it holds, and do not print it as a total claim. Never read the store with `jq` or by hand: `decodePrIndex` owns the version check.
+**A missing, unparseable or other-version index prints `merged: unread`, never `0`.** This is the invariant `CLAUDE.md` › *A Decision Reads The Index* names: the index never says no. Measured 2026-08-27 in this estate: an empty result read as *no PRs* refused four fully-merged plans. A week with no merged rows in a readable index prints `0`; an unreadable index prints `unread` for every week. The two cases need two different tests.
 
-**Medians, not means.** One plan that waited a month must not move the figure. An even count takes the mean of the two middle values. An empty week prints no median (absent, not `0`).
+**Mind the placeholders in the plan files.** The template ships `- **Delivered:** <!-- YYYY-MM-DD -->` (see the comment at `packages/domain/src/workflows/rendering.ts:40`). A line holding a placeholder or an unparseable date is not a delivery. Count it nowhere and do not throw. Plans in the other four states (Draft, Design, Approved, Released-without-Delivered) must not disappear from the approved/released counts because they lack a `Delivered:` line.
 
-**A plan counts in the week of the event, not of the approval.** Lead time lands in the week of `Delivered:`. A plan with `Approved:` and `Delivered:` is the only one with a lead time. A plan with no `Delivered:` has none, and a plan with a `Delivered:` line but no `Approved:` line counts as delivered and has no lead time.
+**Who approved is reported, not judged.** One column counts approvals per approver, read from the second field of the `Approved:` record. The dossier found 660 of 708 approvals by one person. Print the counts and add no threshold, warning or verdict.
 
-**Approvals per approver are reported, not judged.** The dossier found 660 of 708 approvals by one person; the hand-off to a second operator should show in this column. The approver is the second comma-separated field of `Approved:`. No threshold, no warning, no ranking.
+**The entry makes no host call.** Test it: the entry spawns nothing and sets no host token. This is the plan's own test line, and the CI spawn ratchet (`allowed=28`) must not grow.
 
-**The rule awaits nothing and spawns nothing.** The domain takes readings as values (`CLAUDE.md`, *The Layering Rule*): the entry reads, the rule computes, and the entry prints. The entry calls no host and no script. A test pins that with a host double that throws on any call.
-
-**Do not build the three open questions.** `[question-rework]`, `[question-agent-share]` and `[question-baseline]` stay open in the plan. Add no rework column, no merger-versus-person column and no baseline range. A board view of these rows is a later plan.
-
-### Things the plan files do not hold uniformly — read them before you parse
-
-Measured on `b51d7f814` in `docs/plans/`:
-
-- `Delivered:` and `Released:` have more than one shape: `2026-08-15`; `2026-08-18, jwloka, verified against the source…`; `2026-04-30, v1.0.0`. Take the leading `YYYY-MM-DD` and ignore the rest.
-- A plan may carry two `Design:` lines (`2026-11-06, jwloka, cli` and `2026-11-07, eins78, cli`). Check which one `designRaw` returns (first or last) before you name the design-to-approval column, and state the choice in the PR.
-- A plan may carry `Rejected:` and a later `Delivered:` (`plot-undeliver.sh`). `rejectedRaw` is on the record. Decide whether a rejected plan counts as delivered, state the decision in the PR, and pin it with a test.
-- A date that does not parse, or a `Delivered:` earlier than `Approved:`, yields no lead time for that plan. It must not produce a negative or `NaN` median. A test pins each.
-- ISO weeks cross year ends (2026-12-31 is week 53 of 2026; 2027-01-01 is the same week). Test a week that spans a year boundary. Use UTC dates so the host's time zone changes nothing.
+**Open questions stay open.** The plan lists `[question-rework]`, `[question-agent-share]` and `[question-baseline]`. Build none of them. Report any answer you need to a person rather than choosing one; the plan names no rework column, no Merger-app column and no baseline week.
 
 ### Done when
 
-The plan's `## Slices` lines name the tests: `deliveryMetrics` — weeks with and without deliveries, a median over an even count, a missing index reads unread; the entry makes no host call.
+The plan's slice line is the specification: `deliveryMetrics` over the plans' transition lines and the index's merged rows, and `plot-ask.mjs metrics [--weeks N]` printing the rows. Its test line names five cases: weeks with and without deliveries, a median over an even count, a missing index reading `unread`, and an entry that makes no host call. Lift these assertions, each one because a naive implementation passes without it:
 
-Assertions that exist because a naive implementation passes without them:
+- **A delivery week boundary.** A plan delivered on a Sunday and one on the following Monday land in different ISO weeks. A naive `getWeek` over local time or a year rollover (2026-12-28 to 2027-01-03 is ISO week 53 of 2026) puts them in one.
+- **`--weeks N` with N greater than the history.** The rows cover N weeks ending now, including empty ones; they do not stop at the first plan.
+- **A delivered plan with no `Approved:` line.** It counts as delivered and contributes no lead time. It never produces `NaN`.
+- **Index version.** A store at `v: 7` prints `unread`. A fixture at the current version proves the happy path, so write one at `PR_INDEX_VERSION - 1` as well and see [[a-version-default-hides-stale-store-fixtures]] in memory: a default version in a fixture hides a stale store.
 
-- **A week with no deliveries still prints a row** (zero counts, no median). Without it, a quiet week disappears and the series reads as shorter than asked.
-- **The even-count median test uses values whose mean is not one of them** (for example 2 and 5 days give 3.5). Without it, picking the lower middle passes.
-- **The unread test covers all four arms:** no file, unparseable file, other version, failed read. A single arm lets `null` read as `0` in the other three.
-- **The no-host-call test uses a double that throws on any call.** A counter read after the fact passes when the double swallows the call.
-- **A MERGED row with no `mergedAt` and an OPEN row are in the fixture and are not counted.**
-- **`--weeks` rejects `0`, a negative number and a non-number** with a usage line and a non-zero exit. Without it, `--weeks abc` prints an empty table with exit 0.
+Plus: the repo's gates. Run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. Do not run `test:e2e` locally. Add a changeset for the `plot` package (description first, `bumps:` block last, with `plan:` naming this plan's path), and a row for any new script in `skills/plot/scripts/README.md` (`scripts/check-helper-table.sh`). The `plot-ask.mjs` row there should name `metrics`.
 
-Mutation-test two fixes: make `read` failures print `0`, and make the median take the lower middle, one at a time, and confirm the matching test fails.
-
-Plus: a changeset. The package name must be `plot` or `@plot-pm/board` (`./scripts/check-changeset-packages.sh`). Put the description first (a sentence of at least 20 characters that names the `metrics` question) and the `bumps:` block last, with `plan: docs/plans/2026-11-23-delivery-is-measured-from-the-plan-files.md` inside that block. Declare a `minor` bump for `plot` (new capability on a shipped command). The change touches `packages/domain` and `packages/board`, so main rebuilds the shipped bundles after the merge: commit no generated bundle (`scripts/check-no-bundle-diff.sh`).
-
-For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. Do not run `test:e2e` locally. Use Node 26 (`nvm use`). Never run board tests while the operator's board is open: use the `vitest related` commands the local checks print, not `pnpm test:board`.
-
-Shell gate: `scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice needs no `.sh` file. If you edit one, pay for the growth in the same change: remove shell elsewhere, or write the rule in the domain and ask it through a bundle. Joining statements with `;` or `&&` is not a payment. The gate stores no number and has no override.
-
-Docs: `skills/plot/scripts/README.md` has a row per script (`scripts/check-helper-table.sh` is the gate). If the `plot-ask.mjs` row lists its questions, add `metrics` there. If the plot skill's SKILL.md or README names the questions, keep them in step.
-
-### Style
-
-Arrow functions for everything you write (`export const f = (…) => …`). A TSDoc block states what the export does, what its parameters mean, what it returns and how it fails — not the history of the decision. Put the reasoning in the commit message and the PR. The vocabulary is **Slice**, not Wave, in new code. Absent is not false, and a failed port call is `unknown`, never `0`.
+`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. This slice needs no new shell. Where it touches a `.sh` file, pay for growth in the same change: remove shell elsewhere, or write the rule in the domain and ask it through a bundle. The gate counts commands, not lines; joining statements with `;` or `&&` is not a payment. The gate stores no number and has no override.
 
 ### Bookkeeping
 
-Push the first real commit as soon as it exists. Open the PR with `skills/plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves), never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Where a project board is configured, set the PR to "Ready" with `plot-update-board.sh`. The PR body names: the choice for a plan with `Rejected:` and a later `Delivered:`, which `Design:` line the design column reads, and the tests that fail without each fix.
+Open the PR with `skills/plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves), never `gh pr create`. When it exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Push the first real commit as soon as it exists.
 
 ### Scope guard
 
-This branch owns one new rule and its test under `packages/domain/src/rules/` and `packages/domain/test` (or the domain's existing test layout), the `metrics` branch in `packages/board/src/server/entry/main.ts` with any small module beside it under `entry/`, their tests, one changeset, and the README row if one applies. It does not touch the board UI, `fleet.ts`, `pr-refresh.ts` or any writer of the PR index, the plan parser, or any other question of `plot-ask.mjs`. It adds no port: `PlanStore` and `PrIndexStore` already answer every read. No other branch of this plan is in flight.
+This branch owns: the new rule file and its test under `packages/domain/`, the `metrics` arm and usage strings in `packages/board/src/server/entry/main.ts`, one changeset, and the README row. It touches no board view: the plan's board-impact note says a board view of the same rows is a later plan. It adds no write to a plan file and no new field to the PR index (`PR_INDEX_VERSION` stays 8).
 
 If you find something the plan did not anticipate, report it rather than improvising outside scope.
