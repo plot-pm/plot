@@ -30,6 +30,11 @@ export const validVersion = (version: string): boolean => TAG.test(version);
 export const ReleaseFinishOutcomeSchema = z.enum(['booked', 'refused', 'already-released']);
 export type ReleaseFinishOutcome = z.infer<typeof ReleaseFinishOutcomeSchema>;
 
+/** Who ran a finish: the `Caller` the finish's entry was given. */
+// plot-state: classification — who asked, read once per finish from the
+//                              environment; one caller never becomes another.
+export const ReleaseFinishCallerSchema = z.enum(['person', 'unattended', 'fleetd']);
+
 /**
  * What one release finish left: its outcome, its refusal reason, and what it booked.
  *
@@ -43,7 +48,7 @@ export const ReleaseFinishRecordSchema = z
     v: z.literal(RELEASE_FINISH_RECORD_VERSION),
     version: z.string().regex(TAG),
     at: z.string(),
-    caller: z.enum(['person', 'unattended', 'fleetd']),
+    caller: ReleaseFinishCallerSchema,
     outcome: ReleaseFinishOutcomeSchema,
     reason: z.string(),
     booked: z.array(z.string()).readonly(),
