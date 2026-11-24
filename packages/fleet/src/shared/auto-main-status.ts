@@ -43,13 +43,19 @@ export interface MainStatusWorld {
   readonly notify: (message: string) => void;
 }
 
+/** How long a failed write of one status on one head waits before the pass writes it again, in milliseconds. */
+export const MAIN_STATUS_RETRY_MS = 3_600_000;
+
+/** The last failed `plot/main` write per PR number: what it wrote and when. */
+export type MainStatusFailures = Map<number, { readonly key: string; readonly at: number }>;
+
 /** What the pass did for one open row. */
 export interface MainStatusResult {
   readonly pr: number;
   readonly head: string;
   readonly wanted: MainHoldStatus;
-  /** `written` and `failed` made a host call; `unchanged` and `none` made none. */
-  readonly outcome: 'written' | 'unchanged' | 'failed' | 'none';
+  /** `written` and `failed` made a host call; `unchanged`, `held` and `none` made none. */
+  readonly outcome: 'written' | 'unchanged' | 'failed' | 'held' | 'none';
 }
 
 /**
@@ -157,9 +163,11 @@ export const readMainStatusPass = async (
  * and writes it through `Host.commitStatus` only where it differs from the
  * memory's entry for that PR: another head, state or description. A row the
  * rule answers `none` for writes nothing. The memory is updated only after a
- * write answers `ok`; a failed write leaves it, so the next pass writes again,
- * and is told through `notify` once per PR, head and state. Entries for PRs no
- * longer open are dropped.
+ * write answers `ok`. A failed write leaves the memory, is told through
+ * `notify` once per PR, head and state, and is held: the same status on the
+ * same head is written again only {@link MAIN_STATUS_RETRY_MS} after the
+ * failure, while another head or status is written on the next pass. Entries
+ * for PRs no longer open are dropped.
  *
  * @param reading - the pass's reading.
  * @param now - epoch milliseconds.
@@ -167,6 +175,7 @@ export const readMainStatusPass = async (
  * @param world - the ports the pass writes through.
  * @param memory - the statuses already written; the caller keeps it across passes.
  * @param logged - the failures already told; the caller keeps it across passes.
+ * @param failures - the last failed write per PR; the caller keeps it across passes.
  * @returns one result per open row with a head.
  */
 export const mainStatusTick = async (
@@ -176,9 +185,11 @@ export const mainStatusTick = async (
   world: MainStatusWorld = defaultMainStatusWorld,
   memory: MainStatusMemory = new Map(),
   logged: Set<string> = new Set(),
+  failures: MainStatusFailures = new Map(),
 ): Promise<MainStatusResult[]> => {
   const open = new Set(reading.rows.map((row) => row.number));
   for (const pr of [...memory.keys()]) if (!open.has(pr)) memory.delete(pr);
+  for (const pr of [...failures.keys()]) if (!open.has(pr)) failures.delete(pr);
   const results: MainStatusResult[] = [];
   for (const row of reading.rows) {
     const head = row.headSha ?? '';
@@ -200,6 +211,12 @@ export const mainStatusTick = async (
       results.push({ pr: row.number, head, wanted, outcome: 'unchanged' });
       continue;
     }
+    const key = `${head}\n${wanted.state}\n${wanted.description}`;
+    const failed = failures.get(row.number);
+    if (failed !== undefined && failed.key === key && now - failed.at < MAIN_STATUS_RETRY_MS) {
+      results.push({ pr: row.number, head, wanted, outcome: 'held' });
+      continue;
+    }
     const written = await world.host(opts).commitStatus({
       sha: head,
       state: wanted.state,
@@ -208,14 +225,16 @@ export const mainStatusTick = async (
       targetUrl: row.url,
     });
     if (written.ok) {
+      failures.delete(row.number);
       memory.set(row.number, { head, state: wanted.state, description: wanted.description });
       results.push({ pr: row.number, head, wanted, outcome: 'written' });
       continue;
     }
-    const key = `${row.number}:${head}:${wanted.state}`;
-    if (!logged.has(key)) {
-      logged.add(key);
-      world.notify(`plot-fleetd: PR #${row.number}: ${MAIN_HOLD_STATUS_CONTEXT} ${wanted.state} was not written (${written.why}); the next pass writes it again`);
+    failures.set(row.number, { key, at: now });
+    const told = `${row.number}:${head}:${wanted.state}`;
+    if (!logged.has(told)) {
+      logged.add(told);
+      world.notify(`plot-fleetd: PR #${row.number}: ${MAIN_HOLD_STATUS_CONTEXT} ${wanted.state} was not written (${written.why}); a pass writes it again in an hour, or on a new head or status`);
     }
     results.push({ pr: row.number, head, wanted, outcome: 'failed' });
   }
@@ -279,6 +298,8 @@ export interface MainStatusState {
   memory?: MainStatusMemory;
   /** The failures already told. */
   readonly logged: Set<string>;
+  /** The last failed write per PR, for the daemon's life. */
+  readonly failures: MainStatusFailures;
   /** What earlier ticks read. */
   readonly cache: MainStatusCache;
 }
@@ -289,7 +310,7 @@ export interface MainStatusState {
  * @param opts - where the fleet acts.
  * @returns a state with nothing read yet.
  */
-export const mainStatusState = (opts: ActOptions): MainStatusState => ({ logged: new Set(), cache: mainStatusCache(opts) });
+export const mainStatusState = (opts: ActOptions): MainStatusState => ({ logged: new Set(), failures: new Map(), cache: mainStatusCache(opts) });
 
 /**
  * Runs the `plot/main` pass on the daemon's loop.
@@ -317,7 +338,7 @@ export const runAutoMainStatusPass = async (
   const path = home === null ? null : mainStatusPath(home);
   const memory = (state.memory ??= path === null ? new Map() : readMainStatusMemory(path));
   const before = encodeMemory(memory);
-  const results = await mainStatusTick(reading, now, opts, world, memory, state.logged);
+  const results = await mainStatusTick(reading, now, opts, world, memory, state.logged, state.failures);
   if (path !== null && encodeMemory(memory) !== before) writeMainStatusMemory(path, memory);
   return results;
 };

@@ -11,6 +11,7 @@ import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
 import { defaultBranchFile, hostFixture, refsFixture } from '@plot-pm/domain/adapters';
 import {
+  MAIN_STATUS_RETRY_MS,
   mainStatusPath,
   mainStatusState,
   mainStatusTick,
@@ -18,6 +19,7 @@ import {
   readMainStatusPass,
   runAutoMainStatusPass,
   type MainStatusCache,
+  type MainStatusFailures,
   type MainStatusMemory,
   type MainStatusPassReading,
   type MainStatusWorld,
@@ -128,15 +130,37 @@ describe('mainStatusTick', () => {
     expect(r.writes).toHaveLength(4);
   });
 
-  it('leaves a head unmarked after a failed write, so the next pass writes it again', async () => {
+  it('leaves a head unmarked after a failed write, and writes it again an hour later', async () => {
     const failing = rig(true);
-    const first = await mainStatusTick(reading({ rows: [row(1, HEAD1)] }), NOW, opts, failing.world, failing.memory, failing.logged);
-    expect(first.map((x) => x.outcome)).toEqual(['failed']);
+    const failures: MainStatusFailures = new Map();
+    const tick = (at: number, rows = [row(1, HEAD1)]) =>
+      mainStatusTick(reading({ rows, checksWaitMs: 10 * WAIT }), at, opts, failing.world, failing.memory, failing.logged, failures);
+    expect((await tick(NOW)).map((x) => x.outcome)).toEqual(['failed']);
     expect(failing.memory.size).toBe(0);
     expect(failing.notes).toHaveLength(1);
-    await mainStatusTick(reading({ rows: [row(1, HEAD1)] }), NOW, opts, failing.world, failing.memory, failing.logged);
+    expect((await tick(NOW + MAIN_STATUS_RETRY_MS - 1)).map((x) => x.outcome)).toEqual(['held']);
+    expect(failing.writes).toHaveLength(1);
+    expect((await tick(NOW + MAIN_STATUS_RETRY_MS)).map((x) => x.outcome)).toEqual(['failed']);
     expect(failing.writes).toHaveLength(2);
     expect(failing.notes).toHaveLength(1);
+  });
+
+  it('writes a new head on the next pass after a failed write on the old one', async () => {
+    const failing = rig(true);
+    const failures: MainStatusFailures = new Map();
+    await mainStatusTick(reading({ rows: [row(1, HEAD1)] }), NOW, opts, failing.world, failing.memory, failing.logged, failures);
+    await mainStatusTick(reading({ rows: [row(1, HEAD2)] }), NOW, opts, failing.world, failing.memory, failing.logged, failures);
+    expect(failing.writes.map((w) => w.sha)).toEqual([HEAD1, HEAD2]);
+  });
+
+  it('forgets a failure once the write lands or the PR closes', async () => {
+    const r = rig();
+    const failures: MainStatusFailures = new Map([
+      [1, { key: 'old', at: NOW }],
+      [7, { key: 'old', at: NOW }],
+    ]);
+    await mainStatusTick(reading({ rows: [row(1, HEAD1)] }), NOW, opts, r.world, r.memory, r.logged, failures);
+    expect(failures.size).toBe(0);
   });
 
   it('passes the admitted repair PR and fails the rest', async () => {
