@@ -551,6 +551,10 @@ describe('proposeBbCli — which bb answers', () => {
     expect(asked('bb 1.12.0')).toEqual({ state: 'quatico', version: '1.12.0' });
   });
 
+  it('answers quatico with an empty version for a line that names none', () => {
+    expect(asked('bb')).toEqual({ state: 'quatico', version: '' });
+  });
+
   it('answers other for craftamap/bb, whose line names a git sha', () => {
     expect(asked('bb version 0.6.0 (abc1234)')).toEqual({
       state: 'other',
