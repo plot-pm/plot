@@ -47,7 +47,7 @@
 
 ### Proof
 
-- `bug/a-held-board-shows-tickets-after-its-first-render` — a board test runs render, held PR beat, render, and asserts the second `/api/fleet` body carries the unplanned index row with `issueAnswer: 'answered'`; the PR closes #3551 <!-- builds: the held render-to-Tickets test in board-serves-the-snapshot.test.ts --> <!-- tests: on held, buildFleet then maybeRefreshPrs then buildFleet answers issueAnswer 'answered', issueError null, and only the row no plan names -->
+- `bug/a-held-board-shows-tickets-after-its-first-render` — a board test runs render, held PR beat, render, and asserts the second `/api/fleet` body carries the unplanned index row with `issueAnswer: 'answered'`; the PR closes #3551 <!-- builds: the held render-to-Tickets test in board-serves-the-snapshot.test.ts --> <!-- tests: on held, buildFleet then maybeRefreshPrs then buildFleet answers issueAnswer 'answered', issueError null, and only the row no plan names --> → #3709
 
 ## Notes
 
