@@ -1,5 +1,40 @@
 # plot — entries before 2026-08-30 may show a bare comment marker instead of a description ([why](#a-note-on-entries-before-2026-08-30))
 
+## 2.36.1
+
+### Patch Changes
+
+- [#3705](https://github.com/plot-pm/plot/pull/3705) [`67e583a`](https://github.com/plot-pm/plot/commit/67e583ada7020b66ac4553630b54185afce87d15) Thanks [@jwloka](https://github.com/jwloka)! - The Fleet card's registry fact no longer counts a finished desk as an agent with no registry file. A desk no manifest names is finished where its worker ended and the PR index holds a merged PR for its branch (`isFinishedDesk`); the registry reports these as `finishedCount`, and `registryFact` leaves them out of both of its counts. An unreadable index counts no desk as finished.
+
+- [#3700](https://github.com/plot-pm/plot/pull/3700) [`a8c0c2f`](https://github.com/plot-pm/plot/commit/a8c0c2faaf9a1db37c7a36e48f1dd2469e20fb0d) Thanks [@jwloka](https://github.com/jwloka)! - `plot-state-cut.mjs --land` now lands a record on the default branch where no `State branch` key is declared: it fetches `origin/<default>`, merges it into HEAD, refuses on a conflict, and pushes through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. With no key it refuses with exit 1 and pushes nothing where HEAD is not on the default branch. Exit 4 no longer means that no `State branch` key is declared; it now comes only from `plot-push-main.sh` when the Writer app refuses. `plot-sprint`'s PR-aware commit pushes its sprint branch with a plain `git push`, and `plot-sprint`, `plot-release`, `plot-reject` and `plot-idea` call `--land` on a default-branch checkout with no bare `git push` fallback.
+
+  <!--
+  bumps:
+    skills:
+      plot-sprint: patch
+      plot-release: patch
+      plot-reject: patch
+      plot-idea: patch
+  -->
+
+- [#3707](https://github.com/plot-pm/plot/pull/3707) [`9a8191c`](https://github.com/plot-pm/plot/commit/9a8191cc1c68b4ac9429f1a8e7db6849524da24d) Thanks [@jwloka](https://github.com/jwloka)! - Reconcile section 6 now reports a `docs` or `infra` plan that the newest release still owes and that reads Delivered. It asks `releaseUnbooked` through the new `plot-release-unbooked.mjs` bundle, counts the plan in `unreleased_delivered=`, prints a not-evaluated line where a read failed, and runs under `--offline`.
+
+  <!--
+  plan: docs/plans/2026-11-24-a-merged-release-books-its-plans.md
+  bumps:
+    skills:
+      plot-reconcile: patch
+  -->
+
+- [#3706](https://github.com/plot-pm/plot/pull/3706) [`26f423a`](https://github.com/plot-pm/plot/commit/26f423a223f7645c2f1c50becdaca050017771e3) Thanks [@jwloka](https://github.com/jwloka)! - Every release finish now records its outcome in `.plot/state/release-finish/v<version>.json` under the state home: `booked`, `refused` or `already-released`, the refusal's reason, the caller, the booked plan slugs, the notes and the closed sprint. A second finish of the same version replaces the record, and a failed write prints `record-unwritten` and changes neither the outcome nor the exit code. The Delivery tab's `unbooked` row shows `last finish: <reason>` after a refused finish; the record decides no placement.
+
+  <!--
+  plan: docs/plans/2026-11-24-a-merged-release-books-its-plans.md
+  bumps:
+    skills:
+      plot-release: patch
+  -->
+
 ## 2.36.0
 
 ### Minor Changes
@@ -7165,12 +7200,12 @@ Planning` where the template says `Planned`, so the population is _not Closed_
   It sits below `== blocking sections end ==` and stays out of `attention=`. A
   delivery stopped by this would be stopped by somebody else's paperwork.
 
-                                                              <!--
-                                                              plan: docs/plans/2026-09-06-a-sprint-knows-when-it-ended.md
-                                                              bumps:
-                                                                skills:
-                                                                  plot: minor
-                                                              -->
+                                                                <!--
+                                                                plan: docs/plans/2026-09-06-a-sprint-knows-when-it-ended.md
+                                                                bumps:
+                                                                  skills:
+                                                                    plot: minor
+                                                                -->
 
 - [#747](https://github.com/plot-pm/plot/pull/747) [`1acc015`](https://github.com/plot-pm/plot/commit/1acc0151d7cadcb778167d8fa48c19248758feb5) Thanks [@jwloka](https://github.com/jwloka)! - A `post-commit` hook records a commit that set a file to content that path already held, and says nothing otherwise. Twice on 2026-09-06 a commit reverted a plan annotation its author never edited; a third occurrence, `8d45eaca`, was found by this hook while it was being written and nobody had noticed it.
 
@@ -8222,11 +8257,11 @@ O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
   flight and room for three more. A cap that refuses nothing and reports nothing
   is indistinguishable from no cap at all.
 
-                                                                <!--
-                                                                bumps:
-                                                                  skills:
-                                                                    plot: minor
-                                                                -->
+                                                                  <!--
+                                                                  bumps:
+                                                                    skills:
+                                                                      plot: minor
+                                                                  -->
 
 - [#655](https://github.com/plot-pm/plot/pull/655) [`6fbe6ca`](https://github.com/plot-pm/plot/commit/6fbe6ca25473e09179b56c0ce2fea949a8891ee6) Thanks [@jwloka](https://github.com/jwloka)! - Every host call appends one line to a budget record the whole computer shares,
   and the spend rate is readable back over the connector's own window.
@@ -8315,11 +8350,11 @@ QUIET_SECONDS` (900 s, 1.5x the measured max) is therefore a gate: past it the
   agent's build is running. Where no transcript can be read the capability is
   unavailable, nothing is published, and `Worker bound` ends the worker.
 
-                                                                <!--
-                                                                bumps:
-                                                                  skills:
-                                                                    plot: minor
-                                                                -->
+                                                                  <!--
+                                                                  bumps:
+                                                                    skills:
+                                                                      plot: minor
+                                                                  -->
 
 - [#637](https://github.com/plot-pm/plot/pull/637) [`10cefcf`](https://github.com/plot-pm/plot/commit/10cefcfa5ef74c40914b71c3c39e3ad7e4bbd91f) Thanks [@jwloka](https://github.com/jwloka)! - The fleet scan holds a slice whose prerequisite has not merged. A branch's `waits:` annotation names a prerequisite branch, and the scan reports two new branch counters beside the wave ones: `waiting=` where the prerequisite exists and has not merged, and `prereq_missing=` where the host has never seen a PR for it. The first resolves by waiting and the second by editing the plan, so they travel separately rather than as one number. Silence is never permission to start.
 
@@ -9104,11 +9139,11 @@ sleeps after an idle ending`, this file's last test. Every test passed. Node
   locally is that the change is correct and harmless; that it cures the hang can
   only be shown on CI.
 
-                                                                <!--
-                                                                bumps:
-                                                                  skills:
-                                                                    plot: patch
-                                                                -->
+                                                                  <!--
+                                                                  bumps:
+                                                                    skills:
+                                                                      plot: patch
+                                                                  -->
 
 - [#562](https://github.com/plot-pm/plot/pull/562) [`2b71f18`](https://github.com/plot-pm/plot/commit/2b71f1877fe7004cf99dc5a431e1d7f918f1abb0) Thanks [@jwloka](https://github.com/jwloka)! - A wedged CI run says what it was holding.
 
@@ -9868,11 +9903,11 @@ instance` configured exits 3, because that is a config error the op cannot
   since a multibranch container is the parent of a branch and cannot be derived
   from the branch name.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                          plot: minor
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                            plot: minor
+                                                                        -->
 
 - [#447](https://github.com/plot-pm/plot/pull/447) [`bedff09`](https://github.com/plot-pm/plot/commit/bedff09b465aaa5775a02d4b9214f24c956a50af) Thanks [@jwloka](https://github.com/jwloka)! - A plan can cite a tracker key (`PROJ-123`) where `## Plot Config` names a
   non-GitHub `Tracker:`.
@@ -10526,11 +10561,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The check is per-FLAG, not per-version — a high version number that rejects
   `--json` is still rejected.
 
-                                                                      <!--
-                                                                      bumps:
-                                                                        skills:
-                                                                          plot: patch
-                                                                      -->
+                                                                        <!--
+                                                                        bumps:
+                                                                          skills:
+                                                                            plot: patch
+                                                                        -->
 
 - [#487](https://github.com/plot-pm/plot/pull/487) [`27ab657`](https://github.com/plot-pm/plot/commit/27ab657521e86bf82c9c0e722a4a5f17c2a50d80) Thanks [@jwloka](https://github.com/jwloka)! - <!--
   bumps:
@@ -10896,11 +10931,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The write is replace-or-insert-after-`Impl:` and touches nothing else: `##
 Status` holds the transition records, which nothing in the repo can reconstruct.
 
-                                                                        <!--
-                                                                        bumps:
-                                                                          skills:
-                                                                            challenge-the-plan: minor
-                                                                        -->
+                                                                          <!--
+                                                                          bumps:
+                                                                            skills:
+                                                                              challenge-the-plan: minor
+                                                                          -->
 
 ### Patch Changes
 
@@ -11229,13 +11264,13 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   keys are read back by the skill to check auth against the right instance, and
   the skill says plainly that the board does not yet display Jenkins status.
 
-                                                                            <!--
-                                                                            bumps:
-                                                                              skills:
-                                                                                plot-board-setup: minor
-                                                                                plot-init: patch
-                                                                                plot: patch
-                                                                            -->
+                                                                              <!--
+                                                                              bumps:
+                                                                                skills:
+                                                                                  plot-board-setup: minor
+                                                                                  plot-init: patch
+                                                                                  plot: patch
+                                                                              -->
 
 - [#253](https://github.com/plot-pm/plot/pull/253) [`2e389a1`](https://github.com/plot-pm/plot/commit/2e389a12eef6c928fc8b8127103b1c04df8c512d) Thanks [@jwloka](https://github.com/jwloka)! - plot-sprint: sprint creation proposes the plans that serve the goal
 
@@ -11423,12 +11458,12 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   `/plot-idea` unattended stops without one and writes no plan file, which is
   exactly the exit-0-having-done-nothing failure `docs/unattended.md` documents.
 
-                                                                            <!--
-                                                                            bumps:
-                                                                              skills:
-                                                                                plot: minor
-                                                                                plot-idea: minor
-                                                                            -->
+                                                                              <!--
+                                                                              bumps:
+                                                                                skills:
+                                                                                  plot: minor
+                                                                                  plot-idea: minor
+                                                                              -->
 
 - [#242](https://github.com/plot-pm/plot/pull/242) [`5c2cf58`](https://github.com/plot-pm/plot/commit/5c2cf58faaade305776a7bc1a6cc52a570260058) Thanks [@jwloka](https://github.com/jwloka)! - The board renders what has arrived
 
@@ -11950,13 +11985,13 @@ plan (decision log / note?)`. What changes is the claim, and that it no longer
   slices the report at section 7 (`sed -n '/^== 7\./q;p'`) before grepping, so the
   sections that mean _defect_ still block and the convenience section never does.
 
-                                                                            <!--
-                                                                            bumps:
-                                                                              skills:
-                                                                                plot: minor
-                                                                                plot-reconcile: minor
-                                                                                plot-deliver: patch
-                                                                            -->
+                                                                              <!--
+                                                                              bumps:
+                                                                                skills:
+                                                                                  plot: minor
+                                                                                  plot-reconcile: minor
+                                                                                  plot-deliver: patch
+                                                                              -->
 
 - [#265](https://github.com/plot-pm/plot/pull/265) [`e50de93`](https://github.com/plot-pm/plot/commit/e50de93c0d075efa36ee4b211cf62542ee0f3a7e) Thanks [@jwloka](https://github.com/jwloka)! - plot: the two pre-Approved gates know the Design phase
 
@@ -12237,11 +12272,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   the throttle is `feature/every-host-consumer-slows-down`; the banner and the note
   that say a spent budget from an unreachable host are the two `Says` branches.
 
-                                                                            <!--
-                                                                            bumps:
-                                                                              skills:
-                                                                                plot: minor
-                                                                            -->
+                                                                              <!--
+                                                                              bumps:
+                                                                                skills:
+                                                                                  plot: minor
+                                                                              -->
 
 ### Patch Changes
 
@@ -12982,12 +13017,12 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                                                                bumps:
-                                                                                  skills:
-                                                                                    plot: minor
-                                                                                    plot-dispatch: minor
-                                                                                    plot-fleet: minor
-                                                                                -->
+                                                                                  bumps:
+                                                                                    skills:
+                                                                                      plot: minor
+                                                                                      plot-dispatch: minor
+                                                                                      plot-fleet: minor
+                                                                                  -->
 
   plot: `finished` is not a verdict
 
@@ -13213,11 +13248,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                                                                                  bumps:
-                                                                                    skills:
-                                                                                      plot: patch
-                                                                                      plot-dispatch: patch
-                                                                                  -->
+                                                                                    bumps:
+                                                                                      skills:
+                                                                                        plot: patch
+                                                                                        plot-dispatch: patch
+                                                                                    -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -13460,11 +13495,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-                                                                                  <!--
-                                                                                  bumps:
-                                                                                    skills:
-                                                                                      plot: patch
-                                                                                  -->
+                                                                                    <!--
+                                                                                    bumps:
+                                                                                      skills:
+                                                                                        plot: patch
+                                                                                    -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
