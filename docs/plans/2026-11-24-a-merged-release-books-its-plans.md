@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** bug-fixes-2-36-1
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-24, Jan Wloka, `bug/a-person-books-a-merged-release`
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-release-finish-leaves-a-record`
 - **Started:** 2026-11-24, Jan Wloka, `bug/reconcile-counts-unbooked-docs-plans`
+- **Delivered:** 2026-11-24
 
 ## Changelog
 
