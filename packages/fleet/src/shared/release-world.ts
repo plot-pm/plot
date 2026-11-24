@@ -62,7 +62,9 @@ const changesetPaths = (files: readonly string[]): readonly string[] =>
  * @param world - the adapters.
  * @returns the readings, each `unaskable` where its read failed.
  */
-export const releaseUnbookedReadingsFor = async (world: ReleaseWorld): Promise<ReleaseUnbookedReadings> => {
+export const releaseUnbookedReadingsFor = async (
+  world: Pick<ReleaseWorld, 'refs' | 'plans' | 'ref' | 'sprintDir'>,
+): Promise<ReleaseUnbookedReadings> => {
   const tags = await world.refs.releaseTagsMerged(world.ref);
   const newest = tags.ok ? (tags.value.at(-1) ?? null) : undefined;
   const dated = newest === undefined || newest === null ? null : await world.refs.tagDate(newest);

@@ -9,6 +9,7 @@ import {
   type FinishContext,
   type FinishOutcome,
 } from './entry/release-finish.js';
+import { forgetReleaseUnbooked } from './release-unbooked-reading.js';
 
 /** What the route needs of the server. */
 export interface ReleaseFinishOptions extends BuildBoardOptions {
@@ -96,6 +97,7 @@ export const handleReleaseFinish = async (
     (line) => steps.push(line),
     (line) => steps.push(line),
   );
+  if (outcome.outcome !== 'refused') forgetReleaseUnbooked(opts.repoRoot);
   switch (outcome.outcome) {
     case 'booked':
       json(200, { version: outcome.version, outcome: 'booked', booked: outcome.booked, notes: outcome.notes, steps: steps.join('') });

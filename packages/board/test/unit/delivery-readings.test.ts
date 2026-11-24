@@ -575,3 +575,32 @@ describe('deliveryMapping briefs', () => {
     expect(of('B')).not.toHaveProperty('needsBrief');
   });
 });
+
+describe('the unbooked release', () => {
+  const owed = { version: 'v2.36.0', plans: ['alpha', 'beta'], sprintOpen: '2026-w46' };
+
+  it('maps one release item that places under You › Unblock with reason unbooked, in every Mine mode', () => {
+    for (const mode of ['all', 'mine-and-unknown', 'mine'] as const) {
+      const m = deliveryMapping(input({ mode, releaseUnbooked: owed }));
+      expect(m.unbookedByItem, mode).toEqual({ 'release-unbooked:v2.36.0': owed });
+      const placed = place(m).items.find((p) => p.id === 'release-unbooked:v2.36.0');
+      expect(placed && [placed.section, placed.section === 'you' ? placed.group : null, placed.reason], mode)
+        .toEqual(['you', 'unblock', 'unbooked']);
+    }
+  });
+
+  it('renders the item in the Unblock group with the owed release', () => {
+    const view = placeMapping(deliveryMapping(input({ releaseUnbooked: { version: 'v2.36.0', plans: [], sprintOpen: '2026-w46' } })));
+    const unblock = view.sections.find((s) => s.key === 'you')!.groups.find((g) => g.key === 'unblock')!;
+    expect(unblock.items.map((i) => [i.label, i.unbooked])).toEqual([
+      ['release v2.36.0', { version: 'v2.36.0', plans: [], sprintOpen: '2026-w46' }],
+    ]);
+  });
+
+  it('maps no item for none, unaskable or an absent answer', () => {
+    for (const answer of ['none', 'unaskable', undefined] as const) {
+      const m = deliveryMapping(input({ releaseUnbooked: answer }));
+      expect(m.readings.items.filter((i) => i.kind === 'release'), String(answer)).toEqual([]);
+    }
+  });
+});

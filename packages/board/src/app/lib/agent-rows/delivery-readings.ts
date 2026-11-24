@@ -30,6 +30,7 @@ import {
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { countedSlicesByPlan as domainCountedSlicesByPlan, type CountedPlanFacts, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
 import type { ReleasePrReading } from '@plot-pm/domain/rules/release-approvable';
+import type { ReleaseUnbooked } from '@plot-pm/domain/rules/release-unbooked';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { ticketMarkOf, ticketRecordOf } from '@plot-pm/domain/rules/sprint-ticket-record';
 import type { AgentEntry, AgentRow, DraftPlan, IssueRow, ReleaseTickets, Slice, TicketSourceShape } from '../../../contract/schema.js';
@@ -85,7 +86,16 @@ export interface DeliveryMapInput {
   checksUrlOf?: ((planFile: string, pr: number) => string) | undefined;
   /** The plan facts the counted slices read, from `countedPlanFactsOf(fleet.plans)`; absent reads as none. */
   plans?: readonly CountedPlanFacts[] | undefined;
+  /** The answer of `fleet.releaseUnbooked`; absent, `'none'` or `'unaskable'` places no `unbooked` row. */
+  releaseUnbooked?: ReleaseUnbooked | 'none' | 'unaskable' | undefined;
 }
+
+/**
+ * The work item id of an unbooked release.
+ *
+ * @param version - the release version, `vN.N.N`.
+ */
+export const unbookedItemId = (version: string): string => `release-unbooked:${version}`;
 
 /** The connector's window: `exhausted` stops a loop agent, `free` and `unknown` do not. */
 export type RateLimitReading = 'exhausted' | 'free' | 'unknown';
@@ -134,6 +144,8 @@ export interface DeliveryMapping {
   agentsById: Record<string, RegistryAgent>;
   /** Item id → the ticket it stands for. */
   ticketsByItem: Record<string, IssueRow>;
+  /** The owed release of each `unbooked` item, by item id. */
+  unbookedByItem: Record<string, ReleaseUnbooked>;
   /** Agent id → the state-file run it stands for; a registry agent is in `agentsById` instead. */
   runsById: Record<string, RoleRun>;
   /** The connector's window, as `deliveryMapping` read it. */
@@ -389,6 +401,14 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     items.push(reading);
   }
 
+  const unbookedByItem: Record<string, ReleaseUnbooked> = {};
+  const owed = input.releaseUnbooked;
+  if (owed !== undefined && typeof owed === 'object') {
+    const id = unbookedItemId(owed.version);
+    unbookedByItem[id] = owed;
+    items.push({ id, kind: 'release', ownership: 'unknown', unbooked: owed });
+  }
+
   const itemOfBranch = new Map<string, string>();
   for (const row of input.rows) if (row.branch !== '') itemOfBranch.set(row.branch, itemIdOfRow(row));
 
@@ -449,6 +469,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     draftsByItem,
     agentsById,
     ticketsByItem,
+    unbookedByItem,
     runsById,
     rateLimit: input.rateLimit ?? 'unknown',
     bounds: input.bounds,

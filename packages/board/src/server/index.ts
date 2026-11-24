@@ -155,6 +155,7 @@ const events = startEventHub({
 });
 opts.channelLink = () => events.link();
 opts.channelSnapshot = () => ({ link: events.snapshotLink(), held: events.snapshot() });
+opts.channelFindings = () => events.findings();
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
