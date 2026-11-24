@@ -427,7 +427,7 @@ const bbCliGap = (input: AdoptionInput): string => {
     ? `install it with ${read.install}`
     : `no brew on PATH — install Homebrew, then run ${read.install}`;
   return read.state === 'absent'
-    ? `no bb on PATH, and plot-host.sh needs Quatico's bb on Bitbucket — ${remedy}`
+    ? `no bb on PATH, and plot-host.sh needs Quatico's bb — ${remedy}`
     : `bb is not Quatico's bb (${read.line}) — ${remedy}`;
 };
 
