@@ -63,7 +63,7 @@ Reconcile section 6 ("Delivered but already released") found 8 of the 9 sprint p
 
 ### Record
 
-- `bug/the-release-finish-leaves-a-record` — `finishRelease` writes `.plot/state/release-finish/<version>.json` on every outcome, and the `unbooked` row names the last refusal <!-- waits: bug/a-person-books-a-merged-release --> <!-- builds: the release-finish record file and its reader --> <!-- tests: a refused finish writes outcome refused with its reason; a booked finish writes the booked slugs; the row shows last finish: <reason> -->
+- `bug/the-release-finish-leaves-a-record` — `finishRelease` writes `.plot/state/release-finish/<version>.json` on every outcome, and the `unbooked` row names the last refusal <!-- waits: bug/a-person-books-a-merged-release --> <!-- builds: the release-finish record file and its reader --> <!-- tests: a refused finish writes outcome refused with its reason; a booked finish writes the booked slugs; the row shows last finish: <reason> --> → #3706
 
 ### Reconcile
 
