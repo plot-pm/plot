@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Committed
+- **State:** Active
 - **Start:** 2026-11-21
 - **End:** 2026-12-04
 - **Owner:** eins78
@@ -50,12 +50,12 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 <!-- add items here -->
 - [ ] [fleetctl-runs-in-a-submodule-checkout] fleetctl runs in a submodule checkout (#3043, plan PR #3699) <!-- pr: #3699, branch: bug/the-repo-root-reads-core-worktree -->
 - [ ] [plot-init-checks-for-the-bb-cli] /plot-init checks for the bb CLI (#2533, plan PR #3699) <!-- pr: #3699, branch: bug/plot-init-proposes-the-bb-install -->
-- [ ] [the-bitbucket-client-sends-an-access-token] The Bitbucket client sends an access token (#3689, plan PR #3699) <!-- pr: #3699, branch: bug/the-bitbucket-client-sends-an-access-token -->
 - [ ] [a-refused-bb-call-writes-no-budget-row] A refused bb call writes no budget row (#3690, plan PR #3699) <!-- pr: #3699, branch: bug/a-refused-bb-call-writes-no-budget-row -->
 - [ ] [a-held-board-shows-the-indexed-tickets] A held board shows the indexed tickets (#3551, plan PR #3699) <!-- pr: #3699, branch: bug/a-held-board-shows-tickets-after-its-first-render -->
 - [ ] [the-checklist-badge-reads-the-newest-release] The checklist badge reads the newest release (#1839, plan PR #3699) <!-- pr: #3699, branch: bug/the-checklist-badge-orders-by-version -->
 
 ### Deferred
+- [ ] [the-bitbucket-client-sends-an-access-token] The Bitbucket client sends an access token (#3689, plan PR #3699) <!-- pr: #3699, branch: bug/the-bitbucket-client-sends-an-access-token -->
 
 <!-- Items moved here during sprint when they won't make the timebox -->
 
@@ -71,6 +71,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - Start this sprint only when no other sprint is active: the fleet reads no scope while `docs/sprints/active/` holds more than one sprint.
 
 ### Scope Changes
+- 2026-11-24: Deferred [the-bitbucket-client-sends-an-access-token] from Could — its bb change in quatico-solutions/agent-skills, a quatico-bb release and an upgrade on every machine come first; no plan builds that bb change yet
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
