@@ -226,9 +226,9 @@ describe('finishRelease against a real remote', () => {
     expect(readFileSync(path.join(repo, 'docs/plans/2026-10-01-alpha.md'), 'utf8')).toContain('- **State:** Delivered');
   });
 
-  it('refuses sprint-ambiguous and writes nothing when the active index holds two sprints', async () => {
+  it('refuses sprint-ambiguous and writes nothing when two active sprints are in the release', async () => {
     const { repo, origin, ctx } = estate({ tagged: true });
-    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon');
+    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon', '');
     const before = originMain(origin);
 
     const { code, err } = await run(ctx);
@@ -238,6 +238,19 @@ describe('finishRelease against a real remote', () => {
     expect(err).toContain('docs/sprints/active/2026-W44-s.md');
     expect(err).toContain('docs/sprints/active/2026-W46-t.md');
     expect(originMain(origin)).toBe(before);
+  });
+
+  it('books the in-scope sprint and leaves an active sprint naming another version alone', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon', '1.3.0');
+
+    const { code, out } = await run(ctx);
+
+    expect(code).toBe(0);
+    expect(out).toContain('finished: v1.2.3');
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Active');
+    expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
   });
 
   it('refuses release-scope-mismatch and writes nothing once a later sprint is active for a different release', async () => {
@@ -273,6 +286,25 @@ describe('finishRelease against a real remote', () => {
     expect(onMain(repo, 'docs/plans/2026-10-20-epsilon.md')).toMatch(/- \*\*Released:\*\* \d{4}-\d{2}-\d{2}, v1\.3\.0/);
     expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Closed');
     expect(activeOnMain(repo)).toEqual([]);
+  });
+
+  it('books the plans of a sprint closed before the finish ran, from outside the active index', async () => {
+    const { repo, ctx } = estate({ tagged: true });
+    writeFileSync(path.join(repo, 'docs/sprints/2026-W44-s.md'), sprint('Closed', 'State', ['alpha', 'beta', 'gamma'], '1.2.3'));
+    git(repo, 'rm', '-q', 'docs/sprints/active/2026-W44-s.md');
+    git(repo, 'commit', '-q', '-am', 'close the sprint');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    const first = await run(ctx);
+
+    expect(first.err).toBe('');
+    expect(first.code).toBe(0);
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    for (const slug of ['alpha', 'beta', 'gamma']) {
+      expect(onMain(repo, `docs/plans/2026-10-01-${slug}.md`)).toMatch(/- \*\*Released:\*\* \d{4}-\d{2}-\d{2}, v1\.2\.3/);
+    }
+    expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
+    expect((await run(ctx)).out).toContain('already-released');
   });
 
   it('reports already-released and writes nothing on a second run, and calls the tracker no further', async () => {

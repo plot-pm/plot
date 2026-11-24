@@ -185,6 +185,8 @@ export interface RefsFixture {
   tagsContaining?: Readonly<Record<string, readonly string[]>>;
   /** Tag name to its commit date, for {@link Refs.tagDate}. A tag absent fails. */
   tagDates?: Readonly<Record<string, string>>;
+  /** Ref to the `vN.N.N` tags merged into it, oldest first, for {@link Refs.releaseTagsMerged}. A ref absent answers none. */
+  releaseTagsMerged?: Readonly<Record<string, readonly string[]>>;
   /**
    * The branch's live remote tip, for {@link Refs.remoteTip}.
    *
@@ -537,6 +539,8 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       const date = fixture.tagDates?.[tag];
       return date === undefined ? failed<string>() : answered(date);
     },
+
+    releaseTagsMerged: async (ref) => answered(fixture.releaseTagsMerged?.[ref] ?? []),
 
     fetchRemoteHead: async (branch): Promise<PortResult<RemoteHeadAnswer>> =>
       unknownRemoteHead.has(branch)

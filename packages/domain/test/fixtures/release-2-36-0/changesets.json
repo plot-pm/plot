@@ -1,0 +1,298 @@
+[
+  {
+    "file": "a-bookkeeping-push-runs-only-the-gates.md",
+    "plan": "docs/plans/2026-11-21-main-ci-runs-only-for-the-newest-head.md"
+  },
+  {
+    "file": "a-continuation-checks-every-resume-handle.md",
+    "plan": "docs/plans/2026-11-21-a-continuation-never-resumes-a-role-session.md"
+  },
+  {
+    "file": "a-continuation-resumes-the-asking-agent.md",
+    "plan": "docs/plans/2026-11-21-a-continuation-resumes-the-asking-agent.md"
+  },
+  {
+    "file": "a-delivered-docs-member-counts-as-finished.md",
+    "plan": "docs/plans/2026-11-21-a-delivered-docs-plan-counts-as-finished.md"
+  },
+  {
+    "file": "a-delivery-row-carries-its-plan-state.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "a-failed-sibling-tag-read-is-cannot-tell.md",
+    "plan": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md"
+  },
+  {
+    "file": "a-held-slice-names-its-hold.md",
+    "plan": "docs/plans/2026-11-22-delivery-sections-count-alike.md"
+  },
+  {
+    "file": "a-loop-run-never-uses-a-role-handle.md",
+    "plan": "docs/plans/2026-11-21-a-continuation-never-resumes-a-role-session.md"
+  },
+  {
+    "file": "a-plan-pr-runs-the-estate-tests.md",
+    "plan": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md"
+  },
+  {
+    "file": "a-red-main-holds-through-its-rerun.md",
+    "plan": ""
+  },
+  {
+    "file": "a-red-pr-is-re-run-once-per-head.md",
+    "plan": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md"
+  },
+  {
+    "file": "a-refused-brief-is-asked-again.md",
+    "plan": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md"
+  },
+  {
+    "file": "a-reserved-word-hides-no-program.md",
+    "plan": "docs/plans/2026-11-21-the-controller-gate-reads-every-command-segment.md"
+  },
+  {
+    "file": "a-start-refusal-names-its-defect.md",
+    "plan": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md"
+  },
+  {
+    "file": "an-approval-with-no-pr-writes-no-pr-key.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "bb-needs-no-json-probe.md",
+    "plan": ""
+  },
+  {
+    "file": "bb-rate-limit-reading.md",
+    "plan": "docs/plans/2026-11-20-bitbucket-shares-one-budget-with-bb.md"
+  },
+  {
+    "file": "bitbucket-has-no-issue-list.md",
+    "plan": ""
+  },
+  {
+    "file": "bitbucket-lists-all-states-in-one-request.md",
+    "plan": "docs/plans/2026-11-20-bitbucket-shares-one-budget-with-bb.md"
+  },
+  {
+    "file": "bitbucket-predicts-800-an-hour.md",
+    "plan": "docs/plans/2026-11-20-bitbucket-shares-one-budget-with-bb.md"
+  },
+  {
+    "file": "boardctl-and-dispatch-refuse-a-second-mode.md",
+    "plan": "docs/plans/2026-11-21-shell-scripts-refuse-a-second-mode-and-name-the-fetch.md"
+  },
+  {
+    "file": "delivery-activity-has-three-signals.md",
+    "plan": "docs/plans/2026-11-20-delivery-activity-has-three-signals.md"
+  },
+  {
+    "file": "delivery-header-counts-every-state.md",
+    "plan": "docs/plans/2026-11-22-delivery-sections-count-alike.md"
+  },
+  {
+    "file": "delivery-header-release-group.md",
+    "plan": "docs/plans/2026-11-20-delivery-tab-has-one-header.md"
+  },
+  {
+    "file": "delivery-row-menu-column.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "delivery-section-empty-kinds.md",
+    "plan": "docs/plans/2026-11-20-every-delivery-section-folds.md"
+  },
+  {
+    "file": "delivery-tab-has-one-header.md",
+    "plan": "docs/plans/2026-11-20-delivery-tab-has-one-header.md"
+  },
+  {
+    "file": "delivery-tuple-vocabulary.md",
+    "plan": "docs/plans/2026-11-20-delivery-link-tuples-everywhere.md"
+  },
+  {
+    "file": "delivery-tuples-in-every-row.md",
+    "plan": "docs/plans/2026-11-20-delivery-link-tuples-everywhere.md"
+  },
+  {
+    "file": "delivery-ui-polish-is-a-minor-release.md",
+    "plan": ""
+  },
+  {
+    "file": "delivery-work-items-grid.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "delivery-you-rows-verb-first.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "desk-dirt-excuses-the-fleets-own-files.md",
+    "plan": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md"
+  },
+  {
+    "file": "every-delivery-section-folds.md",
+    "plan": "docs/plans/2026-11-20-every-delivery-section-folds.md"
+  },
+  {
+    "file": "every-state-reader-asks-one-state-home.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "fleet-rows-name-their-plan.md",
+    "plan": "docs/plans/2026-11-22-delivery-sections-count-alike.md"
+  },
+  {
+    "file": "fleet-switches-in-fleet-section.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "fleetd-counts-in-the-bb-ledger.md",
+    "plan": "docs/plans/2026-11-20-bitbucket-shares-one-budget-with-bb.md"
+  },
+  {
+    "file": "folded-sections-summarise-visually.md",
+    "plan": "docs/plans/2026-11-20-folded-sections-summarise-visually.md"
+  },
+  {
+    "file": "main-ci-runs-only-for-the-newest-head.md",
+    "plan": "docs/plans/2026-11-21-main-ci-runs-only-for-the-newest-head.md"
+  },
+  {
+    "file": "main-repair-session-id-mcp-flag.md",
+    "plan": ""
+  },
+  {
+    "file": "merge-reads-the-main-checkouts-state.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "merge-refuses-an-unfound-state-home.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "mine-means-mine-or-my-plan.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "plot-approve-asks-the-pr-of-the-adding-merge.md",
+    "plan": "docs/plans/2026-11-21-plot-approve-finds-a-plan-pr-at-any-age.md"
+  },
+  {
+    "file": "plot-approve-refuses-a-slice-on-the-plan-branch.md",
+    "plan": "docs/plans/2026-11-21-plot-approve-finds-a-plan-pr-at-any-age.md"
+  },
+  {
+    "file": "plot-implement-asks-for-the-spike.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "reconcile-13-hint-names-only-the-tick.md",
+    "plan": "docs/plans/2026-11-21-reconcile-section-13-suggests-an-annotation.md"
+  },
+  {
+    "file": "registry-fact-names-unread-worktrees.md",
+    "plan": ""
+  },
+  {
+    "file": "release-approval-blocks-only-when-approvable.md",
+    "plan": ""
+  },
+  {
+    "file": "release-plan-rows-unfold-to-slices.md",
+    "plan": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md"
+  },
+  {
+    "file": "role-agents-start-no-mcp-server.md",
+    "plan": "docs/plans/2026-11-21-fleet-agents-start-only-the-mcp-servers-they-use.md"
+  },
+  {
+    "file": "scope-ticket-rows-in-the-payload.md",
+    "plan": "docs/plans/2026-11-20-tickets-show-what-the-sprint-delivers-and-found.md"
+  },
+  {
+    "file": "sprint-scope-pulse-asks-no-host.md",
+    "plan": ""
+  },
+  {
+    "file": "templates-name-their-identifiers.md",
+    "plan": "docs/plans/2026-11-16-templates-show-named-identifiers.md"
+  },
+  {
+    "file": "the-board-routes-read-a-partial-pulse.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "the-brief-ask-test-owns-its-clock.md",
+    "plan": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md"
+  },
+  {
+    "file": "the-controller-gate-reads-a-loop-body-as-a-segment.md",
+    "plan": "docs/plans/2026-11-21-the-controller-gate-reads-every-command-segment.md"
+  },
+  {
+    "file": "the-first-red-rerun-wait-ends-at-checks-wait.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "the-fixer-merges-the-base-into-a-conflicting-pr.md",
+    "plan": "docs/plans/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr.md"
+  },
+  {
+    "file": "the-fixer-row-names-its-finding.md",
+    "plan": "docs/plans/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr.md"
+  },
+  {
+    "file": "the-fixer-scope-reads-every-open-pr.md",
+    "plan": "docs/plans/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr.md"
+  },
+  {
+    "file": "the-jenkins-sha-refusal-names-its-cause.md",
+    "plan": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md"
+  },
+  {
+    "file": "the-plan-store-corpus-checks-both-lists.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "the-probe-and-the-loop-name-the-charter-prompt.md",
+    "plan": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md"
+  },
+  {
+    "file": "the-pulse-omission-is-one-domain-rule.md",
+    "plan": "docs/plans/2026-11-21-a-delivered-docs-plan-counts-as-finished.md"
+  },
+  {
+    "file": "the-quiet-invariant-reads-the-placement.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "the-reaper-names-a-held-continue-lock.md",
+    "plan": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md"
+  },
+  {
+    "file": "the-repair-start-decision-moves-into-the-domain.md",
+    "plan": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md"
+  },
+  {
+    "file": "the-review-reads-the-fixer-scope.md",
+    "plan": "docs/plans/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr.md"
+  },
+  {
+    "file": "the-spike-card-names-its-reason.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "the-verdict-line-drops-the-spike-columns.md",
+    "plan": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md"
+  },
+  {
+    "file": "tickets-show-what-the-sprint-delivers-and-found.md",
+    "plan": "docs/plans/2026-11-20-tickets-show-what-the-sprint-delivers-and-found.md"
+  },
+  {
+    "file": "workers-and-board-agents-start-no-mcp-server.md",
+    "plan": "docs/plans/2026-11-21-fleet-agents-start-only-the-mcp-servers-they-use.md"
+  }
+]

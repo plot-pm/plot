@@ -1257,6 +1257,21 @@ export const refsGit = (
     tagDate: (tag) =>
       runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
 
+    releaseTagsMerged: async (ref) => {
+      // plot-ancestry: evidence — names the newest release tag the ref carries;
+      //   releaseUnbooked reports from it and books, deletes or merges nothing,
+      //   and a failed read answers unaskable.
+      const run = await runProcess('git', ['tag', '--merged', ref], inRepo);
+      if (run.code !== 0) return failed<readonly string[]>();
+      return answered(
+        run.stdout
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => /^v\d+\.\d+\.\d+$/.test(line))
+          .sort(compareVersions),
+      );
+    },
+
     // The board's adapter holds no network call: `remoteTip` and
     // `fetchRemoteHead` are composed from `refs-remote-git.ts` at the loop's
     // own wiring, and a poll path that asks this instance gets `unaskable`

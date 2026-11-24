@@ -17,19 +17,27 @@ const sprint = (over: Partial<FinishSprint> = {}): FinishSprint => ({
   state: 'Active',
   start: '2026-10-20',
   release: '',
+  slugs: undefined as unknown as readonly string[],
   ...over,
 });
 
-const readings = (over: Partial<ReleaseFinishReadings> = {}): ReleaseFinishReadings => ({
-  caller: 'person',
-  version: 'v2.30.0',
-  tagExists: true,
-  scope: [plan('a'), plan('b', { type: 'docs' }), plan('c', { type: 'infra' })],
-  outside: [],
-  shipped: [],
-  sprints: [sprint()],
-  ...over,
-});
+/** The finish's readings; `scope` is the sprint's plans and `outside` every other plan file. */
+type Over = Partial<ReleaseFinishReadings> & { scope?: ScopePlan[]; outside?: ScopePlan[] };
+
+const readings = (over: Over = {}): ReleaseFinishReadings => {
+  const { scope = [plan('a'), plan('b', { type: 'docs' }), plan('c', { type: 'infra' })], outside = [], ...rest } = over;
+  const sprints = (rest.sprints ?? [sprint()]).map((s) => (s.slugs === undefined ? { ...s, slugs: scope.map((p) => p.slug) } : s));
+  return {
+    caller: 'person',
+    version: 'v2.30.0',
+    tagExists: true,
+    tagDate: '',
+    shipped: [],
+    ...rest,
+    plans: rest.plans ?? [...scope, ...outside],
+    sprints,
+  };
+};
 
 const input = { on: '2026-10-30' };
 
@@ -115,8 +123,25 @@ describe('releaseFinish — books a release in one commit', () => {
     expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-unbookable' });
   });
 
-  it('books with no sprint to close', () => {
-    const out = releaseFinish(readings({ sprints: [] }), input);
+  it('names a sprint slug that no plan file carries as having no plan file', () => {
+    const out = releaseFinish(readings({ scope: [plan('a')], sprints: [sprint({ slugs: ['a', 'zz'] })] }), input);
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-unbookable' });
+    if (out.outcome === 'refused') expect(out.detail).toContain('zz (no plan file)');
+  });
+
+  it('names the sprint file where the active index names none', () => {
+    const unlinked = (slug: string) => sprint({ slug, file: `docs/sprints/2026-${slug}.md`, link: '' });
+    const ambiguous = releaseFinish(readings({ sprints: [unlinked('w44'), unlinked('w46')] }), input);
+    expect(ambiguous).toMatchObject({ outcome: 'refused', reason: 'sprint-ambiguous' });
+    if (ambiguous.outcome === 'refused') expect(ambiguous.detail).toContain('docs/sprints/2026-w44.md, docs/sprints/2026-w46.md');
+    const mismatch = releaseFinish(readings({ sprints: [sprint({ link: '', release: '2.31.0' })] }), input);
+    expect(mismatch).toMatchObject({ outcome: 'refused', reason: 'release-scope-mismatch' });
+    if (mismatch.outcome === 'refused') expect(mismatch.detail).toContain('open sprint docs/sprints/2026-w44.md names');
+  });
+
+  it('books with no sprint to close, from the shipped changesets alone', () => {
+    const shipped = ['a', 'b', 'c'].map((slug) => ({ file: `${slug}.md`, plan: `docs/plans/2026-10-01-${slug}.md` }));
+    const out = releaseFinish(readings({ sprints: [], shipped }), input);
     if (out.outcome === 'refused') throw new Error(out.detail);
     expect(out.detail.closeSprint).toBeNull();
     expect(out.writes.find((w) => w.kind === 'commit')).toMatchObject({
@@ -124,7 +149,7 @@ describe('releaseFinish — books a release in one commit', () => {
     });
   });
 
-  it('refuses sprint-ambiguous when the active index holds two sprints, naming both', () => {
+  it('refuses sprint-ambiguous when two open sprints are in scope, naming both', () => {
     const two = readings({ sprints: [sprint(), sprint({ slug: 'w46', link: 'docs/sprints/active/2026-w46.md' })] });
     const out = releaseFinish(two, input);
     expect(out).toMatchObject({ outcome: 'refused', reason: 'sprint-ambiguous' });
@@ -143,9 +168,18 @@ describe('releaseFinish — books a release in one commit', () => {
     }
   });
 
-  it('orders release-scope-mismatch after sprint-ambiguous, on a fixture that triggers both', () => {
+  it('ignores an open sprint naming another version where another open sprint is in scope', () => {
     const two = readings({
-      sprints: [sprint({ release: '2.31.0' }), sprint({ slug: 'w46', link: 'docs/sprints/active/2026-w46.md' })],
+      sprints: [sprint({ release: '2.31.0' }), sprint({ slug: 'w46', file: 'docs/sprints/2026-w46.md', link: 'docs/sprints/active/2026-w46.md' })],
+    });
+    const out = releaseFinish(two, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.closeSprint).toMatchObject({ slug: 'w46' });
+  });
+
+  it('refuses sprint-ambiguous where two open sprints name the version', () => {
+    const two = readings({
+      sprints: [sprint({ release: '2.30.0' }), sprint({ slug: 'w46', link: 'docs/sprints/active/2026-w46.md', release: '2.30.0' })],
     });
     expect(reasonOf(two)).toBe('sprint-ambiguous');
   });
@@ -221,6 +255,14 @@ describe('releaseFinish — plans outside the sprint', () => {
     expect(text).toContain('ghost (no plan file)');
   });
 
+  it('names nothing for a named Delivered plan that already holds its Released record', () => {
+    const r = readings({ outside: [plan('r', { releasedRecord: '2026-09-01, v2.29.0' })], shipped: [named('r')] });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(out.detail.notes).toEqual([]);
+  });
+
   it('books the scope and names shipped-unread where the changesets are unaskable', () => {
     const r = readings({ outside: [plan('x')], shipped: 'unaskable' });
     const out = releaseFinish(r, input);
@@ -234,5 +276,45 @@ describe('releaseFinish — plans outside the sprint', () => {
     const out = releaseFinish(readings({ shipped: [named('a')] }), input);
     if (out.outcome === 'refused') throw new Error(out.detail);
     expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('releaseFinish — a closed sprint names the version', () => {
+  const closed = (over: Partial<FinishSprint> = {}) =>
+    sprint({ slug: 'w47', file: 'docs/sprints/2026-w47.md', link: '', state: 'Closed', release: '2.30.0', ...over });
+
+  it('books a closed sprint\'s scope and leaves the sprint closed', () => {
+    const out = releaseFinish(readings({ sprints: [closed()] }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(out.detail.closeSprint).toBeNull();
+  });
+
+  it('answers already-released on a second run', () => {
+    const done = readings({
+      scope: ['a', 'b', 'c'].map((slug) => plan(slug, { phase: 'released', releasedRecord: '2026-10-30, v2.30.0' })),
+      sprints: [closed()],
+    });
+    expect(reasonOf(done)).toBe('already-released');
+  });
+
+  it('books a closed sprint while an active sprint names the next version', () => {
+    const out = releaseFinish(
+      readings({ sprints: [closed(), sprint({ slug: 'w48', release: '2.31.0', slugs: ['z'] })], outside: [plan('z', { phase: 'approved' })] }),
+      input,
+    );
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(out.detail.closeSprint).toBeNull();
+  });
+
+  it('does not refuse for a closed sprint that names another version', () => {
+    const out = releaseFinish(readings({ sprints: [closed({ release: '2.29.0', slugs: ['old'] }), closed()] }), input);
+    expect(out.outcome).toBe('decided');
+  });
+
+  it('refuses release-scope-mismatch only for an active sprint naming another version', () => {
+    expect(reasonOf(readings({ sprints: [closed({ release: '2.31.0' })] }))).toBe('already-released');
+    expect(reasonOf(readings({ sprints: [sprint({ release: '2.31.0' })] }))).toBe('release-scope-mismatch');
   });
 });

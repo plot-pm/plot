@@ -9,7 +9,8 @@ import type { Detached } from '@plot-pm/domain/ports/detached';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
 import { runLogFixture } from '@plot-pm/domain/adapters/run-log/run-log-fixture';
 import { removeTree } from '../rm-tree.mjs';
-import { releaseLine, releaseTick, type ReleaseTickPorts } from '../../src/shared/release-tick.js';
+import type { Finding, MonitorName, ReleaseUnbookedReadings } from '@plot-pm/domain';
+import { releaseLine, releaseTick, type ReleaseChannel, type ReleaseTickPorts } from '../../src/shared/release-tick.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -60,9 +61,35 @@ const ports = (pr: PrIndexRow, log = runLogFixture()): ReleaseTickPorts & { log:
   headChanges: async () => [{ path: 'package.json', status: 'modified', hunks: [{ section: '', removed: ['  "version": "1.0.0",'], added: ['  "version": "1.1.0",'] }] }],
   changesets: async () => [{ file: 'a.md', plan: '2026-10-29-x' }, { file: 'b.md', plan: '' }],
   finish: async () => 'none',
+  unbooked: async () => ({ tag: 'none', sprints: [], plans: [], shipped: [] }),
   log,
   notifier,
 });
+
+/** A channel holding what was published, keyed as the running channel keys it. */
+const channelFixture = (): ReleaseChannel & { held: Map<string, Finding>; seenBy: MonitorName[] } => {
+  const held = new Map<string, Finding>();
+  const seenBy: MonitorName[] = [];
+  return {
+    held,
+    seenBy,
+    findings: () => [...held.values()],
+    publish: (f) => {
+      if (f.finding === 'clear') held.delete(`${f.monitor}:${f.branch}`);
+      else held.set(`${f.monitor}:${f.branch}`, f);
+    },
+    seen: (m) => {
+      seenBy.push(m);
+    },
+  };
+};
+
+const owing: ReleaseUnbookedReadings = {
+  tag: { tag: 'v2.36.0', date: '2026-11-23' },
+  sprints: [{ slug: 'w47', state: 'Closed', start: '2026-11-11', release: '2.36.0', slugs: ['x'] }],
+  plans: [{ slug: 'x', file: 'docs/plans/2026-11-01-x.md', phase: 'delivered', releasedRecord: '' }],
+  shipped: [],
+};
 
 const start = () => ({
   repoRoot: root,
@@ -80,6 +107,44 @@ const start = () => ({
 });
 
 const config = { requiredWorkflow: 'CI', reviewBoundMs: 3_600_000, startBudget: 3 };
+
+describe('releaseTick — release unbooked', () => {
+  it('publishes release unbooked once on the channel, logs it, and retracts it once the release is booked', async () => {
+    const channel = channelFixture();
+    const said: string[] = [];
+    let readings = owing;
+    const p = { ...ports(row()), unbooked: async () => readings, channel, say: (l: string) => said.push(l) };
+
+    const first = await releaseTick(p, config, start(), NOW);
+    await releaseTick(p, config, start(), NOW + 1000);
+
+    expect(first.unbooked).toEqual({ version: 'v2.36.0', plans: ['x'], sprintOpen: null });
+    expect(channel.findings()).toMatchObject([
+      { monitor: 'ReleaseMonitor', branch: 'release', finding: 'release unbooked', evidence: 'v2.36.0: 1 plan(s) unbooked (x)' },
+    ]);
+    expect(said).toEqual(['plot-fleetd: release publish ReleaseMonitor release: v2.36.0: 1 plan(s) unbooked (x)']);
+    expect(channel.seenBy).toEqual(['ReleaseMonitor', 'ReleaseMonitor']);
+
+    readings = { ...owing, plans: [{ ...owing.plans[0] as never, phase: 'released', releasedRecord: '2026-11-24, v2.36.0' }] };
+    const booked = await releaseTick(p, config, start(), NOW + 2000);
+    expect(booked.unbooked).toBe('none');
+    expect(channel.findings()).toEqual([]);
+    expect(said).toHaveLength(2);
+  });
+
+  it('touches the channel not at all where a read failed', async () => {
+    const channel = channelFixture();
+    const p = { ...ports(row()), unbooked: async () => owing, channel };
+    await releaseTick(p, config, start(), NOW);
+    const held = channel.findings();
+
+    const failed = await releaseTick({ ...p, unbooked: async () => ({ ...owing, shipped: 'unaskable' as const }) }, config, start(), NOW + 1000);
+
+    expect(failed.unbooked).toBe('unaskable');
+    expect(channel.findings()).toEqual(held);
+    expect(channel.seenBy).toEqual(['ReleaseMonitor']);
+  });
+});
 
 describe('releaseTick', () => {
   it('starts one review through startReview and records the action, not readiness', async () => {

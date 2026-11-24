@@ -82,14 +82,15 @@ export type FindingVerdict =
  */
 export type Errand = Exclude<FindingName, 'clear' | 'build passed' | IndexFindingName>;
 
-/** The findings the IndexMonitor publishes: readings that ask nothing of anyone. */
-type IndexFindingName = 'checks green' | 'checks failing' | 'pr merged' | 'default branch red';
+/** The findings the IndexMonitor and the ReleaseMonitor publish: readings no attention list carries. */
+type IndexFindingName = 'checks green' | 'checks failing' | 'pr merged' | 'default branch red' | 'release unbooked';
 
 const INDEX_FINDINGS: ReadonlySet<FindingName> = new Set<IndexFindingName>([
   'checks green',
   'checks failing',
   'pr merged',
   'default branch red',
+  'release unbooked',
 ]);
 
 /**
@@ -190,5 +191,7 @@ export const monitorSubject = (monitor: MonitorName): string => {
       return 'the run';
     case 'IndexMonitor':
       return 'the pull request';
+    case 'ReleaseMonitor':
+      return 'the release';
   }
 };

@@ -135,12 +135,12 @@ describe('which monitor found it', () => {
   // A WorkerMonitor `idle` and an AgentMonitor finding call for different
   // responses, so an entry must not flatten them.
   it('names a different subject for each monitor', () => {
-    const subjects = ['WorkerMonitor', 'AgentMonitor', 'BuildMonitor', 'IndexMonitor'].map((m) =>
+    const subjects = ['WorkerMonitor', 'AgentMonitor', 'BuildMonitor', 'IndexMonitor', 'ReleaseMonitor'].map((m) =>
       monitorSubject(m as Finding['monitor']),
     );
 
-    expect(new Set(subjects).size).toBe(4);
-    expect(subjects).toEqual(['the process', 'the desk', 'the run', 'the pull request']);
+    expect(new Set(subjects).size).toBe(5);
+    expect(subjects).toEqual(['the process', 'the desk', 'the run', 'the pull request', 'the release']);
   });
 });
 
