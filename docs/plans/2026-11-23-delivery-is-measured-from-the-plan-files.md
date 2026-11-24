@@ -46,7 +46,7 @@ The data is already recorded and needs no new write:
 
 ### Metrics
 
-- `feature/delivery-is-measured-from-the-plan-files` — `deliveryMetrics` over the plans' transition lines and the PR index's merged rows, and `plot-ask.mjs metrics [--weeks N]` that prints its rows <!-- builds: deliveryMetrics and plot-ask metrics --> <!-- tests: deliveryMetrics — weeks with and without deliveries, a median over an even count, a missing index reads unread; the entry makes no host call -->
+- `feature/delivery-is-measured-from-the-plan-files` — `deliveryMetrics` over the plans' transition lines and the PR index's merged rows, and `plot-ask.mjs metrics [--weeks N]` that prints its rows <!-- builds: deliveryMetrics and plot-ask metrics --> <!-- tests: deliveryMetrics — weeks with and without deliveries, a median over an even count, a missing index reads unread; the entry makes no host call --> → #3712
 
 ## Notes
 
