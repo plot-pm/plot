@@ -51,7 +51,7 @@
 
 ### Badge
 
-- `bug/the-checklist-badge-orders-by-version` — `newestChecklist` chooses the checklist file by version order with `vnext-checklist.md` first, and `readChecklist` in `board.ts` calls it <!-- builds: newestChecklist, the release-checklist file choice rule --> <!-- tests: newestChecklist — v2.9.0 and v2.19.0 give v2.19.0; vnext beside both gives vnext; a name that is not vN.N.N is ignored; no checklist gives null; a board test over a directory with v2.9.0 and v2.19.0 counts the 2.19.0 file -->
+- `bug/the-checklist-badge-orders-by-version` — `newestChecklist` chooses the checklist file by version order with `vnext-checklist.md` first, and `readChecklist` in `board.ts` calls it <!-- builds: newestChecklist, the release-checklist file choice rule --> <!-- tests: newestChecklist — v2.9.0 and v2.19.0 give v2.19.0; vnext beside both gives vnext; a name that is not vN.N.N is ignored; no checklist gives null; a board test over a directory with v2.9.0 and v2.19.0 counts the 2.19.0 file --> → #3717
 
 ## Notes
 
