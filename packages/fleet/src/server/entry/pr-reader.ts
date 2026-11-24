@@ -6,17 +6,22 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 import { heartbeatIsFresh } from '@plot-pm/domain/rules/reader-election';
 import { fleetdReadsPrs } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
-import { CALLER_ENV, clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, shellCiOf, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, stateHomeAtSync, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
+import { buildShell, CALLER_ENV, clockSystem, hostReadsFor, IN_PROCESS_BACKENDS, shellCiOf, prIndexFile, readerLockFile, readFleetdHeartbeatSync, scriptsShell, stateHomeAtSync, type HostReads, type ShellContext } from '@plot-pm/domain/adapters';
 import { HOST_TRANSPORT_ENV, hostTransportLine, shellReasonOf } from '@plot-pm/domain/rules/host-transport';
 import { fleetPrs, type PrLock } from '../../shared/fleet-clock.js';
 import { freshPrState, type PrState, type PrWorld } from '../../shared/pr-refresh.js';
 import { PR_REFRESH_MS } from '../../shared/fleet-scan.js';
+import { refreshOnChange, type DefaultBranchOutcome } from '../../shared/default-branch-refresh.js';
+import { defaultBranchWorldFor, readerMainPass, tipMovedFor } from '../../shared/default-branch-world.js';
+import { checkNamesOf, checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import { logDir, processLog } from '../../shared/process-log.js';
 import { pidAlive } from '../../shared/fleet-run.js';
 
 /**
  * The machine's PR reader, with no scan, no supervision tick and no issue
- * read — the board starts this when `electReader` says `elect` and no live
+ * read, which also writes `default-branch.json` and the repair record through
+ * fleetd's own refresh while no fleetd heartbeat reads `live` and it holds the
+ * reader lock (`readerMainPass`) — the board starts this when `electReader` says `elect` and no live
  * `fleetd` heartbeat already reads PRs for this lock.
  *
  * ```
@@ -138,6 +143,45 @@ const readsFor = async (context: ShellContext, backend: string): Promise<HostRea
 };
 
 /**
+ * Composes the reader's default-branch refresh: fleetd's world
+ * (`defaultBranchWorldFor`) and its tip key (`tipMovedFor`) under
+ * `refreshOnChange`, reading `Checks wait` and `Default branch checks` once.
+ *
+ * @param context - where the scripts and the repository are.
+ * @param reads - the composed GitHub reads.
+ * @param state - the PR state whose account bound the host slot reads.
+ * @param warn - receives the refresh's lines, each repeated line once.
+ * @returns the refresh, or `null` where the state home is unread.
+ */
+const mainFor = async (
+  context: ShellContext,
+  reads: HostReads,
+  state: PrState,
+  warn: (line: string) => void,
+): Promise<(() => Promise<DefaultBranchOutcome>) | null> => {
+  const home = stateHomeAtSync(context.repoRoot);
+  if (!('home' in home)) return null;
+  const scripts = scriptsShell(context);
+  const wait = await scripts.config('Checks wait', '3600');
+  const checks = await scripts.config('Default branch checks', '');
+  const { world } = defaultBranchWorldFor({
+    context,
+    home: home.home,
+    build: await buildShell(context, reads.api ?? undefined),
+    inProcess: reads.api !== null,
+    prState: state,
+    checksWaitMs: checksWaitMsOf(wait.ok ? wait.value : '3600'),
+    checks: checkNamesOf(checks.ok ? checks.value : ''),
+  });
+  let last: string | null = null;
+  return refreshOnChange(world, tipMovedFor(context), (line) => {
+    if (line === last) return;
+    last = line;
+    warn(`${line}\n`);
+  });
+};
+
+/**
  * Runs the reader: one `fleetPrs` pass per `PR_REFRESH_MS` tick, heartbeating
  * as `reader.<pid>`, exiting once {@link stillFollowed} reads `none` or
  * `fleetd`, `stopRequested` reads true, or `repoExists` reads false, and
@@ -157,6 +201,8 @@ const readsFor = async (context: ShellContext, backend: string): Promise<HostRea
  * @param clock - the clock the tick runs on; a test drives it by hand.
  * @param composeReads - composes the GitHub reads, as fleetd's do: in-process
  *   on GitHub with a token, through `plot-host.sh` otherwise.
+ * @param composeMain - composes the default-branch refresh; {@link mainFor}
+ *   by default. Each pass runs it after the PR read, through `readerMainPass`.
  * @returns the process exit code: always 0 — the reader leaves because no one
  *   follows it or fleetd runs, never because it failed.
  */
@@ -170,6 +216,7 @@ export const run = async (
   repoExists: () => boolean = () => existsSync(repoRoot),
   clock: Clock = clockSystem(),
   composeReads: (context: ShellContext, backend: string) => Promise<HostReads> = readsFor,
+  composeMain: (context: ShellContext, reads: HostReads, state: PrState, warn: (line: string) => void) => Promise<(() => Promise<DefaultBranchOutcome>) | null> = mainFor,
 ): Promise<number> => {
   const context = { repoRoot, scriptDir };
   const reads = await composeReads(context, args.connector);
@@ -186,7 +233,32 @@ export const run = async (
     hostClaimsSlot: true,
     store: prIndexFile({ cwd: repoRoot }),
   };
-  const readPrs = fleetPrs(world, state, prLock, warn);
+  const prPass = fleetPrs(world, state, prLock, warn);
+  // THE DEFAULT BRANCH RIDES THE PR PASS, as on fleetd's PR beat: one writer
+  // per repository, fleetd while its heartbeat reads `live`, else the reader
+  // that holds the lock.
+  const refreshMain = await composeMain(context, reads, state, warn);
+  const mainPass = refreshMain === null
+    ? null
+    : readerMainPass(refreshMain, {
+        fleetd: () => {
+          const home = stateHomeAtSync(repoRoot);
+          return 'home' in home ? readFleetdHeartbeatSync(home.home) : null;
+        },
+        holdsLock: async () => {
+          const held = await lock.holder(args.connector);
+          return held.ok && held.value !== null && held.value.pid === process.pid;
+        },
+        now: () => Date.now(),
+      });
+  const readPrs = async (): Promise<void> => {
+    await prPass();
+    try {
+      await mainPass?.();
+    } catch (e) {
+      warn(`plot-pr-reader: default-branch read failed: ${e instanceof Error ? e.message : String(e)}\n`);
+    }
+  };
 
   let stop = false;
   let pulse: RunningPulse | null = null;

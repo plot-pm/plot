@@ -9,7 +9,6 @@ import {
   processesShell,
   processesFiles,
   refsGit,
-  refsRemoteGit,
   buildShell,
   baseBranchFile,
   baseBranchNames,
@@ -17,7 +16,6 @@ import {
   baseRepairFile,
   removeBaseBranch,
   removeBaseRepair,
-  repairRecordFile,
   scriptsShell,
   stateHomeAt,
   treesGit,
@@ -157,7 +155,8 @@ import { runDeskRelay } from '../../shared/desk-relay.js';
 import { runIndexMonitor, sliceBranchesAtTip, sliceBranchesOf } from '../../shared/index-monitor.js';
 import { fleetIssues, fleetIssueWrites, freshIssueState, issueGateOf } from '../../shared/issue-refresh.js';
 import { freshPrState, withHostSlot } from '../../shared/pr-refresh.js';
-import { refreshOnChange, refreshWithBases, runTiming } from '../../shared/default-branch-refresh.js';
+import { refreshOnChange, refreshWithBases } from '../../shared/default-branch-refresh.js';
+import { defaultBranchWorldFor, tipMovedFor } from '../../shared/default-branch-world.js';
 import { createSnapshotHolder, failUnread, readOf, registryEntryOf, type RecordReading, type SnapshotHolder } from '../../shared/snapshot-fill.js';
 import type { RegistryEntry, RepoSnapshot } from '@plot-pm/domain/entities/snapshot';
 import { freshScanState, planDirectory } from '../../shared/fleet-scan.js';
@@ -3503,57 +3502,24 @@ export const run = async (
   // where `tipMoved` changed or the re-ask rule is due, and the runs only when
   // the SHA moved or the re-ask rule is due.
   const ci = await buildShell({ repoRoot, scriptDir: scriptsDir }, readsApi, jenkinsApi);
-  // The last answered listing, set by the default branch's tip read and taken by
-  // the per-base pass that follows it; `null` where no read answered this pass.
-  let sprintTips: Readonly<Record<string, string>> | null = null;
-  const defaultBranchWorld = args.once || home === null
+  // THE WORLD IS COMPOSED IN `default-branch-world.ts`, WHICH THE BOARD'S PR
+  // READER ALSO USES. It SHARES THE TICK LOOP'S `checksWaitMs` CACHE above,
+  // read once before the first tick. One `ls-remote` serves the default
+  // branch's tip and every `sprint/*` tip, which `takeTips` hands to the
+  // per-base pass.
+  const composedDefault = args.once || home === null
     ? null
-    : {
-        // SHARES THE TICK LOOP'S CACHE (`checksWaitMs` ABOVE), rather than
-        // spawning its own `plot-config.sh` read for the same key — this
-        // object is built once, before the first tick, so without the share
-        // its read and the tick's were the two independent calls #1456/#1508
-        // named.
-        branch: async () => {
-          const base = await refsGit({ repoRoot, scriptDir: scriptsDir }).defaultBranch();
-          return base.ok ? base.value : null;
-        },
-        refs: {
-          // THE COMBINED LISTING: one `ls-remote` serves the default branch's
-          // tip and every `sprint/*` tip, and it is read only where this call
-          // is reached, which an idle pass never does.
-          remoteSha: async (branch: string) => {
-            const listed = await refsRemoteGit({ repoRoot, scriptDir: scriptsDir }).remoteTips(branch);
-            if (!listed.ok) {
-              sprintTips = null;
-              return listed;
-            }
-            if (listed.value === 'unknown') {
-              sprintTips = null;
-              return { ok: true as const, value: 'unknown' as const };
-            }
-            const sha = listed.value.tips[branch];
-            sprintTips = listed.value.tips;
-            return { ok: true as const, value: sha ? { sha } : ('unknown' as const) };
-          },
-          firstParentLine: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentLine,
-          firstParentCommits: refsGit({ repoRoot, scriptDir: scriptsDir }).firstParentCommits,
-        },
+    : defaultBranchWorldFor({
+        context: { repoRoot, scriptDir: scriptsDir },
+        home,
         build: ci,
-        store: defaultBranchFile(home),
-        repair: repairRecordFile(home),
-        // The host-slot bound is GitHub's account budget; other systems call direct.
-        // The in-process client claims its own slot per request.
-        slot: <T,>(call: () => Promise<T>): Promise<T> =>
-          ci.system() === 'github-actions' && hostReads.api === null
-            ? withHostSlot(prState, call)
-            : call(),
-        now: () => Date.now(),
-        record: recordSnapshot,
+        inProcess: hostReads.api !== null,
+        prState,
         checksWaitMs: await checksWaitMs(),
-        timing: runTiming(),
         checks: checkNamesOf(await readConfigAsync({ repoRoot, scriptsDir }, 'Default branch checks', '')),
-      };
+        record: recordSnapshot,
+      });
+  const defaultBranchWorld = composedDefault?.world ?? null;
   // WARNS ONCE PER CAUSE: `refreshDefaultBranch` is asked every tick, and a
   // lasting read failure would otherwise repeat the same line every tick
   // forever. `lastDefaultBranchWarning` holds the last line passed through;
@@ -3565,19 +3531,9 @@ export const run = async (
     lastDefaultBranchWarning = line;
     warn(line);
   };
-  // THE TIP IS READ WHERE IT MAY HAVE MOVED: the key is the local mirror's
-  // `origin/<default>` and the PR index's newest `mergedAt`, both read from
-  // files. A push that neither a fetch nor a merge shows is read when the held
-  // reading is next due.
-  const tipMoved = async (branch: string): Promise<string | null> => {
-    const mirror = await refsGit({ repoRoot, scriptDir: scriptsDir }).resolve(`origin/${branch}`);
-    const backend = await hostShell({ repoRoot, scriptDir: scriptsDir }).backend();
-    if (!mirror.ok || !backend.ok) return null;
-    const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
-    if (!held.ok || held.value === null) return null;
-    const merged = held.value.rows.map((row) => row.mergedAt ?? '').sort().at(-1) ?? '';
-    return `${mirror.value} ${merged}`;
-  };
+  // THE TIP IS READ WHERE IT MAY HAVE MOVED (`tipMovedFor`). A push that
+  // neither a fetch nor a merge shows is read when the held reading is next due.
+  const tipMoved = tipMovedFor({ repoRoot, scriptDir: scriptsDir });
   const refreshDefault = defaultBranchWorld === null
     ? null
     : refreshOnChange(defaultBranchWorld, tipMoved, warnDefaultBranchOnce);
@@ -3590,11 +3546,7 @@ export const run = async (
       ? async (): Promise<void> => undefined
       : refreshWithBases(
           refreshDefault,
-          () => {
-            const taken = sprintTips;
-            sprintTips = null;
-            return taken;
-          },
+          () => composedDefault?.takeTips() ?? null,
           {
             shared: defaultBranchWorld,
             storeFor: (base) => baseBranchFile(home, base),
