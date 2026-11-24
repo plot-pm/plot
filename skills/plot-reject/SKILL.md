@@ -8,7 +8,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.2.1
 compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---
 
