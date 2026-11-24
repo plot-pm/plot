@@ -48,7 +48,7 @@ The operator's own setup needs no opt-in. The board stays bound to loopback (the
 
 ### Loopback only
 
-- `bug/the-board-refuses-the-remote-write-opt-in` — `writeGate` refuses every non-loopback host whatever the environment holds, the refusal names `tailscale serve` with `PLOT_BOARD_ORIGINS` and an SSH tunnel, and `skills/plot-board/README.md` documents both routes <!-- builds: the loopback-only write gate in write-gate.ts --> <!-- tests: write-gate.test.ts — 0.0.0.0 with PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand refuses and names the removed variable; write-gate.test.mjs — POST /api/dispatch on HOST=0.0.0.0 with the old variable answers 403 and spawns nothing; a loopback board with PLOT_BOARD_ORIGINS admits the declared origin -->
+- `bug/the-board-refuses-the-remote-write-opt-in` — `writeGate` refuses every non-loopback host whatever the environment holds, the refusal names `tailscale serve` with `PLOT_BOARD_ORIGINS` and an SSH tunnel, and `skills/plot-board/README.md` documents both routes <!-- builds: the loopback-only write gate in write-gate.ts --> <!-- tests: write-gate.test.ts — 0.0.0.0 with PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand refuses and names the removed variable; write-gate.test.mjs — POST /api/dispatch on HOST=0.0.0.0 with the old variable answers 403 and spawns nothing; a loopback board with PLOT_BOARD_ORIGINS admits the declared origin --> → #3718
 
 ## Notes
 
