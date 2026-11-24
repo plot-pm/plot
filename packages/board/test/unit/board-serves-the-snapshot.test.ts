@@ -445,6 +445,41 @@ describe('the PR beat on held, with an issue index to serve', () => {
     expect(entry.waiting?.tickets.map((ticket) => [ticket.number, ticket.planned === true]).sort()).toEqual([['3', true], ['4', false]]);
   });
 
+  // #3551's order: the first render fills `planMetas`, the held PR beat reads
+  // the index over it, and the second render serves the result. No test sets
+  // `planMetas` by hand here, since a hand-set value passes with the bug present.
+  // The render starts processes (`git`, `plot-plan-meta.sh`), so no spawn count
+  // is asserted on this path.
+  it('serves the unplanned index row on the render after the first render and a held PR beat', async () => {
+    const { served: heldServed } = await heldFixture();
+    const dir = heldServed.repoRoot;
+    // The fixture's repo has no `origin/main`, so `planMetasAtDefault` takes the
+    // working-tree fallback (`planMetasFromWorkingTree`) and reads this file.
+    fs.mkdirSync(path.join(dir, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/plans/2026-01-01-x.md'),
+      '# X\n\n## Status\n\n- **State:** Approved\n- **Type:** feature\n- **Issue:** #3\n\n## Slices\n\n### One\n\n- `feature/x` - x\n',
+    );
+    const scriptsDir = path.resolve(__dirname, '../../../../skills/plot/scripts');
+    const served = {
+      ...heldServed,
+      scriptsDir,
+      config: { ...adapters.scriptsShell({ repoRoot: dir, scriptDir: scriptsDir }), ...quietConfig() } as Scripts,
+    };
+    const entry = fleet.ensureCache(served);
+    entry.clients = 1;
+    entry.backend = 'github';
+    expect(entry.planMetas).toBeNull();
+    await fleet.buildFleet(served);
+    expect(entry.planMetas).not.toBeNull();
+    await fleet.maybeRefreshPrs(served, entry);
+    const view = await fleet.buildFleet(served);
+    expect(entry.viewSource).toBe('held');
+    expect(view.issueAnswer).toBe('answered');
+    expect(view.issueError).toBeNull();
+    expect(view.issues.map((issue) => issue.number)).toEqual(['4']);
+  });
+
   it('answers failed and calls no row unplanned where no plan read has answered, and spawns 0 processes', async () => {
     const { entry, served } = await heldFixture();
     counted.calls.length = 0;
