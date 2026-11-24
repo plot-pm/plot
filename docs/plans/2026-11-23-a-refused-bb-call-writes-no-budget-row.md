@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
+- **Started:** 2026-11-24, Jan Wloka, `bug/a-refused-bb-call-writes-no-budget-row`
 
 ## Changelog
 
