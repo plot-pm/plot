@@ -154,10 +154,10 @@ describe('deliveryMetrics', () => {
     expect(rows[0]).toMatchObject({ leadDays: 10, designDays: 3 });
   });
 
-  it('counts the merged rows per week and prints 0 for a readable index with none', () => {
+  it('counts the merged rows per week, skips rows outside the weeks, and prints 0 for a readable index with none', () => {
     const rows = deliveryMetrics(
       [],
-      ['2026-11-22T23:59:59Z', '2026-11-23T00:00:00Z', '2026-11-24T12:00:00Z', 'not a date'],
+      ['2026-11-01T12:00:00Z', '2026-11-22T23:59:59Z', '2026-11-23T00:00:00Z', '2026-11-24T12:00:00Z', 'not a date'],
       weeksBetween('2026-11-09', '2026-11-23'),
     );
     expect(rows.map((r) => r.merged)).toEqual([0, 1, 2]);
@@ -167,6 +167,23 @@ describe('deliveryMetrics', () => {
     const rows = deliveryMetrics([plan({ delivered: '2026-11-23' })], null, weeksBetween('2026-11-09', '2026-11-23'));
     expect(rows.map((r) => r.merged)).toEqual(['unread', 'unread', 'unread']);
     expect(deliveryMetricsLines(rows)[1]).toMatch(/^2026-W46\s+unread\s/);
+  });
+
+  it('prints the approvers by count, then by name, and an unnamed approver as -', () => {
+    const rows = deliveryMetrics(
+      [
+        plan({ approved: '2026-11-23, zed, pr' }),
+        plan({ approved: '2026-11-23, jwloka, pr', delivered: '2026-11-25' }),
+        plan({ approved: '2026-11-24, eins78, pr' }),
+        plan({ approved: '2026-11-24, jwloka, pr' }),
+        plan({ approved: '2026-11-24' }),
+      ],
+      [],
+      weeksBetween('2026-11-23', '2026-11-23'),
+    );
+    const lines = deliveryMetricsLines(rows);
+    expect(lines[0]).toMatch(/^week\s+merged\s+approved\s+delivered\s+released\s+lead-days\s+design-days\s+approvers$/);
+    expect(lines[1]).toMatch(/^2026-W48\s+0\s+5\s+1\s+0\s+2\s+-\s+jwloka=2 -=1 eins78=1 zed=1$/);
   });
 
   it('covers every requested week when the history is shorter', () => {

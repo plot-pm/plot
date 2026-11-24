@@ -193,10 +193,11 @@ export const deliveryMetrics = (
       approvedWeek.approvers.set(who, (approvedWeek.approvers.get(who) ?? 0) + 1);
     }
     const deliveredWeek = at(delivered);
-    if (deliveredWeek !== undefined && delivered !== null) {
+    if (deliveredWeek !== undefined) {
       deliveredWeek.delivered += 1;
       if (approved !== null) {
-        deliveredWeek.lead.push((delivered - approved) / DAY_MS);
+        // at() returns a week only for a non-null day.
+        deliveredWeek.lead.push((delivered! - approved) / DAY_MS);
         if (design !== null) deliveredWeek.design.push((approved - design) / DAY_MS);
       }
     }
