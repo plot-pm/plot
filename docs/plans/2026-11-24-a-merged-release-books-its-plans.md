@@ -58,7 +58,7 @@ Reconcile section 6 ("Delivered but already released") found 8 of the 9 sprint p
 
 ### Repair
 
-- `bug/a-person-books-a-merged-release` — the `unbooked` Delivery reason and row, the "Book as Released" button, `POST /api/release-finish`, `plot-ask.mjs release-finish <version>`, and the controller gate's refusal of the HTTP call from a shell <!-- waits: bug/the-release-reading-names-unbooked-plans --> <!-- builds: the release-finish controller and its board button --> <!-- tests: placement puts an unbooked release under You › Unblock with reason unbooked; the route books a closed sprint's plans and answers already-released on a second call; the command refuses PLOT_UNATTENDED=1; the gate refuses curl POST /api/release-finish -->
+- `bug/a-person-books-a-merged-release` — the `unbooked` Delivery reason and row, the "Book as Released" button, `POST /api/release-finish`, `plot-ask.mjs release-finish <version>`, and the controller gate's refusal of the HTTP call from a shell <!-- waits: bug/the-release-reading-names-unbooked-plans --> <!-- builds: the release-finish controller and its board button --> <!-- tests: placement puts an unbooked release under You › Unblock with reason unbooked; the route books a closed sprint's plans and answers already-released on a second call; the command refuses PLOT_UNATTENDED=1; the gate refuses curl POST /api/release-finish --> → #3704
 
 ### Record
 
