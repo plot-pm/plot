@@ -137,3 +137,53 @@ export const releaseUnbookedDiff = (
  */
 export const releaseUnbookedEvidence = (answer: ReleaseUnbooked): string =>
   `${answer.version}: ${answer.plans.length} plan(s) unbooked${answer.plans.length === 0 ? '' : ` (${answer.plans.join(', ')})`}${answer.sprintOpen === null ? '' : `; sprint ${answer.sprintOpen} open`}`;
+
+const EVIDENCE = /^(v\d+\.\d+\.\d+): (\d+) plan\(s\) unbooked(?: \(([^)]*)\))?(?:; sprint (\S+) open)?$/;
+
+/**
+ * Reads an owed release back from the evidence line of a `release unbooked` finding.
+ *
+ * @param evidence - the finding's evidence, as {@link releaseUnbookedEvidence} wrote it.
+ * @returns the owed release, or `null` where the line does not have that form or its count does not match its slugs.
+ */
+export const releaseUnbookedOfEvidence = (evidence: string): ReleaseUnbooked | null => {
+  const m = EVIDENCE.exec(evidence);
+  if (m === null) return null;
+  const plans = m[3] === undefined ? [] : m[3].split(', ');
+  if (plans.length !== Number(m[2])) return null;
+  return { version: m[1], plans, sprintOpen: m[4] ?? null };
+};
+
+/** Which reading the board's `unbooked` row comes from. */
+export type ReleaseUnbookedSource = 'fleetd' | 'board';
+
+/** The answer the board shows, with the reading it came from. */
+export interface ReleaseUnbookedShown {
+  readonly answer: ReleaseUnbookedAnswer;
+  readonly source: ReleaseUnbookedSource;
+}
+
+/**
+ * The `releaseUnbooked` answer the board shows.
+ *
+ * Where fleetd's heartbeat is live and the board holds the channel's findings,
+ * the answer is fleetd's `release unbooked` finding: an owed release where the
+ * finding is held and its evidence reads, `'unaskable'` where the evidence
+ * does not read, and `'none'` where no such finding is held. Otherwise the
+ * answer is the board's own reading.
+ *
+ * @param fleetdFindings - the channel's current findings while fleetd's heartbeat is live; `null` otherwise.
+ * @param own - reads the rule's answer from this checkout; called only where `fleetdFindings` is `null`.
+ * @returns the answer and its source.
+ */
+export const releaseUnbookedShown = (
+  fleetdFindings: readonly Finding[] | null,
+  own: () => ReleaseUnbookedAnswer,
+): ReleaseUnbookedShown => {
+  if (fleetdFindings === null) return { answer: own(), source: 'board' };
+  const held = fleetdFindings.find(
+    (f) => f.monitor === 'ReleaseMonitor' && f.branch === RELEASE_UNBOOKED_BRANCH && f.finding === 'release unbooked',
+  );
+  if (held === undefined) return { answer: 'none', source: 'fleetd' };
+  return { answer: releaseUnbookedOfEvidence(held.evidence) ?? 'unaskable', source: 'fleetd' };
+};

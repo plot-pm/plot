@@ -661,3 +661,37 @@ describe('the You cases and their markers', () => {
       .toMatchObject({ section: 'work-items' });
   });
 });
+
+describe('an unbooked release', () => {
+  const owed = { version: 'v2.36.0', plans: ['alpha', 'beta'], sprintOpen: '2026-w46' };
+  const place = (items: WorkItemReading[]) => placeDelivery({ items, agents: [] }, input());
+
+  it('places under You › Unblock with reason unbooked, and not on the release cards', () => {
+    const placed = place([item({ id: 'release-unbooked:v2.36.0', kind: 'release', ownership: 'unknown', unbooked: owed })]);
+    expect(placed.releases).toEqual([]);
+    expect(placed.items).toEqual([
+      { id: 'release-unbooked:v2.36.0', kind: 'release', section: 'you', group: 'unblock', marker: YOU_GROUP_MARKERS.unblock.marker, reason: 'unbooked', agents: [] },
+    ]);
+    expect(isStuckReason('unbooked')).toBe(true);
+    expect(youCaseOf('unbooked').group).toBe('unblock');
+  });
+
+  it('places a release whose plans are all Released but whose sprint is open', () => {
+    const placed = place([item({ id: 'u', kind: 'release', ownership: 'unknown', unbooked: { version: 'v2.36.0', plans: [], sprintOpen: '2026-w46' } })]);
+    expect(placed.items.map((p) => [p.id, p.section, p.reason])).toEqual([['u', 'you', 'unbooked']]);
+  });
+
+  it('keeps a release item with no unbooked reading on the release cards', () => {
+    const placed = place([
+      item({ id: 'r', kind: 'release', stage: 'pr', approvalOwed: 'release' }),
+      item({ id: 'u', kind: 'release', ownership: 'unknown', unbooked: owed }),
+    ]);
+    expect(placed.releases).toEqual(['r']);
+    expect(placed.items.map((p) => p.id)).toEqual(['u']);
+  });
+
+  it('does not read an unbooked reading on an item that is not a release', () => {
+    const placed = place([item({ id: 's', kind: 'slice', stage: 'queued', unbooked: owed })]);
+    expect(placed.items.map((p) => [p.id, p.reason])).toEqual([['s', null]]);
+  });
+});

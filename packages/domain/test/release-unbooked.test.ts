@@ -17,6 +17,9 @@ import {
   releaseUnbooked,
   releaseUnbookedDiff,
   releaseUnbookedEvidence,
+  releaseUnbookedOfEvidence,
+  releaseUnbookedShown,
+  type ReleaseUnbooked,
   type ReleaseUnbookedReadings,
 } from '../src/rules/release-unbooked.js';
 import { releaseFinish, type ScopePlan } from '../src/workflows/release-finish.js';
@@ -218,5 +221,55 @@ describe('releaseScope — the sprints and plans of a release', () => {
 describe('releaseUnbookedEvidence — the finding line', () => {
   it('names an open sprint and omits the plan list where no plan is owed', () => {
     expect(releaseUnbookedEvidence({ version: 'v2.36.0', plans: [], sprintOpen: 'w47' })).toBe('v2.36.0: 0 plan(s) unbooked; sprint w47 open');
+  });
+});
+
+describe('the evidence read back', () => {
+  const cases: ReleaseUnbooked[] = [
+    { version: 'v2.36.0', plans: ['alpha', 'beta', 'manual'], sprintOpen: '2026-w46' },
+    { version: 'v2.36.0', plans: ['alpha'], sprintOpen: null },
+    { version: 'v2.36.0', plans: [], sprintOpen: '2026-w46' },
+  ];
+
+  it.each(cases)('reads back what releaseUnbookedEvidence wrote: %o', (answer) => {
+    expect(releaseUnbookedOfEvidence(releaseUnbookedEvidence(answer))).toEqual(answer);
+  });
+
+  it('answers null for a line of another form, or a count that does not match its slugs', () => {
+    expect(releaseUnbookedOfEvidence('release unbooked no longer holds')).toBeNull();
+    expect(releaseUnbookedOfEvidence('v2.36.0: 3 plan(s) unbooked (alpha, beta)')).toBeNull();
+  });
+});
+
+describe('the answer the board shows', () => {
+  const finding = (over: Partial<Finding> = {}): Finding => ({
+    monitor: 'ReleaseMonitor',
+    branch: RELEASE_UNBOOKED_BRANCH,
+    worktree: '',
+    finding: 'release unbooked',
+    since: '2026-11-24T10:00:00Z',
+    evidence: 'v2.36.0: 1 plan(s) unbooked (alpha); sprint 2026-w46 open',
+    measuredAt: '2026-11-24T10:00:00Z',
+    ...over,
+  });
+  const never = (): never => { throw new Error('the board read its own answer'); };
+
+  it('takes fleetd\'s finding while fleetd is live, and reads nothing itself', () => {
+    expect(releaseUnbookedShown([finding()], never)).toEqual({
+      answer: { version: 'v2.36.0', plans: ['alpha'], sprintOpen: '2026-w46' },
+      source: 'fleetd',
+    });
+  });
+
+  it('answers none from a live fleetd that holds no release unbooked finding', () => {
+    expect(releaseUnbookedShown([finding({ monitor: 'BuildMonitor' })], never)).toEqual({ answer: 'none', source: 'fleetd' });
+  });
+
+  it('answers unaskable where the evidence does not read, never none', () => {
+    expect(releaseUnbookedShown([finding({ evidence: 'garbled' })], never)).toEqual({ answer: 'unaskable', source: 'fleetd' });
+  });
+
+  it('asks the rule itself where no fleetd heartbeat is live', () => {
+    expect(releaseUnbookedShown(null, () => 'unaskable')).toEqual({ answer: 'unaskable', source: 'board' });
   });
 });

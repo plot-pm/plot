@@ -9,6 +9,7 @@ import type {
   YouReason,
   DeliveryGate,
 } from './delivery-placement.js';
+import type { ReleaseUnbooked } from './release-unbooked.js';
 import type { TokenCountsRecord } from '../entities/slice-spend.js';
 import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
@@ -246,6 +247,7 @@ const REASON_STATUS: Record<YouReason, string> = {
   'person-comment': 'comment',
   'agent-died': 'agent died',
   loose: 'loose',
+  unbooked: 'unbooked',
 };
 
 /** The tone of a You row's verb: red where delivery waits, amber where the fleet waits on input, grey for clean-up. */
@@ -287,6 +289,7 @@ export const REASON_DO: Record<YouReason, ReasonDo> = {
   'person-comment': { verb: 'Answer', action: 'answer-comment', tone: 'red', consequence: fixed('the merge waits') },
   'agent-died': { verb: 'Restart', action: 'restart', tone: 'red', consequence: fixed('the slice stopped') },
   loose: { verb: 'Release or delete', action: 'release-or-delete', tone: 'grey', consequence: () => null },
+  unbooked: { verb: 'Book as Released', action: 'release-finish', tone: 'red', consequence: fixed('the plans stay Delivered') },
 };
 
 /**
@@ -980,6 +983,63 @@ export const looseGroupRow = (items: readonly { id: string; ageMinutes?: number 
     object: `${n} loose branch${n === 1 ? '' : 'es'}`,
     consequence: ageRangeValue(items.map((i) => i.ageMinutes)),
     ids: items.map((i) => i.id),
+  };
+};
+
+/** The You row of a merged release that still owes its bookings. */
+export interface UnbookedReleaseRow {
+  verb: string;
+  tone: VerbTone;
+  /** The release version, `vN.N.N`. */
+  object: string;
+  /** `unbooked · <version> · <n> plans`. */
+  status: string;
+  /** The owed plans by slug, then `sprint <slug> open` where a sprint is open; `null` where neither holds. */
+  names: string | null;
+  /** What the action button posts and whether it may. */
+  action: BookReleasedAction;
+}
+
+/** The "Book as Released" button of an unbooked release row. */
+export interface BookReleasedAction {
+  label: string;
+  /** The version `POST /api/release-finish` receives. */
+  version: string;
+  enabled: boolean;
+  /** Why the button is disabled; `null` where it is enabled. */
+  reason: string | null;
+}
+
+/**
+ * The "Book as Released" button of an unbooked release.
+ *
+ * @param unbooked - what the release owes.
+ * @param pending - a finish request for this release has not answered yet.
+ * @returns the button, enabled where a plan is owed or a sprint is open and no request is pending.
+ */
+export const bookReleasedAction = (unbooked: ReleaseUnbooked, pending = false): BookReleasedAction => {
+  const owes = unbooked.plans.length > 0 || unbooked.sprintOpen !== null;
+  const reason = !owes ? 'nothing is owed' : pending ? 'booking runs' : null;
+  return { label: REASON_DO.unbooked.verb, version: unbooked.version, enabled: reason === null, reason };
+};
+
+/**
+ * The You row of an unbooked release.
+ *
+ * @param unbooked - what the release owes.
+ * @param pending - a finish request for this release has not answered yet.
+ * @returns the row: the verb, the version, the status `unbooked · <version> · <n> plans`, the names and the button.
+ */
+export const unbookedReleaseRow = (unbooked: ReleaseUnbooked, pending = false): UnbookedReleaseRow => {
+  const n = unbooked.plans.length;
+  const names = [...(n === 0 ? [] : [unbooked.plans.join(', ')]), ...(unbooked.sprintOpen === null ? [] : [`sprint ${unbooked.sprintOpen} open`])];
+  return {
+    verb: REASON_DO.unbooked.verb,
+    tone: REASON_DO.unbooked.tone,
+    object: unbooked.version,
+    status: `unbooked · ${unbooked.version} · ${n} plan${n === 1 ? '' : 's'}`,
+    names: names.length === 0 ? null : names.join(' · '),
+    action: bookReleasedAction(unbooked, pending),
   };
 };
 
