@@ -51,7 +51,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [fleetctl-runs-in-a-submodule-checkout] fleetctl runs in a submodule checkout (#3043, plan PR #3699) <!-- pr: #3699, branch: bug/the-repo-root-reads-core-worktree -->
 - [ ] [plot-init-checks-for-the-bb-cli] /plot-init checks for the bb CLI (#2533, plan PR #3699) <!-- pr: #3699, branch: bug/plot-init-proposes-the-bb-install -->
 - [ ] [a-refused-bb-call-writes-no-budget-row] A refused bb call writes no budget row (#3690, plan PR #3699) <!-- pr: #3699, branch: bug/a-refused-bb-call-writes-no-budget-row -->
-- [ ] [a-held-board-shows-the-indexed-tickets] A held board shows the indexed tickets (#3551, plan PR #3699) <!-- pr: #3699, branch: bug/a-held-board-shows-tickets-after-its-first-render -->
+- [x] [a-held-board-shows-the-indexed-tickets] A held board shows the indexed tickets (#3551, plan PR #3699) <!-- pr: #3699, branch: bug/a-held-board-shows-tickets-after-its-first-render -->
 - [ ] [the-checklist-badge-reads-the-newest-release] The checklist badge reads the newest release (#1839, plan PR #3699) <!-- pr: #3699, branch: bug/the-checklist-badge-orders-by-version -->
 
 ### Deferred
