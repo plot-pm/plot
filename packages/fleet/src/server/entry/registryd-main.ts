@@ -4122,6 +4122,9 @@ export const run = async (
             log: runLogFile({ cwd: repoRoot }),
             notifier: await notifier(),
             ref: `origin/${defaultBranch.ok ? defaultBranch.value : 'main'}`,
+            sprintDir: await readConfigAsync(boardOpts, 'Sprint directory', 'docs/sprints/'),
+            channel: slot.channel,
+            say: (l) => write(`${l}\n`),
           }),
           {
             requiredWorkflow: workflowOfCheck(checkNamesOf(await readConfigAsync(boardOpts, 'Default branch checks', ''))[0] ?? 'CI', ci.system() === 'github-actions'),
