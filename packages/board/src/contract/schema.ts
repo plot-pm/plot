@@ -4228,6 +4228,13 @@ export const RegistryInfoSchema = z.object({
    * them out of both of its counts. A payload without the field reads 0.
    */
   unreadCount: z.number().int().default(0),
+  /**
+   * How many of the synthesized entries are finished desks: a worker ran,
+   * it ended, and the PR index holds a merged PR for the desk's branch.
+   * `registryFact` leaves them out of both of its counts. A payload without
+   * the field reads 0.
+   */
+  finishedCount: z.number().int().default(0),
 });
 export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
 

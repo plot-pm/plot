@@ -38,6 +38,21 @@ export const notWorkingReason = (state: string, merged: boolean): NotWorkingReas
  */
 export const isAgentDesk = (state: string): boolean => state !== 'none';
 
+/**
+ * Whether a worktree that no manifest names is a finished desk rather than an agent.
+ *
+ * A desk is finished where a worker ran on it ({@link isAgentDesk}) and {@link notWorkingReason} reads
+ * `merged`: its worker ended or finished, and the host merged the branch it holds. A `stalled` desk on a
+ * merged branch is not finished, because its work is on the floor. The registry fact leaves a finished
+ * desk out of its counts.
+ *
+ * @param state - the synthesized entry's registry state.
+ * @param merged - whether a merged PR names the desk's branch as its head; `false` where that is unread.
+ * @returns `true` where the desk is finished.
+ */
+export const isFinishedDesk = (state: string, merged: boolean): boolean =>
+  isAgentDesk(state) && notWorkingReason(state, merged) === 'merged';
+
 /** A plain sentence about the registry, and whether it is a warning. */
 export interface RegistryFact {
   text: string;
@@ -54,21 +69,25 @@ export interface RegistryCounts {
   checkoutCount: number;
   /** The synthesized desks whose state nobody could read (`unknown`); absent reads as 0. */
   unreadCount?: number;
+  /** The synthesized desks whose branch merged and whose worker ended ({@link isFinishedDesk}); absent reads as 0. */
+  finishedCount?: number;
 }
 
 /**
  * The one fact about the registry file that the Fleet card prints, shown only where it holds.
  *
- * Only a desk whose state was read counts. A checkout where no worker ran and a desk whose state is
- * `unknown` are out of both counts: the first is no agent, and for the second the registry has no
- * reading that says what it is ({@link workingCounts} names those).
+ * Only a desk whose state was read counts. A checkout where no worker ran, a finished desk
+ * ({@link isFinishedDesk}) and a desk whose state is `unknown` are out of both counts: the first two are
+ * no agent, and for the third the registry has no reading that says what it is ({@link workingCounts}
+ * names those).
  *
  * @param registry - the registry counts.
  * @returns `N of M agents have no registry file` where some agent with a read state has none, a warning
  *   where agents run and no agent has one, and `null` where every such agent has a registry file or none runs.
  */
 export const registryFact = (registry: RegistryCounts): RegistryFact | null => {
-  const unregistered = registry.synthesizedCount - registry.checkoutCount - (registry.unreadCount ?? 0);
+  const unregistered =
+    registry.synthesizedCount - registry.checkoutCount - (registry.unreadCount ?? 0) - (registry.finishedCount ?? 0);
   const total = registry.manifestCount + unregistered;
   if (unregistered <= 0) return null;
   if (registry.manifestCount === 0) return { text: `0 of ${total} agents have a registry file`, warn: true };
