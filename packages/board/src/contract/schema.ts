@@ -4392,6 +4392,11 @@ export const ReleaseUnbookedShownSchema = z.object({
     z.literal('unaskable'),
   ]),
   source: z.enum(['fleetd', 'board']),
+  /** The release's last recorded finish on this machine; `null` where none reads. */
+  lastFinish: z
+    .object({ at: z.string(), outcome: z.enum(['booked', 'refused', 'already-released']), reason: z.string() })
+    .nullable()
+    .default(null),
 });
 
 export const ReleaseTicketsSchema = z.object({

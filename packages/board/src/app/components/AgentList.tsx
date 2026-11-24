@@ -1553,7 +1553,7 @@ export function AgentList({
         ];
         const itemBody = (item: PlacedItemView, inPlan = false) => item.unbooked !== null ? [
           anchorOf(item),
-          <UnbookedRelease key={`unbooked-${item.unbooked.version}`} unbooked={item.unbooked} anchor={item.anchor} />,
+          <UnbookedRelease key={`unbooked-${item.unbooked.version}`} unbooked={item.unbooked} anchor={item.anchor} lastFinish={fleet.releaseUnbooked?.lastFinish ?? null} />,
         ] : [
           anchorOf(item),
           ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} pills={pillsItem(item)} menu={looseMenuOf(item)} />, rowKey(r))),
