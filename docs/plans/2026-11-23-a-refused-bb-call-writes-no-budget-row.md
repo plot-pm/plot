@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:**
 - **Issue:** #3690
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 
 ## Changelog
 
