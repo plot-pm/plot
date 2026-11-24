@@ -636,9 +636,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The host CLI's stderr for one call, read back after the call. One file per
 # process, created here in the parent because the calls redirect into it from
 # inside command substitutions, where an assignment would not reach the caller.
-# `BB_RC` holds the exit code of the last `bb()` call, for the same reason.
-HOST_ERR=""; BB_RC=""
-plot_tmpfile HOST_ERR host-err && plot_tmpfile BB_RC host-bb-rc || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
+# `BB_RC` holds the exit code of the last `bb()` call, for the same reason, and
+# `BB_ERR` a copy of that call's stderr, which `bb_sent` reads.
+HOST_ERR="" BB_RC="" BB_ERR=""
+plot_tmpfile HOST_ERR host-err && plot_tmpfile BB_RC host-bb-rc && plot_tmpfile BB_ERR host-bb-err || { echo "plot-host: no temp file could be made under ${TMPDIR:-/tmp}" >&2; exit 3; }
 
 die() { echo "plot-host: $*" >&2; exit 1; }
 
@@ -3111,7 +3112,7 @@ BB_LIST_PAGE_VERSIONS="1.9.0"
 # the first check can have run in a subshell.
 BB_VERSION=""
 bb_identity_check() {
-  local line; line="$(command bb --version 2>/dev/null | bb_strip_ansi | head -1)"
+  local line="$(command bb --version 2>/dev/null | bb_strip_ansi | head -1)"
   BB_VERSION="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$line" | head -1)"
   grep -qE '\([0-9a-f]+\)' <<<"$line" && die3 "bb is not Quatico's bb ($line) — install it with brew install quatico-solutions/tap/quatico-bb"
   return 0
@@ -3252,7 +3253,7 @@ backend_declared() {
   # THE REMOTE IS EVIDENCE AND THE KEY IS A DECLARATION, so the key still wins
   # above. What changes is only the case where nobody said: a hostname in the
   # remote is a reading, and no remote is no reading.
-  local url; url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  local url="$(git config --get remote.origin.url 2>/dev/null || true)"
   case "$url" in
     *github.com*)    echo "github";    return ;;
     *bitbucket.org*) echo "bitbucket"; return ;;
@@ -3737,32 +3738,45 @@ host_slot_give() {
 
 # Runs one host CLI call inside its connector's slot and records it on the
 # ledger, failed or not. $1=connector $2=backend-for-account $3=bucket ("" lets
-# `budget_record_call` choose), then the command line to run.
+# `budget_record_call` choose) $4=a test of the call's exit code that fails
+# where no request went out ("" records every call), then the command line.
 host_cli_call() {
-  local connector="$1" account_be="$2" bucket="$3" rc; shift 3
+  local connector="$1" account_be="$2" bucket="$3" sent="${4:-true}" spent=1 rc; shift 4
   host_slot_take "$connector" "$account_be"
   "$@"; rc=$?
   host_slot_give
-  budget_record_call "$connector" "$account_be" "$bucket"
+  "$sent" "$rc" || spent=0
+  budget_record_call "$connector" "$account_be" "$bucket" "$spent"
   return $rc
 }
 
-gh() { host_cli_call github github "$(gh_bucket_of_argv "$@")" command gh "$@"; }
+gh() { host_cli_call github github "$(gh_bucket_of_argv "$@")" '' command gh "$@"; }
 
 # `bb` also writes its exit code to `BB_RC` for `failed_code`, and runs
-# `bb_identity_check` while `BB_RC` is still empty.
+# `bb_identity_check` while `BB_RC` is still empty. Its stderr goes to `BB_ERR`
+# and then to the caller's stderr, so the caller still reads every word.
 bb() {
   [ -s "$BB_RC" ] || bb_identity_check
-  host_cli_call bitbucket bitbucket '' command bb "$@"
+  host_cli_call bitbucket bitbucket '' bb_sent command bb "$@" 2>"$BB_ERR"
   local rc=$?
+  cat "$BB_ERR" >&2
   printf '%s\n' "$rc" >"$BB_RC"
   return $rc
+}
+
+# Fails where `bb` exited 75 and its stderr names the hourly ceiling or a pause
+# after an earlier 429: both refuse before a request goes out. Succeeds for every
+# other exit, a 429 the host sent included, and for an unreadable copy.
+# A DECLARED DUPLICATE of `bbThrottleCause` (`rules/bb-ledger.ts`), held to it by
+# `packages/domain/corpus/bb-refused-spend.corpus.test.ts`.
+bb_sent() {
+  [ "$1" != 75 ] || ! grep -qE 'requests in the last hour from this machine; next request at|bb paused until [^ ]+ after [^ ]+ refused a request' "$BB_ERR"
 }
 
 # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
 # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
 # against a server the git host knows nothing about.
-jen() { host_cli_call jenkins '' '' ${PLOT_JEN_BOUND_S:+jen_bounded} command jen "$@"; }
+jen() { host_cli_call jenkins '' '' '' ${PLOT_JEN_BOUND_S:+jen_bounded} command jen "$@"; }
 
 # Runs its argv with a `PLOT_JEN_BOUND_S` bound and exits 143 when the bound
 # kills it. A SUBSHELL HOLDS `set -m`, so the caller's job-control mode never
@@ -4203,7 +4217,7 @@ case "$op" in
         *) die "pr-merge: unknown arg $1" ;;
       esac
     done
-    if [ "$be" = "github" ] && [ -z "$pin" ]; then echo "plot-host: pr-merge: github needs --match-head <sha>; nothing was merged" >&2; exit 1
+    if [ "$be" = "github" ] && [ -z "$pin" ]; then die "pr-merge: github needs --match-head <sha>; nothing was merged"
     elif [ "$be" = "github" ]; then
       # A declared `Merger app` merges, so a signed-in identity with
       # `bypass_mode: always` on the ruleset does not (#1730).
@@ -4220,14 +4234,13 @@ case "$op" in
       # its failure warns and does not undo or fail the merge.
       if out="$(merger_gh api -X PUT "repos/{owner}/{repo}/pulls/$num/merge" -f merge_method="$([ "$squash" = 1 ] && echo squash || echo merge)" -f sha="$pin" 2>&1)"; then
         [ "$delbranch" != 1 ] || merger_gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$(merger_gh api "repos/{owner}/{repo}/pulls/$num" --jq 'select(.head.repo.full_name == .base.repo.full_name) | .head.ref' 2>/dev/null)" >/dev/null 2>&1 || echo "plot-host: pr-merge: PR #$num merged, but its branch was not deleted" >&2
-      else [[ "$out" != *"HTTP 409"* ]] || out="--match-head: head-moved — PR #$num is no longer at $pin; nothing was merged"; echo "plot-host: pr-merge: $out" >&2; exit 1; fi
+      else [[ "$out" != *"HTTP 409"* ]] || out="--match-head: head-moved — PR #$num is no longer at $pin; nothing was merged"; die "pr-merge: $out"; fi
     # Bitbucket's merge endpoint takes no head precondition (measured 2026-10-18,
     # see plan Notes), so the pin is enforced by re-reading the head via bb_state_row
     # right before merging; it matches by prefix, 7+ hex (domain's sameCommit).
-    elif [ -n "$pin" ]; then head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || { echo "plot-host: pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged" >&2; exit 1; }; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
+    elif [ -n "$pin" ]; then head_out="$(bb pr view "$num" --json 2>"$HOST_ERR")" || { host_err; die3 "$err"; }; rm -f "$HOST_ERR"; head_sha="$(bb_state_row "$head_out" | jq -r '.headSha // ""')"; head_l="$(printf '%s' "$head_sha" | tr '[:upper:]' '[:lower:]')"; pin_l="$(printf '%s' "$pin" | tr '[:upper:]' '[:lower:]')"; [[ "$head_l" =~ ^[0-9a-f]{7,}$ && "$pin_l" =~ ^[0-9a-f]{7,}$ ]] && { [[ "$head_l" == "$pin_l"* ]] || [[ "$pin_l" == "$head_l"* ]]; } || die "pr-merge --match-head: head-moved — PR #$num is at ${head_sha:-unknown}, caller read $pin; nothing was merged"; args=(pr merge "$num"); [ "$squash" = 1 ] && args+=(--squash); [ "$delbranch" = 1 ] && args+=(--delete-branch); bb "${args[@]}"
     else
-      echo "plot-host: pr-merge: bitbucket needs --match-head <sha>; nothing was merged" >&2
-      exit 1
+      die "pr-merge: bitbucket needs --match-head <sha>; nothing was merged"
     fi
     ;;
 
