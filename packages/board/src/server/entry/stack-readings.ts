@@ -121,5 +121,16 @@ export const readingsFrom = (report: Record<string, unknown>): StackReadings => 
     // two branch fields would both be `''`, compare equal, and report a verified
     // match that was never measured.
     hostDefaultBranchAsked: report.host_default_branch_status === 'ok',
+    // ASKED ONLY ON BITBUCKET. The probe prints the `bb` fields on every
+    // repository and reads them only where `git_host` is `bitbucket`, so an
+    // empty line elsewhere is a question nobody put, not an absent `bb`.
+    bbVersionLine:
+      report.git_host === 'bitbucket' && typeof report.bb_version_line === 'string'
+        ? report.bb_version_line
+        : null,
+    bbPaths: Array.isArray(report.bb_paths)
+      ? report.bb_paths.filter((p): p is string => typeof p === 'string' && p !== '')
+      : [],
+    brewPrefix: stringOr(report.bb_brew_prefix),
   };
 };

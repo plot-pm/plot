@@ -156,6 +156,18 @@ export interface StackReadings {
    * form of agreement.
    */
   hostDefaultBranchAsked: boolean;
+  /**
+   * The first line `bb --version` printed, with ANSI escapes stripped.
+   *
+   * `''` where no `bb` answered. `null` or absent where the collector did not
+   * ask, which it does only on a Bitbucket repository: an unasked reading is
+   * not an absent `bb`.
+   */
+  bbVersionLine?: string | null;
+  /** Every `bb` on `PATH`, in `PATH` order. Empty where none was found or none was asked. */
+  bbPaths?: readonly string[];
+  /** What `brew --prefix` printed, or `''` where no `brew` answered. */
+  brewPrefix?: string;
 }
 
 /** What the readings propose about the Node on this machine. */
@@ -260,6 +272,27 @@ export interface CiInstanceProposal {
   key: string | null;
 }
 
+/** The command that installs Quatico's `bb`, naming the tap and the formula. */
+export const BB_INSTALL = 'brew install quatico-solutions/tap/quatico-bb';
+
+/**
+ * Which `bb` answers on this machine.
+ *
+ * - `quatico` — Quatico's `bb` answers; `version` is the version its line names, or `''`.
+ * - `absent` — no `bb` printed a version line.
+ * - `other` — the `bb` that answers is not Quatico's; `line` is what it printed.
+ * - `shadowed` — the first `bb` on `PATH` is not under `brew --prefix`, and a
+ *   later one is; `first` answers and `others` are every later path.
+ *
+ * `install` is the command that ends the state, and `brew` is whether a `brew`
+ * answered on this machine to run it.
+ */
+export type BbCliProposal =
+  | { state: 'quatico'; version: string }
+  | { state: 'absent'; install: string; brew: boolean }
+  | { state: 'other'; line: string; install: string; brew: boolean }
+  | { state: 'shadowed'; first: string; others: readonly string[] };
+
 /** Everything the readings propose, each answer carrying its evidence. */
 export interface StackProposal {
   /** What Node this machine runs, and whether it is enough. */
@@ -297,6 +330,8 @@ export interface StackProposal {
    * the one place the question is put.
    */
   defaultBranch: DefaultBranchProposal;
+  /** Which `bb` answers, or `null` where the collector did not ask. */
+  bbCli: BbCliProposal | null;
 }
 
 /**
@@ -682,6 +717,48 @@ const proposesInstanceKey = (
 };
 
 /**
+ * Whether a `bb --version` line names a `bb` other than Quatico's.
+ *
+ * True where the line holds a hex string in parentheses, the form
+ * craftamap/bb prints (`bb version 0.6.0 (abc1234)`). Quatico's `bb` prints
+ * `bb 1.12.0`, or `bb 1.15.1 (quatico-bb — …)` from 1.13.0, and neither matches.
+ * `bb_identity_check` in `plot-host.sh` holds the same test, and
+ * `corpus/bb-identity.corpus.test.ts` holds the pair.
+ *
+ * @param line the first line `bb --version` printed.
+ * @returns true where the line names another `bb`; false for an empty line.
+ */
+export const bbLineIsOther = (line: string): boolean => /\([0-9a-f]+\)/.test(line);
+
+/**
+ * Which `bb` answers on this machine, from the probe's readings.
+ *
+ * `shadowed` needs a `brew --prefix` reading: without one no path can be told
+ * to be the Homebrew one, and the state follows from the version line alone.
+ *
+ * @param readings the probe's `bb` and `brew` readings.
+ * @returns the state, or `null` where `bbVersionLine` was not asked.
+ */
+export const proposeBbCli = (
+  readings: Pick<StackReadings, 'bbVersionLine' | 'bbPaths' | 'brewPrefix'>,
+): BbCliProposal | null => {
+  const line = readings.bbVersionLine;
+  if (line === null || line === undefined) return null;
+  const paths = readings.bbPaths ?? [];
+  const prefix = (readings.brewPrefix ?? '').trim().replace(/\/+$/, '');
+  const brew = prefix !== '';
+  const underBrew = (path: string): boolean => brew && path.startsWith(`${prefix}/bin/`);
+  const [first, ...others] = paths;
+  if (first !== undefined && !underBrew(first) && others.some(underBrew)) {
+    return { state: 'shadowed', first, others };
+  }
+  const trimmed = line.trim();
+  if (trimmed === '') return { state: 'absent', install: BB_INSTALL, brew };
+  if (bbLineIsOther(trimmed)) return { state: 'other', line: trimmed, install: BB_INSTALL, brew };
+  return { state: 'quatico', version: /\d+\.\d+\.\d+/.exec(trimmed)?.[0] ?? '' };
+};
+
+/**
  * Everything a probe's readings propose.
  *
  * THE ONE ENTRY POINT THE SKILLS CALL, through `plot-propose-stack.mjs`. The
@@ -726,4 +803,5 @@ export const proposeStack = (readings: StackReadings): StackProposal => ({
     readings.hostDefaultBranch,
     readings.hostDefaultBranchAsked,
   ),
+  bbCli: proposeBbCli(readings),
 });

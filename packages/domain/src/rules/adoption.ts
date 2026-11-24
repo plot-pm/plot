@@ -408,6 +408,29 @@ const mainBranchKey = (input: AdoptionInput): { key: ConfigKey | null; gap: stri
   };
 };
 
+/**
+ * The gap adoption announces for the `bb` CLI, or `''` where none is owed.
+ *
+ * A `null` or absent proposal is a `bb` nobody asked about, which is every
+ * repository not on Bitbucket, and announces nothing.
+ *
+ * @param input everything adoption decides by.
+ * @returns the gap line, or `''` for Quatico's `bb` and for no reading.
+ */
+const bbCliGap = (input: AdoptionInput): string => {
+  const read = input.proposal.bbCli ?? null;
+  if (read === null || read.state === 'quatico') return '';
+  if (read.state === 'shadowed') {
+    return `bb at ${read.first} shadows the Homebrew bb at ${read.others.join(', ')} on PATH — remove it or put $(brew --prefix)/bin first`;
+  }
+  const remedy = read.brew
+    ? `install it with ${read.install}`
+    : `no brew on PATH — install Homebrew, then run ${read.install}`;
+  return read.state === 'absent'
+    ? `no bb on PATH, and plot-host.sh needs Quatico's bb on Bitbucket — ${remedy}`
+    : `bb is not Quatico's bb (${read.line}) — ${remedy}`;
+};
+
 const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
   const confirmed = input.answers.ci;
   if (confirmed !== '') {
@@ -554,6 +577,6 @@ export const composeAdoption = (input: AdoptionInput): AdoptionResult => {
     creates: hub.creates,
     keys,
     ignoreLine: ignoreLineFor(root),
-    gaps: [tracker.gap, prefixes.gap, ci.gap, mainBranch.gap].filter((g) => g !== ''),
+    gaps: [tracker.gap, prefixes.gap, ci.gap, mainBranch.gap, bbCliGap(input)].filter((g) => g !== ''),
   };
 };
