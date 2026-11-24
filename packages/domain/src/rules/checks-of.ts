@@ -1,3 +1,5 @@
+import { MAIN_HOLD_STATUS_CONTEXT } from './main-hold-status.js';
+
 /**
  * One item of a pull request's check rollup, as `gh pr list --json
  * statusCheckRollup` exports it: a check run carries `name`, `status` and
@@ -82,11 +84,17 @@ export const checksOf = (rollup: readonly RollupItem[] | null | undefined): Chec
 export const PLOT_REVIEW_CONTEXT = 'plot/review';
 
 /**
- * The colour of a rollup without its `plot/review` item: jq's `ci_checks_of`.
- * An item is left out where its `context`, or else its `name`, is `plot/review`.
+ * The status contexts fleetd writes about a pull request rather than about its code:
+ * the review verdict and the default-branch hold. Neither is the PR's own CI.
+ */
+export const PLOT_STATUS_CONTEXTS: readonly string[] = [PLOT_REVIEW_CONTEXT, MAIN_HOLD_STATUS_CONTEXT];
+
+/**
+ * The colour of a rollup without its `plot/review` and `plot/main` items: jq's `ci_checks_of`.
+ * An item is left out where its `context`, or else its `name`, is one of `PLOT_STATUS_CONTEXTS`.
  *
  * @param rollup - the exported `statusCheckRollup`; null where `gh` exported none.
  * @returns the colour of the other items.
  */
 export const ciChecksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour =>
-  colourOf((rollup ?? []).filter((item) => jqOr(item.context, jqOr(item.name, '')) !== PLOT_REVIEW_CONTEXT));
+  colourOf((rollup ?? []).filter((item) => !PLOT_STATUS_CONTEXTS.some((context) => context === jqOr(item.context, jqOr(item.name, '')))));

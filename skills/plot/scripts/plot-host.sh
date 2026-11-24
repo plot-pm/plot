@@ -699,7 +699,7 @@ CHECKS_OF='def ck: (.conclusion // "") as $k | (.status // "") as $s | (if $s !=
   elif ($w|IN("","QUEUED","IN_PROGRESS","WAITING","REQUESTED","PENDING","EXPECTED")) then "wait"
   elif $s == "" and $w == "SUCCESS" then "ok" else "bad" end;
   def colour_of($r): if ($r|length) == 0 then "none" elif any($r[]; ck == "bad") then "failing" elif any($r[]; ck == "wait") then "pending" else "green" end;
-  def checks_of: colour_of(.statusCheckRollup // []); def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") != "plot/review")]);'
+  def checks_of: colour_of(.statusCheckRollup // []); def ci_checks_of: colour_of([.statusCheckRollup[]? | select((.context // .name // "") as $c | ($c != "plot/review" and $c != "plot/main"))]);'
 
 # THE ONE FOLD of a PR's mergeability into a word, for `pr-list --rich` and both
 # `pr-state` transports. GraphQL says `mergeable` CONFLICTING|MERGEABLE|UNKNOWN

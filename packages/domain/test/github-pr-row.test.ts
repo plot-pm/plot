@@ -45,6 +45,9 @@ describe('colourOf, checksOf and ciChecksOf', () => {
     expect(ciChecksOf([{ context: 'plot/review', state: 'FAILURE' }, { state: 'SUCCESS', context: 'ci' }])).toBe('green');
     expect(ciChecksOf([{ name: 'plot/review', status: 'COMPLETED', conclusion: 'FAILURE' }])).toBe('none');
     expect(ciChecksOf(null)).toBe('none');
+    expect(ciChecksOf([{ context: 'plot/main', state: 'FAILURE' }, { state: 'SUCCESS', context: 'ci' }])).toBe('green');
+    expect(ciChecksOf([{ context: 'plot/main', state: 'FAILURE' }])).toBe('none');
+    expect(checksOf([{ context: 'plot/main', state: 'FAILURE' }])).toBe('failing');
   });
 });
 
