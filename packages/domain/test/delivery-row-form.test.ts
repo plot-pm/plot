@@ -672,4 +672,9 @@ describe('the unbooked release row', () => {
     expect(bookReleasedAction({ version: 'v2.36.0', plans: [], sprintOpen: null }))
       .toEqual({ label: 'Book as Released', version: 'v2.36.0', enabled: false, reason: 'nothing is owed' });
   });
+
+  it('names nothing where no plan is owed and no sprint is open', () => {
+    const row = unbookedReleaseRow({ version: 'v2.36.0', plans: [], sprintOpen: null });
+    expect([row.status, row.names, row.action.enabled]).toEqual(['unbooked · v2.36.0 · 0 plans', null, false]);
+  });
 });
