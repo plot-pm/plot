@@ -428,6 +428,14 @@ describe('finalControllerRefusal', () => {
     expect(text).not.toContain('plot-state-receipt.sh');
     expect(text).not.toContain('plot-restart-command');
   });
+
+  it('names the board button and the release-finish bundle for release-finish, with no receipt bypass', () => {
+    const text = finalControllerRefusal('release-finish', dir);
+    expect(text).toContain('POST /api/release-finish');
+    expect(text).toContain(`node ${dir}/board/plot-ask.mjs release-finish <version>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+    expect(text).not.toContain('plot-restart-command');
+  });
 });
 
 describe('mergeCalls', () => {
