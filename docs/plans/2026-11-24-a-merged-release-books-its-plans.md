@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3702 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-release-reading-names-unbooked-plans`
+- **Started:** 2026-11-24, Jan Wloka, `bug/a-person-books-a-merged-release`
 
 ## Changelog
 
