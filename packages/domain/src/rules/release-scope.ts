@@ -184,7 +184,7 @@ export const sprintStatusField = (content: string, names: readonly string[]): st
  * @returns the slug, the `State:` (or legacy `Phase:`), the `Start:`, the `Release:` and the scope slugs.
  */
 export const releaseScopeSprintOf = (file: string, content: string): ReleaseScopeSprint => ({
-  slug: (file.split('/').pop() ?? file).replace(/\.md$/, '').replace(/^\d{4}-W\d{2}-/, ''),
+  slug: file.slice(file.lastIndexOf('/') + 1).replace(/\.md$/, '').replace(/^\d{4}-W\d{2}-/, ''),
   state: sprintStatusField(content, ['State', 'Phase']),
   start: sprintStatusField(content, ['Start']),
   release: sprintStatusField(content, ['Release']),

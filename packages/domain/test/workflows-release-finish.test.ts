@@ -123,6 +123,22 @@ describe('releaseFinish — books a release in one commit', () => {
     expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-unbookable' });
   });
 
+  it('names a sprint slug that no plan file carries as having no plan file', () => {
+    const out = releaseFinish(readings({ scope: [plan('a')], sprints: [sprint({ slugs: ['a', 'zz'] })] }), input);
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'plan-unbookable' });
+    if (out.outcome === 'refused') expect(out.detail).toContain('zz (no plan file)');
+  });
+
+  it('names the sprint file where the active index names none', () => {
+    const unlinked = (slug: string) => sprint({ slug, file: `docs/sprints/2026-${slug}.md`, link: '' });
+    const ambiguous = releaseFinish(readings({ sprints: [unlinked('w44'), unlinked('w46')] }), input);
+    expect(ambiguous).toMatchObject({ outcome: 'refused', reason: 'sprint-ambiguous' });
+    if (ambiguous.outcome === 'refused') expect(ambiguous.detail).toContain('docs/sprints/2026-w44.md, docs/sprints/2026-w46.md');
+    const mismatch = releaseFinish(readings({ sprints: [sprint({ link: '', release: '2.31.0' })] }), input);
+    expect(mismatch).toMatchObject({ outcome: 'refused', reason: 'release-scope-mismatch' });
+    if (mismatch.outcome === 'refused') expect(mismatch.detail).toContain('open sprint docs/sprints/2026-w44.md names');
+  });
+
   it('books with no sprint to close, from the shipped changesets alone', () => {
     const shipped = ['a', 'b', 'c'].map((slug) => ({ file: `${slug}.md`, plan: `docs/plans/2026-10-01-${slug}.md` }));
     const out = releaseFinish(readings({ sprints: [], shipped }), input);
@@ -237,6 +253,14 @@ describe('releaseFinish — plans outside the sprint', () => {
     const text = notesOf(r).join('\n');
     expect(text).toContain('p (phase approved)');
     expect(text).toContain('ghost (no plan file)');
+  });
+
+  it('names nothing for a named Delivered plan that already holds its Released record', () => {
+    const r = readings({ outside: [plan('r', { releasedRecord: '2026-09-01, v2.29.0' })], shipped: [named('r')] });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c']);
+    expect(out.detail.notes).toEqual([]);
   });
 
   it('books the scope and names shipped-unread where the changesets are unaskable', () => {

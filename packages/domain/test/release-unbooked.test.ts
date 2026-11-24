@@ -4,11 +4,19 @@ import { describe, expect, it } from 'vitest';
 
 import type { Finding } from '../src/entities/finding.js';
 import type { ReleaseChangeset } from '../src/rules/release-prepare.js';
-import { releaseScopeSprintOf, type ReleaseScopePlan, type ReleaseScopeSprint } from '../src/rules/release-scope.js';
+import {
+  releaseOwes,
+  releaseScope,
+  releaseScopeSprintOf,
+  sprintStatusField,
+  type ReleaseScopePlan,
+  type ReleaseScopeSprint,
+} from '../src/rules/release-scope.js';
 import {
   RELEASE_UNBOOKED_BRANCH,
   releaseUnbooked,
   releaseUnbookedDiff,
+  releaseUnbookedEvidence,
   type ReleaseUnbookedReadings,
 } from '../src/rules/release-unbooked.js';
 import { releaseFinish, type ScopePlan } from '../src/workflows/release-finish.js';
@@ -174,5 +182,41 @@ describe('releaseUnbookedDiff — the channel slot', () => {
     const { clear } = releaseUnbookedDiff(held, 'none', NOW);
     expect(clear).toMatchObject([{ monitor: 'ReleaseMonitor', finding: 'clear' }]);
     expect(releaseUnbookedDiff([], 'none', NOW)).toEqual({ publish: [], clear: [] });
+  });
+});
+
+describe('releaseScope — the sprints and plans of a release', () => {
+  it('admits an open unnamed sprint that starts on or before the tag date, or has no start', () => {
+    const sprints = [
+      sprint({ slug: 'no-start', state: 'Active', release: '', start: '' }),
+      sprint({ slug: 'before', state: 'Active', release: '', start: '2026-11-20' }),
+      sprint({ slug: 'on', state: 'Active', release: '', start: '2026-11-23' }),
+      sprint({ slug: 'after', state: 'Active', release: '', start: '2026-11-30' }),
+      sprint({ slug: 'closed', state: 'Closed', release: '', start: '2026-11-01' }),
+    ];
+    const scope = releaseScope('v2.36.0', '2026-11-23T09:00:00Z', sprints, []);
+    expect(scope.sprints.map((s) => s.slug)).toEqual(['no-start', 'before', 'on']);
+  });
+
+  it('owes a Released sprint plan its record, and never a Released plan only a changeset names', () => {
+    const released = plan('a', { phase: 'released' });
+    expect(releaseOwes(released, true)).toBe(true);
+    expect(releaseOwes(released, false)).toBe(false);
+  });
+
+  it('reads a sprint file with no Status section as empty fields, its slug from a bare file name', () => {
+    expect(releaseScopeSprintOf('2026-W47-w47.md', '# W47\n')).toEqual({ slug: 'w47', state: '', start: '', release: '', slugs: [] });
+  });
+
+  it('answers the first field name the Status section holds, and empty where it holds none', () => {
+    const content = '## Status\n- **Phase:** Active\n';
+    expect(sprintStatusField(content, ['State', 'Phase'])).toBe('Active');
+    expect(sprintStatusField(content, ['Release'])).toBe('');
+  });
+});
+
+describe('releaseUnbookedEvidence — the finding line', () => {
+  it('names an open sprint and omits the plan list where no plan is owed', () => {
+    expect(releaseUnbookedEvidence({ version: 'v2.36.0', plans: [], sprintOpen: 'w47' })).toBe('v2.36.0: 0 plan(s) unbooked; sprint w47 open');
   });
 });
