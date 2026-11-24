@@ -255,6 +255,7 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
     ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
+    ['release-finish', 'curl -X POST http://localhost:4000/api/release-finish'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -357,6 +358,10 @@ describe('controllerHttpAction', () => {
 
   it('answers null for a GET', () => {
     expect(controllerHttpAction('curl http://localhost:4000/api/release')).toBeNull();
+  });
+
+  it('does not read a release-finish POST as release', () => {
+    expect(controllerHttpAction('curl -X POST http://localhost:4000/api/release-finish')).not.toBe('release');
   });
 });
 
