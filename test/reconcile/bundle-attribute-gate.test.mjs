@@ -225,6 +225,31 @@ test('build.mjs and the board contract name the same bundle set', () => {
   assert.match(build, /bundles\.generated\.ts/,
     'build.mjs must write the generated module, or nothing keeps it fresh');
 
+  //    THE ENTRY PAIRS the selection reads. Each esbuild call names an entry
+  //    source and an `outfile` variable; a copy takes that variable to a
+  //    shipped binding. The pairs must equal what that text says, so a
+  //    hand-edited list fails here before a bundle is added.
+  const shippedBy = new Map([...build.matchAll(/const (shipped[A-Za-z]*) = path\.join\(\s*here,\s*'\.\.\/\.\.\/([^']*)',?\s*\)/g)]
+    .map((m) => [m[1], m[2]]));
+  const entryBy = new Map([...build.matchAll(/entryPoints:\s*\[\s*path\.join\(\s*here,\s*'(src\/[^']*)'\s*\)\s*\],(?:(?!entryPoints)[^])*?outfile:\s*([A-Za-z]\w*)/g)]
+    .map((m) => [m[2], `packages/board/${m[1]}`]));
+  const built = [...build.matchAll(/fs\.copyFileSync\(\s*([A-Za-z]\w*),\s*(shipped[A-Za-z]*)\s*\)/g)]
+    .filter((m) => entryBy.has(m[1]) && shippedBy.has(m[2]))
+    .map((m) => `${entryBy.get(m[1])} ${shippedBy.get(m[2])}`).sort();
+  const entries = generated.match(/BOARD_BUNDLE_ENTRIES: readonly BoardBundleEntry\[\] = \[([^\]]*)\]/);
+  assert.ok(entries, 'bundles.generated.ts declares no BOARD_BUNDLE_ENTRIES in the shape this test reads');
+  const pairs = [...entries[1].matchAll(/\{ entry: '([^']+)', shipped: '([^']+)' \}/g)].map((m) => `${m[1]} ${m[2]}`).sort();
+  assert.ok(pairs.length > 0, 'BOARD_BUNDLE_ENTRIES is empty — the entry derivation is blind');
+  assert.deepEqual(pairs, built,
+    'BOARD_BUNDLE_ENTRIES is stale — run `pnpm build:board` and commit the result');
+  assert.ok(pairs.includes('packages/board/src/server/entry/needs-design.ts skills/plot/scripts/board/plot-needs-design.mjs'),
+    'BOARD_BUNDLE_ENTRIES must pair needs-design.ts with plot-needs-design.mjs');
+  for (const pair of pairs) {
+    const [entry, shipped] = pair.split(' ');
+    assert.ok(existsSync(path.join(root, entry)), `the entry ${entry} is not a file`);
+    assert.ok(emitted.includes(shipped), `the bundle ${shipped} is not in BOARD_ARTIFACT_PATHS`);
+  }
+
   // 3. EVERY DERIVED ENTRY IS A REAL FILE. The derivation reads `build.mjs` as
   //    TEXT, so any complete declaration written in a COMMENT is matched by it
   //    and lands in the set as a bundle nothing emits — and the pattern spans
