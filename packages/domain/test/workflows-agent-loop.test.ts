@@ -2126,6 +2126,92 @@ describe('agentLoop — Slice max spend', () => {
   });
 });
 
+describe('agentLoop — Slice max tokens', () => {
+  const tokens = (input: number, output: number, cacheCreation: number, cacheRead: number) => ({
+    inputTokens: input,
+    outputTokens: output,
+    cacheCreationTokens: cacheCreation,
+    cacheReadTokens: cacheRead,
+  });
+  const ran = { ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'ran' } } as const;
+  // Each of the five sites that start a run, by the readings that reach it.
+  const sites: readonly (readonly [string, AgentLoopReadings])[] = [
+    [
+      'a failed CI build with correction budget left',
+      { ...ran, pushed: true, prOpen: true, checks: 'settled', checksPassed: false, correctionAttempts: 0, correctionBudget: 2 },
+    ],
+    [
+      'a merge-conflict correction',
+      { ...ran, pushed: true, prOpen: true, checks: null, mergeable: 'conflicting', correctionAttempts: 0, correctionBudget: 2 },
+    ],
+    ['take-up', { ...freeLoop, assignedBranch: BRANCH }],
+    [
+      'a turn that dropped its background work',
+      { ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'dropped', line: 'a background job was dropped' }, resumeId: 'sess-7' },
+    ],
+    [
+      'a checks hand-back with the local checks answered',
+      { ...ran, handBack: 'checks', checksResumeId: 'sess-123', localChecks: { passed: true } },
+    ],
+  ];
+  const startsRun = (writes: readonly Write[]) =>
+    writes.some((w) => w.kind === 'agent-resume' || w.kind === 'prompt-run' || w.kind === 'desk-reset');
+
+  it.each(sites)('%s: at the cap starts no run and ends spend-limit with a blocked declaration', (_name, readings) => {
+    const result = agentLoop({ ...readings, sliceTokens: tokens(400, 400, 200, 0), sliceMaxTokens: 1000 });
+    expect(startsRun(result.writes)).toBe(false);
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+    expect(endWrite(result.writes)?.actor).toBe('agent');
+    expect(declarationWrite(result.writes)?.status).toBe('blocked');
+  });
+
+  it.each(sites)('%s: under the cap the decision equals the decision with no key', (_name, readings) => {
+    const under = agentLoop({ ...readings, sliceTokens: tokens(400, 400, 199, 0), sliceMaxTokens: 1000 });
+    expect(endWrite(under.writes)?.reason).not.toBe('spend-limit');
+    expect(under).toEqual(agentLoop(readings));
+  });
+
+  it.each(sites)('%s: cache-read tokens far past the cap do not count', (_name, readings) => {
+    const result = agentLoop({ ...readings, sliceTokens: tokens(10, 10, 10, 50_000_000), sliceMaxTokens: 1000 });
+    expect(result).toEqual(agentLoop(readings));
+  });
+
+  it.each(sites)('%s: an unread reading starts the run', (_name, readings) => {
+    const result = agentLoop({ ...readings, sliceTokens: null, sliceMaxTokens: 1000 });
+    expect(result).toEqual(agentLoop(readings));
+  });
+
+  it('an absent key asks nothing of the tokens', () => {
+    const readings = { ...freeLoop, assignedBranch: BRANCH, sliceTokens: tokens(10 ** 9, 0, 0, 0) };
+    expect(agentLoop(readings)).toEqual(agentLoop({ ...freeLoop, assignedBranch: BRANCH }));
+    expect(agentLoop({ ...readings, sliceMaxTokens: null })).toEqual(agentLoop({ ...freeLoop, assignedBranch: BRANCH }));
+  });
+
+  it('with both keys set, the dollar limit ends the slice while the tokens are under', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      sliceCostUsd: 5,
+      sliceMaxSpendUsd: 5,
+      sliceTokens: tokens(1, 1, 1, 0),
+      sliceMaxTokens: 1000,
+    });
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+  });
+
+  it('with both keys set, the token cap ends the slice while the dollars are under', () => {
+    const result = agentLoop({
+      ...freeLoop,
+      assignedBranch: BRANCH,
+      sliceCostUsd: 1,
+      sliceMaxSpendUsd: 5,
+      sliceTokens: tokens(1000, 0, 0, 0),
+      sliceMaxTokens: 1000,
+    });
+    expect(endWrite(result.writes)?.reason).toBe('spend-limit');
+  });
+});
+
 describe('agentLoop — the ends only an SDK run reports', () => {
   it('a bound abort ends bound, attributed to the bound, with a gone finding', () => {
     const result = agentLoop({ ...freeLoop, assignedBranch: BRANCH, exit: { answer: 'bound' } });

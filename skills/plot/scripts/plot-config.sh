@@ -166,6 +166,12 @@
 #                       spend record before each run. Both: absent/blank = no
 #                       limit; present and unreadable (0, negative, text) refuses
 #                       the worker's start.
+#   Slice max tokens    tokens one slice's runs may total on either runner:
+#                       input + output + cache-creation; cache reads count 0.
+#                       Read before each run from the slice-spend record plus
+#                       the desk's unsealed transcripts; at the cap the slice
+#                       ends `spend-limit`. Absent/blank = no limit; present and
+#                       not a positive whole number refuses the worker's start.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none

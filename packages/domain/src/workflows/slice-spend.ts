@@ -8,7 +8,7 @@ import {
 import type { SliceSpendRecord } from '../ports/slice-spend.js';
 import type { AgentRunResult } from '../ports/agent-run.js';
 import { planSpend, type PlanSpend } from '../rules/plan-spend.js';
-import { tokensForBranch } from '../rules/slice-tokens.js';
+import { tokensForBranch, type SliceTokens, type TokenCounts } from '../rules/slice-tokens.js';
 import { readSpend, type SpendRead } from '../rules/slice-spend-record.js';
 
 /**
@@ -42,6 +42,100 @@ export type SpendWriteRefusal =
 export type SpendWriteOutcome =
   | { ok: true; record: SliceSpendSeal }
   | { ok: false; refusal: SpendWriteRefusal };
+
+/** What {@link unsealedTokens} read: the sum, or why there is none. */
+type UnsealedRead =
+  | { ok: true; totals: SliceTokens }
+  | { ok: false; refusal: 'transcripts-unreadable' | 'run-lines-only' | 'no-turns' };
+
+/**
+ * Sums one branch's desk transcripts over the sessions the record holds no run
+ * line for, and writes nothing.
+ *
+ * @param record - the port that reads transcripts and keeps the record.
+ * @param input - the desk and the branch.
+ * @returns the branch's totals over those sessions; `transcripts-unreadable`
+ *   where the desk's transcripts could not be read, `run-lines-only` where
+ *   every session has a run line, `no-turns` where no session carried a turn
+ *   on the branch.
+ */
+const unsealedTokens = async (
+  record: SliceSpendRecord,
+  input: { worktree: string; branch: string },
+): Promise<UnsealedRead> => {
+  const existing = await record.lines();
+  const runSessions = new Set<string>();
+  if (existing.ok) {
+    for (const line of existing.value) {
+      const decoded = decodeSliceSpend(line);
+      if (decoded === null) continue;
+      if (decoded.branch !== input.branch) continue;
+      if (!isRunLine(decoded)) continue;
+      runSessions.add(decoded.sessionId);
+    }
+  }
+
+  const sessions = await record.sessions(input.worktree);
+  // READ THE EXIT CODE, NOT THE EMPTINESS. An unreadable directory and an empty
+  // one are different answers, and only one of them says the run was free.
+  if (!sessions.ok) return { ok: false, refusal: 'transcripts-unreadable' };
+
+  const sealable = sessions.value.filter((session) => !runSessions.has(session.sessionId));
+  if (sessions.value.length > 0 && sealable.length === 0) {
+    return { ok: false, refusal: 'run-lines-only' };
+  }
+
+  const totals = tokensForBranch(
+    sealable.map((session) => session.lines),
+    input.branch,
+  );
+  if (totals === null) return { ok: false, refusal: 'no-turns' };
+  return { ok: true, totals };
+};
+
+/**
+ * Sums one counter set into another, returning a new one.
+ */
+const addTokens = (a: TokenCounts, b: TokenCounts): TokenCounts => ({
+  inputTokens: a.inputTokens + b.inputTokens,
+  outputTokens: a.outputTokens + b.outputTokens,
+  cacheCreationTokens: a.cacheCreationTokens + b.cacheCreationTokens,
+  cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+});
+
+/** A zero of every counter. */
+const zeroTokens = (): TokenCounts => ({ inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 });
+
+/** What {@link readSliceTokens} read for one branch. */
+export type SliceTokensRead =
+  | { readonly kind: 'read'; readonly tokens: TokenCounts }
+  | { readonly kind: 'unread'; readonly reason: string };
+
+/**
+ * Reads what one slice has spent in tokens so far: the record's derived total
+ * for the branch plus the desk's transcripts the record holds no line for yet.
+ * Writes nothing.
+ *
+ * A branch with no record line and no turn in its transcripts reads zero.
+ *
+ * @param record - the port that reads transcripts and keeps the record.
+ * @param input - the desk and the branch.
+ * @returns the summed counters; `unread`, with the reason, where the record or
+ *   the desk's transcripts could not be read.
+ */
+export const readSliceTokens = async (
+  record: SliceSpendRecord,
+  input: { worktree: string; branch: string },
+): Promise<SliceTokensRead> => {
+  const sealed = await readSliceSpend(record, input.branch);
+  if (sealed.state === 'unreadable') return { kind: 'unread', reason: 'the slice-spend record could not be read' };
+  const unsealed = await unsealedTokens(record, input);
+  if (!unsealed.ok && unsealed.refusal === 'transcripts-unreadable') {
+    return { kind: 'unread', reason: "the desk's session transcripts could not be read" };
+  }
+  const base = sealed.tokens ?? zeroTokens();
+  return { kind: 'read', tokens: unsealed.ok ? addTokens(base, unsealed.totals.tokens) : base };
+};
 
 /**
  * Sums a desk's transcripts for one branch and appends the record.
@@ -90,33 +184,9 @@ export const recordSliceSpend = async (
 ): Promise<SpendWriteOutcome> => {
   if (input.branch === '' || input.worktree === '') return { ok: false, refusal: 'no-branch' };
 
-  const existing = await record.lines();
-  const runSessions = new Set<string>();
-  if (existing.ok) {
-    for (const line of existing.value) {
-      const decoded = decodeSliceSpend(line);
-      if (decoded === null) continue;
-      if (decoded.branch !== input.branch) continue;
-      if (!isRunLine(decoded)) continue;
-      runSessions.add(decoded.sessionId);
-    }
-  }
-
-  const sessions = await record.sessions(input.worktree);
-  // READ THE EXIT CODE, NOT THE EMPTINESS. An unreadable directory and an empty
-  // one are different answers, and only one of them says the run was free.
-  if (!sessions.ok) return { ok: false, refusal: 'transcripts-unreadable' };
-
-  const sealable = sessions.value.filter((session) => !runSessions.has(session.sessionId));
-  if (sessions.value.length > 0 && sealable.length === 0) {
-    return { ok: false, refusal: 'run-lines-only' };
-  }
-
-  const totals = tokensForBranch(
-    sealable.map((session) => session.lines),
-    input.branch,
-  );
-  if (totals === null) return { ok: false, refusal: 'no-turns' };
+  const unsealed = await unsealedTokens(record, input);
+  if (!unsealed.ok) return unsealed;
+  const totals = unsealed.totals;
 
   const written: SliceSpendSeal = {
     branch: totals.branch,

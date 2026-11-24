@@ -10,6 +10,8 @@ import { backgroundDropCorrection } from '../rules/background-drop.js';
 import { mergeConflictCorrection } from '../rules/merge-conflict.js';
 import { runLimitRefusal } from '../rules/run-limit.js';
 import { sliceSpendRefusal } from '../rules/slice-spend-refusal.js';
+import { sliceTokenCap } from '../rules/slice-token-cap.js';
+import type { TokenCounts } from '../rules/slice-tokens.js';
 import type { EndingActor, EndingReason, IdleInputs } from '../entities/ending.js';
 import { type Decision, type Write, decide } from './decision.js';
 
@@ -154,6 +156,14 @@ export interface AgentLoopReadings {
   readonly sliceCostUsd: number | null;
   /** `Slice max spend`, in dollars; `null` where the key is absent — no default stands in for it. */
   readonly sliceMaxSpendUsd: number | null;
+  /**
+   * What the slice has spent in tokens so far, from `readSliceTokens`: the
+   * record's total plus the desk's unsealed transcripts. `null` where they
+   * could not be read. Read only where {@link sliceMaxTokens} is a number.
+   */
+  readonly sliceTokens?: TokenCounts | null;
+  /** `Slice max tokens`; absent or `null` where the key is absent — no default stands in for it. */
+  readonly sliceMaxTokens?: number | null;
   /**
    * Why this desk may not be reset — empty when nothing holds it. Read at
    * take-up and after a `ran` exit. After a `ran` exit, any entry ends the
@@ -411,9 +421,29 @@ const runLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<A
 };
 
 /**
+ * Why this slice may start no further run on its spend, or `null` where it may.
+ * `Slice max spend` is asked first, then `Slice max tokens`. A key that is
+ * `null` or absent asks its rule nothing. A token reading that is `unread`
+ * starts the run.
+ *
+ * @param readings - this pass's readings.
+ * @returns the ending's summary, or `null`.
+ */
+const spendLimitSummary = (readings: AgentLoopReadings): string | null => {
+  if (readings.sliceMaxSpendUsd !== null && sliceSpendRefusal({ costUsd: readings.sliceCostUsd }, readings.sliceMaxSpendUsd)) {
+    return `the slice's recorded cost reached the Slice max spend limit of $${readings.sliceMaxSpendUsd}`;
+  }
+  const cap = readings.sliceMaxTokens ?? null;
+  if (cap !== null && sliceTokenCap(readings.sliceTokens ?? null, cap) === 'reached') {
+    return `the slice's tokens reached the Slice max tokens limit of ${cap}`;
+  }
+  return null;
+};
+
+/**
  * The `spend-limit` ending where this slice may start no further run because
- * its recorded cost reached `Slice max spend`, or `null` where the next run
- * may start.
+ * its recorded cost reached `Slice max spend` or its tokens reached `Slice max
+ * tokens`, or `null` where the next run may start.
  *
  * **ASKS NOTHING WHERE THE LIMIT IS UNCONFIGURED.** `sliceMaxSpendUsd` is
  * `null` for a project naming no `Slice max spend` key, and `sliceSpendRefusal`
@@ -425,9 +455,8 @@ const runLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<A
  * @returns the ending, with a `blocked` declaration, or `null`.
  */
 const spendLimitEnding = (readings: AgentLoopReadings, branch: string): Decision<AgentLoopDetail> | null => {
-  if (readings.sliceMaxSpendUsd === null) return null;
-  if (!sliceSpendRefusal({ costUsd: readings.sliceCostUsd }, readings.sliceMaxSpendUsd)) return null;
-  const summary = `the slice's recorded cost reached the Slice max spend limit of $${readings.sliceMaxSpendUsd}`;
+  const summary = spendLimitSummary(readings);
+  if (summary === null) return null;
   return end(readings.worktree, branch, 'spend-limit', 'agent', summary, 0, [
     blockedDeclaration(readings.worktree, branch, summary),
   ]);

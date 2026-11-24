@@ -68,7 +68,14 @@ import {
 } from '@plot-pm/domain/workflows/agent-loop';
 import { claimAnswer, type ClaimHolderAnswer } from '@plot-pm/domain/rules/claim';
 import type { Mergeability, Pr } from '@plot-pm/domain/entities/pr';
-import { readSliceSpend, recordSliceRun, recordSliceSpend, type RunWriteRefusal } from '@plot-pm/domain/workflows/slice-spend';
+import {
+  readSliceSpend,
+  readSliceTokens,
+  recordSliceRun,
+  recordSliceSpend,
+  type RunWriteRefusal,
+  type SliceTokensRead,
+} from '@plot-pm/domain/workflows/slice-spend';
 import { recordRunLimits } from '@plot-pm/domain/workflows/run-limits';
 import type { ResetRefusal } from '@plot-pm/domain/rules/reapable';
 import type { Agents, BoundedRun, Desk, Processes, Refs, Trees, Write } from '@plot-pm/domain';
@@ -222,6 +229,12 @@ export interface WorkerLoopPorts extends LoopWritePorts {
   readonly recordLimits: (result: AgentRunResult, at: number) => Promise<number>;
   /** What the slice-spend record reads for this branch, for `Slice max spend`. */
   readonly sliceCostUsd: (worktree: string, branch: string) => Promise<number | null>;
+  /**
+   * What this branch has spent in tokens so far, for `Slice max tokens`: the
+   * record's total plus the desk's transcripts the record holds no line for.
+   * Asked only where the key is set.
+   */
+  readonly sliceTokens: (worktree: string, branch: string) => Promise<SliceTokensRead>;
   /** Replaces this process's own image — {@link runWorkerLoop}'s one path to a self-restart. */
   readonly reexec: Reexec;
   /**
@@ -281,6 +294,8 @@ export const workerLoopPorts = async (
       const read = await readSliceSpend(sliceSpendFile({ cwd: worktree }), branch);
       return read.costUsd;
     },
+    sliceTokens: async (worktree: string, branch: string) =>
+      readSliceTokens(sliceSpendFile({ cwd: worktree }), { worktree, branch }),
     reexec: processExec(),
     resumeHandleReadings: (worktree: string, handle: string) => ({
       roleSessions: roleSessions(worktree),
@@ -899,6 +914,8 @@ export interface PassConfig {
   readonly sliceMaxRuns: number;
   /** `Slice max spend`, in dollars; `null` where the key is absent — no default stands in for it. */
   readonly sliceMaxSpendUsd: number | null;
+  /** `Slice max tokens`; absent or `null` where the key is absent — no default stands in for it. */
+  readonly sliceMaxTokens?: number | null;
   readonly base: string;
 }
 
@@ -930,6 +947,13 @@ export const readPass = async (
   // ASKED ONLY WHEN A BRANCH IS ASSIGNED — a reading for a place the pass is
   // not in is never asked of the world, `readPass`'s own doc comment.
   const sliceCostUsd = manifest.branch === '' ? null : await ports.sliceCostUsd(manifest.worktree, manifest.branch);
+  // ASKED ONLY WHERE `Slice max tokens` IS SET: an absent key reads no transcript.
+  const sliceMaxTokens = config.sliceMaxTokens ?? null;
+  const tokensRead =
+    sliceMaxTokens === null || manifest.branch === '' ? null : await ports.sliceTokens(manifest.worktree, manifest.branch);
+  if (tokensRead?.kind === 'unread') {
+    log(`plot-worker-loop: Slice max tokens unread for ${manifest.branch} — ${tokensRead.reason}; the run starts`);
+  }
 
   const base: AgentLoopReadings & { buildRun: ShaRun | null } = {
     buildRun: null,
@@ -961,6 +985,8 @@ export const readPass = async (
     sliceMaxRuns: config.sliceMaxRuns,
     sliceCostUsd,
     sliceMaxSpendUsd: config.sliceMaxSpendUsd,
+    sliceTokens: tokensRead?.kind === 'read' ? tokensRead.tokens : null,
+    sliceMaxTokens,
     resetRefusals: [],
     deskBranch: '',
     pushed: false,
@@ -2256,6 +2282,26 @@ export const dollarsOrUnset = (raw: string | undefined): DollarsReading => {
   return Number.isFinite(n) && n > 0 ? { kind: 'value', amount: n } : { kind: 'unreadable' };
 };
 
+/**
+ * A token count read from `Slice max tokens`: `unset` where the key is absent
+ * or blank (no limit); `value` for a positive whole number, surrounding blanks
+ * allowed; `unreadable` for anything else present — including `0`, a negative
+ * number and a fraction.
+ */
+export type TokensReading = { readonly kind: 'unset' } | { readonly kind: 'value'; readonly tokens: number } | { readonly kind: 'unreadable' };
+
+/**
+ * Reads a `## Plot Config` token count. Takes no fallback: an absent or blank
+ * key is `unset`, never a limit of `0`. A present value this cannot read is
+ * `unreadable`, and the caller refuses the start.
+ */
+export const tokensOrUnset = (raw: string | undefined): TokensReading => {
+  if (raw === undefined || raw.trim() === '') return { kind: 'unset' };
+  const match = /^\s*(\d+)\s*$/.exec(raw);
+  const n = match ? Number(match[1]) : NaN;
+  return Number.isSafeInteger(n) && n > 0 ? { kind: 'value', tokens: n } : { kind: 'unreadable' };
+};
+
 /** A {@link DollarsReading}'s amount, or `fallback` where it is not `value`. */
 const dollarsOrFallback = <T,>(reading: DollarsReading, fallback: T): number | T =>
   reading.kind === 'value' ? reading.amount : fallback;
@@ -2560,7 +2606,7 @@ export const restartDeps = async (
 };
 
 /** The `## Plot Config` keys the loop reads at start; {@link selfCheck} reads each. */
-const LOOP_CONFIG_KEYS = ['Worker bound', 'Checks wait', 'Correction budget', 'Slice max runs', 'Agent runner', 'Worker command'];
+const LOOP_CONFIG_KEYS = ['Worker bound', 'Checks wait', 'Correction budget', 'Slice max runs', 'Slice max tokens', 'Agent runner', 'Worker command'];
 
 /**
  * A candidate bundle's proof that it starts: builds the loop's ports and reads
@@ -2711,6 +2757,11 @@ export const main = async (
       return 1;
     }
   }
+  const maxTokens = tokensOrUnset(configKey(worktree, 'Slice max tokens'));
+  if (maxTokens.kind === 'unreadable') {
+    stderrLog(`plot-worker-loop: unreadable Slice max tokens "${configKey(worktree, 'Slice max tokens')}" — refusing to start`);
+    return 1;
+  }
   const boundSeconds = count(env.PLOT_WORKER_BOUND, count(configKey(worktree, 'Worker bound'), 28800));
   const manifestFile = env.PLOT_MANIFEST_FILE ?? '';
   const ports = await workerLoopPorts(
@@ -2818,6 +2869,7 @@ export const main = async (
       correctionBudget: count(env.PLOT_CORRECTION_BUDGET, count(configKey(worktree, 'Correction budget'), 2)),
       sliceMaxRuns: positive(configKey(worktree, 'Slice max runs'), DEFAULT_SLICE_MAX_RUNS),
       sliceMaxSpendUsd: dollarsOrFallback(dollarsOrUnset(configKey(worktree, 'Slice max spend')), null),
+      sliceMaxTokens: maxTokens.kind === 'value' ? maxTokens.tokens : null,
       base,
     },
     limitMarginSeconds: integer(env.PLOT_LIMIT_MARGIN_SECONDS, 60),
