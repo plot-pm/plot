@@ -1,4 +1,5 @@
 import type { Finding } from '@plot-pm/domain';
+import { planStoreRef } from '@plot-pm/domain/adapters/plan-store/plan-store-ref';
 import { fleetdLiveness } from '@plot-pm/domain/rules/fleetd-live';
 import type { FleetdHeartbeat } from '@plot-pm/domain/entities/fleetd-heartbeat';
 import {
@@ -25,13 +26,16 @@ export type OwnUnbookedRead = (opts: BuildBoardOptions) => Promise<ReleaseUnbook
  * @returns the rule's answer; `unaskable` where the default branch's name does not read.
  */
 export const ownUnbookedRead: OwnUnbookedRead = async (opts) => {
-  const estate = realEstate(opts);
-  const branch = await estate.refs.defaultBranch();
+  const { refs } = realEstate(opts);
+  const branch = await refs.defaultBranch();
   if (!branch.ok) return 'unaskable';
+  const ref = `origin/${branch.value}`;
+  // Plans read at the same ref as tags and sprints: the working tree lags a booking pushed from a temporary worktree.
+  const planDir = (await readConfigAsync(opts, 'Plan directory', 'docs/plans/')).replace(/\/+$/, '');
   const readings = await releaseUnbookedReadingsFor({
-    refs: estate.refs,
-    plans: estate.planStore,
-    ref: `origin/${branch.value}`,
+    refs,
+    plans: planStoreRef(refs, { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, ref, planDir),
+    ref,
     sprintDir: await readConfigAsync(opts, 'Sprint directory', 'docs/sprints/'),
   });
   return releaseUnbooked(readings);
