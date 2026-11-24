@@ -189,6 +189,10 @@ export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-recor
 // the machine, written by `plot-fleetd` only.
 export { baseRepairFile, repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
+// THE RELEASE-FINISH RECORD'S FILE ADAPTER. One file per version under
+// `.plot/state/release-finish/`, local to the machine, written by the finish.
+export { releaseFinishRecordFile, releaseFinishRecordPath } from './release-finish-record/release-finish-record-file.js';
+
 // THE PASSKEY'S FILE ADAPTER. One file under `.plot/state/`, written by the
 // board's registration route; the signature check is `node:crypto`.
 export { passkeyFile, passkeyPath } from './passkey/passkey-file.js';

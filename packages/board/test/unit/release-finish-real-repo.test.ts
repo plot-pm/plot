@@ -12,7 +12,8 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import { answered } from '@plot-pm/domain';
+import { answered, failed } from '@plot-pm/domain';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import type { Host } from '@plot-pm/domain';
 import { finishExitCode, finishRelease, finishReleaseVersion, type FinishContext } from '../../src/server/entry/release-finish.js';
 
@@ -639,5 +640,73 @@ describe('finishRelease against a real remote', () => {
     expect(pr.err).toContain('unattended');
     expect(version.outcome).toMatchObject({ outcome: 'refused', reason: 'unattended' });
     expect(originMain(origin)).toBe(before);
+  });
+
+  describe('the finish record', () => {
+    /** The record the finish left under the repository's real state home, or `null` where none exists. */
+    const recordOf = (repo: string, version: string): Record<string, unknown> | null => {
+      const answer = stateHomeAtSync(repo);
+      if (!('home' in answer)) throw new Error('the test repository has no state home');
+      try {
+        return JSON.parse(readFileSync(path.join(answer.home, '.plot/state/release-finish', `${version}.json`), 'utf8')) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    it('writes refused and tag-absent for a finish refused with tag-absent', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+
+      expect((await runVersion(ctx, '9.9.9')).code).toBe(1);
+
+      expect(recordOf(repo, 'v9.9.9')).toMatchObject({
+        v: 1, version: 'v9.9.9', caller: 'person', outcome: 'refused', reason: 'tag-absent', booked: [], sprintClosed: null,
+      });
+    });
+
+    it('writes booked with the slugs and the closed sprint, and a second finish replaces it with already-released', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+
+      expect((await run(ctx)).code).toBe(0);
+      const first = recordOf(repo, 'v1.2.3');
+      expect(first).toMatchObject({ v: 1, version: 'v1.2.3', caller: 'person', outcome: 'booked', reason: '', sprintClosed: 's' });
+      expect([...(first?.booked as string[])].sort()).toEqual(['alpha', 'beta', 'gamma']);
+      expect(Number.isNaN(Date.parse(String(first?.at)))).toBe(false);
+
+      expect((await runVersion(ctx, '1.2.3')).outcome.outcome).toBe('already-released');
+      expect(recordOf(repo, 'v1.2.3')).toMatchObject({ outcome: 'already-released', reason: '', booked: [], sprintClosed: null });
+    });
+
+    it('writes the refusal of default-branch-unfetched, which comes before the booking', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      git(repo, 'remote', 'set-url', 'origin', path.join(path.dirname(repo), 'no-such-origin.git'));
+
+      expect((await runVersion(ctx, '1.2.3')).code).toBe(1);
+
+      expect(recordOf(repo, 'v1.2.3')).toMatchObject({ outcome: 'refused', reason: 'default-branch-unfetched' });
+    });
+
+    it('writes nothing for version-invalid', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      await runVersion(ctx, '2.36');
+      expect(recordOf(repo, 'v2.36')).toBeNull();
+    });
+
+    it('keeps the outcome and exit code of a finish whose record write fails, and names the failure', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      const broken = { read: async () => failed(), write: async () => failed<void>() };
+
+      const { code, out, err } = await run({ ...ctx, records: broken });
+
+      expect(code).toBe(0);
+      expect(out).toContain('finished: v1.2.3');
+      expect(err).toContain('record-unwritten');
+      git(repo, 'fetch', '-q', 'origin', 'main');
+      expect(onMain(repo, 'docs/plans/2026-10-01-alpha.md')).toContain('- **State:** Released');
+
+      const refused = await runVersion({ ...ctx, records: broken }, '9.9.9');
+      expect(refused.outcome).toMatchObject({ outcome: 'refused', reason: 'tag-absent' });
+      expect(refused.code).toBe(1);
+    });
   });
 });

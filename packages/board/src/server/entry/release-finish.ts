@@ -8,6 +8,10 @@ import { planSlug, type ReleaseChangeset } from '@plot-pm/domain';
 import { releaseFinish, type FinishSprint, type ScopePlan } from '@plot-pm/domain/workflows/release-finish';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { deskRoot } from '@plot-pm/domain/rules/desk-root';
+import { RELEASE_FINISH_RECORD_VERSION } from '@plot-pm/domain/entities/release-finish-record';
+import type { ReleaseFinishRecordStore } from '@plot-pm/domain/ports/release-finish-record';
+
+import { releaseFinishRecordIn, stateHomeFor } from '../state-home.js';
 
 import { commitAndPush, cutBooking, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
 import { tellTrackerAbout } from './release-tracker.js';
@@ -33,6 +37,10 @@ export interface FinishContext {
   retryWait?: () => Promise<void>;
   /** The default-branch push lock; the real one where absent. */
   lock?: PushLock;
+  /** Where each finish's outcome is recorded; the file store under `repoRoot`'s state home where absent. */
+  records?: ReleaseFinishRecordStore;
+  /** The current time; replaced in tests. */
+  now?: () => Date;
 }
 
 /**
@@ -82,7 +90,14 @@ const closeSprintText = (content: string, on: string): string => {
 
 /** How one finish ended: what it booked, the safe second-run answer, or the refusal by name. */
 export type FinishOutcome =
-  | { readonly outcome: 'booked'; readonly version: string; readonly booked: readonly string[]; readonly notes: readonly string[] }
+  | {
+      readonly outcome: 'booked';
+      readonly version: string;
+      readonly booked: readonly string[];
+      readonly notes: readonly string[];
+      /** The slug of the sprint the booking closed, or `null`. */
+      readonly sprintClosed: string | null;
+    }
   | { readonly outcome: 'already-released'; readonly version: string; readonly detail: string }
   | { readonly outcome: 'refused'; readonly reason: string; readonly detail: string };
 
@@ -92,6 +107,41 @@ export type FinishOutcome =
  * @param outcome - the finish's outcome.
  */
 export const finishExitCode = (outcome: FinishOutcome): number => (outcome.outcome === 'refused' ? 1 : 0);
+
+/**
+ * Writes the record of one finish's outcome to `.plot/state/release-finish/<version>.json`, replacing any earlier one.
+ *
+ * A failed write prints one line through `warn` and does not change the outcome.
+ *
+ * @param ctx - the finish's context; `records` and `now` are read.
+ * @param version - the tag spelling `vN.N.N`.
+ * @param outcome - the finish's outcome.
+ * @param warn - where a failed write is named.
+ * @returns `outcome`, unchanged.
+ */
+const recordedOutcome = async (
+  ctx: FinishContext,
+  version: string,
+  outcome: FinishOutcome,
+  warn: Printer,
+): Promise<FinishOutcome> => {
+  const records = ctx.records ?? releaseFinishRecordIn(stateHomeFor({ repoRoot: ctx.repoRoot }));
+  const written = await records
+    .write({
+      v: RELEASE_FINISH_RECORD_VERSION,
+      version,
+      at: (ctx.now ?? (() => new Date()))().toISOString(),
+      caller: ctx.caller,
+      outcome: outcome.outcome,
+      reason: outcome.outcome === 'refused' ? outcome.reason : '',
+      booked: outcome.outcome === 'booked' ? outcome.booked : [],
+      notes: outcome.outcome === 'booked' ? outcome.notes : [],
+      sprintClosed: outcome.outcome === 'booked' ? outcome.sprintClosed : null,
+    })
+    .catch(() => ({ ok: false as const }));
+  if (!written.ok) warn(`plot-ask: release-finish: record-unwritten: the outcome of ${version} was not recorded under .plot/state/release-finish/.\n`);
+  return outcome;
+};
 
 /** What a finish's head resolved before the shared tail books. */
 interface FinishHead {
@@ -151,7 +201,10 @@ export const releaseVersionArg = (given: string): string | null =>
  * when that fetch fails. Reads the version from the fetched default branch's
  * `package.json` and never from the release branch, which the host may delete
  * on merge. Waits up to `tagWaitMs` for the version's tag, then books as
- * {@link finishReleaseVersion} does, from the PR's merge commit.
+ * {@link finishReleaseVersion} does, from the PR's merge commit. Every outcome
+ * past the version read is recorded as {@link finishReleaseVersion} records it;
+ * `unaskable`, `default-branch-unfetched` and `version-unread` have no version
+ * and record nothing.
  *
  * @param ctx - the ports, the caller and the wait bound.
  * @param prNumber - the merged release PR.
@@ -195,7 +248,8 @@ const finishReleaseOfPr = async (
   }
   const tag = version.startsWith('v') ? version : `v${version}`;
   const { tagExists, tagDate } = await awaitTag(ctx, mainBranch, tag, ctx.tagWaitMs);
-  return finishTail(ctx, { mainBranch, tag, tagExists, tagDate, mergeCommit: pr.value.mergeCommit }, label, write, warn);
+  const outcome = await finishTail(ctx, { mainBranch, tag, tagExists, tagDate, mergeCommit: pr.value.mergeCommit }, label, write, warn);
+  return recordedOutcome(ctx, tag, outcome, warn);
 };
 
 /**
@@ -208,6 +262,11 @@ const finishReleaseOfPr = async (
  * entry's: every scope plan is booked as Released, the open sprint of the
  * release closes and its active index entry goes, in ONE commit and ONE push
  * onto the default branch. A second call answers `already-released`.
+ *
+ * Every outcome past the version check is recorded in
+ * `.plot/state/release-finish/<vN.N.N>.json` under the state home, replacing
+ * the earlier record of the version; a failed write is named through `warn`
+ * and changes no outcome.
  *
  * @param ctx - the ports and the caller; `tagWaitMs` is not read.
  * @param version - `N.N.N` or `vN.N.N`.
@@ -224,6 +283,17 @@ export const finishReleaseVersion = async (
   const label = 'release-finish';
   const tag = releaseVersionArg(version);
   if (tag === null) return refusedWith(label, warn, 'version-invalid', `'${version}' is not N.N.N; the finish writes nothing.`);
+  return recordedOutcome(ctx, tag, await finishVersionTag(ctx, tag, label, write, warn), warn);
+};
+
+/** The version entry past its version check, for the tag `vN.N.N`. */
+const finishVersionTag = async (
+  ctx: FinishContext,
+  tag: string,
+  label: string,
+  write: Printer,
+  warn: Printer,
+): Promise<FinishOutcome> => {
   const mainBranch = await mainBranchOf(ctx);
   const fetched = await ctx.trees.fetch(ctx.repoRoot, mainBranch);
   if (!fetched.ok) {
@@ -272,6 +342,7 @@ const finishTail = async (
   let booked: readonly string[] = [];
   let notes: readonly string[] = [];
   let bookedFiles: readonly { slug: string; file: string }[] = [];
+  let sprintClosed: string | null = null;
 
   /** Decides from the text `wt` holds now, applies the edits, and stages them. */
   const book = async (wt: string): Promise<void> => {
@@ -323,6 +394,7 @@ const finishTail = async (
     }
     booked = out.detail.booked;
     notes = out.detail.notes;
+    sprintClosed = out.detail.closeSprint?.slug ?? null;
     const bookedScope = plans.filter((s) => s.file !== '' && out.detail.booked.includes(s.slug));
     bookedFiles = bookedScope.map((p) => ({ slug: p.slug, file: p.file }));
     const staged: string[] = [];
@@ -403,7 +475,7 @@ const finishTail = async (
     write(`finished: ${tag} booked ${booked.join(', ') || 'none'} (${pushed.pushed})\n`);
     write(`summary: issues closed=${tracker.issues.closed} left-open=${tracker.issues.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
     await cleanup();
-    return { outcome: 'booked', version: tag, booked, notes };
+    return { outcome: 'booked', version: tag, booked, notes, sprintClosed };
   } catch (err) {
     await cleanup();
     if (err instanceof Refused) {

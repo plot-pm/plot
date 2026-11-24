@@ -11,6 +11,7 @@ import type {
 } from './delivery-placement.js';
 import type { ReleaseUnbooked } from './release-unbooked.js';
 import type { TokenCountsRecord } from '../entities/slice-spend.js';
+import type { LastFinish } from '../entities/release-finish-record.js';
 import { tokenCountValue } from './agent-run-tokens.js';
 import { timeLeft, timeLeftValue } from './agent-time-left.js';
 import { FIXER_ATTEMPTS_BUDGET } from './fixer-attempts.js';
@@ -998,6 +999,8 @@ export interface UnbookedReleaseRow {
   names: string | null;
   /** What the action button posts and whether it may. */
   action: BookReleasedAction;
+  /** `last finish: <reason>` where the last recorded finish refused; `null` for any other outcome or no record. */
+  lastFinish: string | null;
 }
 
 /** The "Book as Released" button of an unbooked release row. */
@@ -1028,9 +1031,15 @@ export const bookReleasedAction = (unbooked: ReleaseUnbooked, pending = false): 
  *
  * @param unbooked - what the release owes.
  * @param pending - a finish request for this release has not answered yet.
- * @returns the row: the verb, the version, the status `unbooked · <version> · <n> plans`, the names and the button.
+ * @param lastFinish - the release's last recorded finish, or `null` where none reads.
+ * @returns the row: the verb, the version, the status `unbooked · <version> · <n> plans`, the names, the button,
+ *   and `last finish: <reason>` where the last finish refused.
  */
-export const unbookedReleaseRow = (unbooked: ReleaseUnbooked, pending = false): UnbookedReleaseRow => {
+export const unbookedReleaseRow = (
+  unbooked: ReleaseUnbooked,
+  pending = false,
+  lastFinish: LastFinish | null = null,
+): UnbookedReleaseRow => {
   const n = unbooked.plans.length;
   const names = [...(n === 0 ? [] : [unbooked.plans.join(', ')]), ...(unbooked.sprintOpen === null ? [] : [`sprint ${unbooked.sprintOpen} open`])];
   return {
@@ -1040,6 +1049,7 @@ export const unbookedReleaseRow = (unbooked: ReleaseUnbooked, pending = false): 
     status: `unbooked · ${unbooked.version} · ${n} plan${n === 1 ? '' : 's'}`,
     names: names.length === 0 ? null : names.join(' · '),
     action: bookReleasedAction(unbooked, pending),
+    lastFinish: lastFinish !== null && lastFinish.outcome === 'refused' ? `last finish: ${lastFinish.reason}` : null,
   };
 };
 
