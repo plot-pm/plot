@@ -36,6 +36,7 @@ import {
 import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
 import { handleSupersede } from './supersede.js';
+import { handleReleaseFinish } from './release-finish-route.js';
 import { handleStoryStatus } from './story-status.js';
 import { handleIdea, ideaStatus, readIssue } from './idea.js';
 import { handleStory, storyStatus } from './story.js';
@@ -154,6 +155,7 @@ const events = startEventHub({
 });
 opts.channelLink = () => events.link();
 opts.channelSnapshot = () => ({ link: events.snapshotLink(), held: events.snapshot() });
+opts.channelFindings = () => events.findings();
 const render = (parts: readonly unknown[]): string =>
   parts.map((part) => (typeof part === 'string' ? part : inspect(part))).join(' ');
 /**
@@ -315,6 +317,10 @@ async function handleRequest(
     // with the credential id as `personProof`; without an assertion it refuses
     // `person-unproven`, whatever this board's own PLOT_UNATTENDED reads.
     { path: '/api/release-approve', verb: 'approving a release', handle: handleReleaseApprove },
+    // POST /api/release-finish — a person books a merged release's plans and
+    // closes its sprint, by version. In-process and awaited, like
+    // /api/supersede. No passkey: the finish writes one revertible commit.
+    { path: '/api/release-finish', verb: 'finishing a release', handle: handleReleaseFinish },
     // POST /api/passkey/challenge and /api/passkey/register — the two halves of
     // the passkey the approval above needs. A challenge is single-use and
     // bound to one subject; registration keeps the first credential.

@@ -33,6 +33,7 @@ import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
 import { pushSelectionBase } from '@plot-pm/domain/rules/push-selection-base';
 import { DEFAULT_RELEASE_DIR } from '@plot-pm/domain/rules/state-sync';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
+import { BOARD_BUNDLE_ENTRIES } from '../../contract/bundles.generated.js';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -299,6 +300,7 @@ export const run = async (
         releaseDir: DEFAULT_RELEASE_DIR,
       },
       root: repoRoot,
+      bundles: BOARD_BUNDLE_ENTRIES,
     });
     write(`${JSON.stringify(selection)}\n`);
     return EXIT.ok;
@@ -317,6 +319,7 @@ export const run = async (
         references,
         corpus,
         tests,
+        bundles: BOARD_BUNDLE_ENTRIES,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
         root: repoRoot,

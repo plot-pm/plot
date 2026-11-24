@@ -8,7 +8,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.13.0
+  version: 1.13.1
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | The finish also books Delivered plans outside the sprint that a shipped changeset names, and names the other Delivered plans it left; read those lines back. The release is approved on the board with a passkey (`POST /api/release-approve`); `plot-ask.mjs release-approve` refuses `person-unproven`. `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | The finish also books Delivered plans outside the sprint that a shipped changeset names, and names the other Delivered plans it left; read those lines back, and read `.plot/state/release-finish/v<version>.json` for the last finish's outcome and refusal reason. The release is approved on the board with a passkey (`POST /api/release-approve`); `plot-ask.mjs release-approve` refuses `person-unproven`. `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -315,10 +315,10 @@ RC: v<version>-rc.<n> (YYYY-MM-DD)
 ```bash
 git add docs/releases/vnext-checklist.md
 git commit -m "release: v<version>-rc.<n> checklist"
-node ../plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node ../plot/scripts/board/plot-state-cut.mjs --land
 ```
 
-Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
+`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. This commit is made on a default-branch checkout; `--land` refuses with exit 1 where HEAD is on any other branch. A non-zero exit means nothing landed, and the reason is on stderr.
 
 **Summary (RC):**
 - RC tag: `v<version>-rc.<n>`
@@ -450,6 +450,8 @@ runs by hand below. This step is the repair path: a plan still sitting at
 `State: Delivered` after a release went out is one `release-approve` missed —
 `plot-deliver.sh --release <version> <slug>` writes that one plan's record and
 tells its tracker, without re-running the whole booking pass.
+
+**Each finish leaves a record of its outcome.** `release-approve` and `release-finish` write `.plot/state/release-finish/v<version>.json` under the state home on this machine: the outcome (`booked`, `refused` or `already-released`), the refusal's reason, the booked slugs and the closed sprint. A later finish of the same version replaces it. The Delivery tab's `unbooked` row shows `last finish: <reason>` after a refused finish. Read that file first when a release still owes plans: it names why the last finish refused. It decides nothing; the plans' `State:` lines remain the answer to what is owed.
 
 **Only run this once the tag exists.** A plan marked before the tag is cut
 claims a version nobody released. Verify with `git tag --list v<version>` before

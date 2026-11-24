@@ -643,17 +643,70 @@ describe('a dead desk whose PR merged reads finished, not waiting (#1524)', () =
     assert.equal(e.state, 'finished');
   });
 
+  it('counts a desk no manifest names as finished where its worker ended on a merged branch', async () => {
+    const { info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: () => [
+        { path: '/wt/merged-failed', branch: BRANCH, isMain: false },
+        { path: '/wt/merged-waiting', branch: BRANCH, isMain: false },
+        { path: '/wt/detached', branch: '', isMain: false },
+        { path: '/wt/open', branch: 'feature/open', isMain: false },
+      ],
+      liveness: fakeLiveness({ '/wt/merged-failed': 'failed', '/wt/merged-waiting': 'waiting', '/wt/detached': 'finished', '/wt/open': 'waiting' }),
+      pidAlive: () => false,
+      prIndex: () => index('MERGED'),
+    });
+    assert.equal(info.synthesizedCount, 3, 'a detached desk is never synthesized');
+    assert.equal(info.finishedCount, 2, 'the failed and the waiting desk on the merged branch are finished');
+    assert.equal(info.checkoutCount, 0);
+  });
+
+  it('counts an unmerged waiting desk as an agent', async () => {
+    const { info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: () => [{ path: '/wt/open', branch: 'feature/open', isMain: false }],
+      liveness: fakeLiveness({ '/wt/open': 'waiting' }),
+      pidAlive: () => false,
+      prIndex: () => index('MERGED'),
+    });
+    assert.equal(info.synthesizedCount, 1);
+    assert.equal(info.finishedCount, 0);
+  });
+
+  it('counts no desk as finished where the merge answer is unread', async () => {
+    for (const read of [() => null, () => { throw new Error('store unreadable'); }, () => index('OPEN')]) {
+      const { info } = await readAgentRegistryWithInfo(root, home, {
+        worktrees: () => [{ path: '/wt/merged-failed', branch: BRANCH, isMain: false }],
+        liveness: fakeLiveness({ '/wt/merged-failed': 'failed' }),
+        pidAlive: () => false,
+        prIndex: read,
+      });
+      assert.equal(info.synthesizedCount, 1);
+      assert.equal(info.finishedCount, 0);
+    }
+  });
+
+  it('reads no index for the finished count where no desk could be finished', async () => {
+    let reads = 0;
+    const { info } = await readAgentRegistryWithInfo(root, home, {
+      worktrees: () => [{ path: '/wt/run', branch: BRANCH, isMain: false }],
+      liveness: fakeLiveness({ '/wt/run': 'running' }),
+      prIndex: () => { reads++; return index('MERGED'); },
+    });
+    assert.equal(info.finishedCount, 0);
+    assert.equal(reads, 0);
+  });
+
   it('reads the index once per registry read, and no pid for a desk with no merged row', async () => {
     manifest('a.json', { session: 'a', pid: '1', branch: BRANCH, worktree: '/wt/a', startedAt: '2026-10-11T08:00:00Z' });
     manifest('b.json', { session: 'b', pid: '2', branch: 'feature/open', worktree: '/wt/b', startedAt: '2026-10-11T08:00:00Z' });
     let reads = 0;
     const asked: string[] = [];
     await readAgentRegistry(root, home, {
-      liveness: fakeLiveness({ '/wt/a': 'waiting', '/wt/b': 'waiting' }),
+      liveness: fakeLiveness({ '/wt/a': 'waiting', '/wt/b': 'waiting', '/wt/c': 'failed' }),
       pidAlive: (wt) => { asked.push(wt); return false; },
       prIndex: () => { reads++; return index('MERGED'); },
+      worktrees: () => [{ path: '/wt/c', branch: BRANCH, isMain: false }],
     });
-    assert.equal(reads, 1);
+    assert.equal(reads, 1, 'the state refinement and the finished count share one read');
     assert.deepEqual(asked, ['/wt/a']);
   });
 });

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3643
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `bug/a-continuation-checks-every-resume-handle`
 - **Started:** 2026-11-22, Jan Wloka, `bug/a-loop-run-never-uses-a-role-handle`
 - **Delivered:** 2026-11-22
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

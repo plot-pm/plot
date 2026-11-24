@@ -18,6 +18,8 @@ import {
   YOU_COLUMNS,
   ageRangeValue,
   looseGroupRow,
+  bookReleasedAction,
+  unbookedReleaseRow,
   reasonVerb,
   youRowCells,
   youStatusText,
@@ -523,6 +525,7 @@ describe('the You row', () => {
       'person-comment': ['Answer', 'red', 'the merge waits'],
       'agent-died': ['Restart', 'red', 'the slice stopped'],
       loose: ['Release or delete', 'grey', null],
+      unbooked: ['Book as Released', 'red', 'the plans stay Delivered'],
     };
     for (const r of all) {
       const d = REASON_DO[r];
@@ -639,5 +642,50 @@ describe('the You footer', () => {
     expect(youFooter({ issueAnswer: 'answered', unplanned: 0, note: null })).toBeNull();
     expect(youFooter({ issueAnswer: 'unsupported', unplanned: 2, note: null })).toBeNull();
     expect(youFooter({ issueAnswer: null, unplanned: 2, note: null })).toBeNull();
+  });
+});
+
+describe('the unbooked release row', () => {
+  it('reads unbooked · <version> · <n> plans, names the plans and the open sprint, and offers Book as Released', () => {
+    expect(unbookedReleaseRow({ version: 'v2.36.0', plans: ['alpha', 'beta', 'manual'], sprintOpen: '2026-w46' })).toEqual({
+      verb: 'Book as Released',
+      tone: 'red',
+      object: 'v2.36.0',
+      status: 'unbooked · v2.36.0 · 3 plans',
+      names: 'alpha, beta, manual · sprint 2026-w46 open',
+      action: { label: 'Book as Released', version: 'v2.36.0', enabled: true, reason: null },
+      lastFinish: null,
+    });
+  });
+
+  it('shows the sprint and 0 plans where every plan is Released and the sprint is open', () => {
+    const row = unbookedReleaseRow({ version: 'v2.36.0', plans: [], sprintOpen: '2026-w46' });
+    expect([row.status, row.names, row.action.enabled]).toEqual(['unbooked · v2.36.0 · 0 plans', 'sprint 2026-w46 open', true]);
+  });
+
+  it('counts one plan in the singular', () => {
+    expect(unbookedReleaseRow({ version: 'v2.36.0', plans: ['alpha'], sprintOpen: null }).status).toBe('unbooked · v2.36.0 · 1 plan');
+  });
+
+  it('disables the button with its reason while a request runs, or where nothing is owed', () => {
+    expect(bookReleasedAction({ version: 'v2.36.0', plans: ['alpha'], sprintOpen: null }, true))
+      .toEqual({ label: 'Book as Released', version: 'v2.36.0', enabled: false, reason: 'booking runs' });
+    expect(bookReleasedAction({ version: 'v2.36.0', plans: [], sprintOpen: null }))
+      .toEqual({ label: 'Book as Released', version: 'v2.36.0', enabled: false, reason: 'nothing is owed' });
+  });
+
+  it('names nothing where no plan is owed and no sprint is open', () => {
+    const row = unbookedReleaseRow({ version: 'v2.36.0', plans: [], sprintOpen: null });
+    expect([row.status, row.names, row.action.enabled]).toEqual(['unbooked · v2.36.0 · 0 plans', null, false]);
+  });
+
+  it('names the last finish\'s refusal reason, and no line for a booked finish or no record', () => {
+    const owed = { version: 'v2.36.0', plans: ['alpha'], sprintOpen: null };
+    const at = '2026-11-24T10:00:00.000Z';
+    expect(unbookedReleaseRow(owed, false, { at, outcome: 'refused', reason: 'sprint-ambiguous' }).lastFinish)
+      .toBe('last finish: sprint-ambiguous');
+    expect(unbookedReleaseRow(owed, false, null).lastFinish).toBeNull();
+    expect(unbookedReleaseRow(owed, false, { at, outcome: 'booked', reason: '' }).lastFinish).toBeNull();
+    expect(unbookedReleaseRow(owed, false, { at, outcome: 'already-released', reason: '' }).lastFinish).toBeNull();
   });
 });

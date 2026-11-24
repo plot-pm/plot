@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3608
 - **Review:** pr
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/plot-approve-asks-the-pr-of-the-adding-merge`
 - **Started:** 2026-11-23, Jan Wloka, `bug/plot-approve-refuses-a-slice-on-the-plan-branch`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

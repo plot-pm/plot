@@ -1,6 +1,6 @@
 import type http from 'node:http';
-import type { ChannelLink, ChannelMessage } from '@plot-pm/domain';
-import { ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
+import type { ChannelLink, ChannelMessage, Finding } from '@plot-pm/domain';
+import { absorb, ruleEventWindow, SERVER_EVENT_WINDOW_MS, type EventWindow } from '@plot-pm/domain';
 import { subscribe, subscribeSnapshot, type Subscribed } from '@plot-pm/domain/adapters';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
 import { FLEETD_RESTART_COMMAND } from '@plot-pm/domain/rules/board-watch';
@@ -64,6 +64,12 @@ export interface EventHub {
   snapshotLink(): SnapshotLink;
   /** The copy of fleetd's snapshot, or `undefined` before the first one arrives. */
   snapshot(): HeldSnapshot | undefined;
+  /**
+   * The findings the channel holds, as the subscription last delivered them:
+   * the welcome's `current`, and each later finding replaces the one with its key.
+   * `null` while the subscription is not up.
+   */
+  findings(): readonly Finding[] | null;
   /** Stop the subscription and end every stream. */
   close(): void;
 }
@@ -95,6 +101,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
   let eventWindow: EventWindow = {};
   let trailing: NodeJS.Timeout | undefined;
   let latest = '';
+  let held: readonly Finding[] = [];
   let subscription: Subscribed | undefined;
   let timer: NodeJS.Timeout | undefined;
   let delay = startMs;
@@ -129,10 +136,12 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
       connected = true;
       delay = startMs;
       eventWindow = { admittedAt: now() };
+      held = message.current;
       broadcast(JSON.stringify({ type: 'welcome' }));
       return;
     }
     if (message.type !== 'finding') return;
+    held = absorb(held, message.finding);
     latest = JSON.stringify({ type: 'finding', finding: message.finding });
     arrive();
   };
@@ -238,6 +247,7 @@ export const startEventHub = (options: EventHubOptions): EventHub => {
     clients: () => streams.size,
     snapshotLink: () => reader.link(),
     snapshot: () => reader.held(),
+    findings: () => (link === 'up' ? held : null),
     close: () => {
       stopped = true;
       reader.close();

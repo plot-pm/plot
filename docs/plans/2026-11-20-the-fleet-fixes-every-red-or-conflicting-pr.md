@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
@@ -15,6 +15,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `feature/the-fixer-row-names-its-finding`
 - **Started:** 2026-11-22, Jan Wloka, `feature/the-review-reads-the-fixer-scope`
 - **Delivered:** 2026-11-22
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

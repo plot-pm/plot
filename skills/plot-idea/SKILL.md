@@ -11,7 +11,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 2.6.1
+  version: 2.6.2
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, default branch) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
@@ -401,13 +401,17 @@ git commit -m "plot: <title>"
 > repairs the link instead of failing on it.
 
 Push per the flow: `git push -u origin idea/<slug>` (PR flow),
-`git push -u origin <work-branch>` (same-branch flow), or push the
-current branch directly (direct flow — on knowledge repos this is the
-default branch, which is the point). Where `State branch` is declared in
-`## Plot Config`, the direct flow lands with
-`node ../plot/scripts/board/plot-state-cut.mjs --land` instead: it merges the
-state ref and the default branch into HEAD and pushes the record at the state
-ref. Exit 4 means no key is declared, and the plain push applies.
+`git push -u origin <work-branch>` (same-branch flow), or, in the direct
+flow, push the current branch. Where the current branch is the default
+branch (knowledge repos — which is the point), land the commit with
+`node ../plot/scripts/board/plot-state-cut.mjs --land`: it merges the default
+branch into HEAD and pushes the record at the default branch through
+`plot-push-main.sh`, which takes the push lock and pushes as the
+`Writer app` on a GitHub origin where one is declared. Where `State branch`
+is declared in `## Plot Config`, it also merges the state ref and pushes the
+record at the state ref instead. Where the current branch is any other
+branch, push it with `git push -u origin HEAD`; `--land` refuses that
+checkout with exit 1 and pushes nothing.
 
 ### 8. Create PR (`Review: pr` only)
 

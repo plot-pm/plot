@@ -1,1 +1,0 @@
-../2026-11-21-board-readings-take-the-domain-answer.md

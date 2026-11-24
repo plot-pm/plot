@@ -3451,8 +3451,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
   if [ -z "$prs" ]; then
     # "Cannot tell" and "nothing wrong" must not look the same — that
     # indistinguishability is the whole finding this section exists for.
-    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n"
-    unrel_out+="    inspect: add → #N to its Branches section, then re-run\n"
+    unrel_out+="  $base — delivered, but no PR annotation → cannot resolve a version\n    inspect: add → #N to its Branches section, then re-run\n"
     n_unrel=$((n_unrel + 1))
     continue
   fi
@@ -3496,19 +3495,16 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
       # — "the version cannot be resolved from a merge commit that does not
       # exist" — so reporting nothing here hides a plan that cannot be
       # released, which is this section's own stated defect.
-      unrel_out+="  $base — delivered, but no → #N annotation on a slice that was not deferred → cannot resolve a version\n"
-      unrel_out+="    inspect: add → #N to a non-deferred branch in its Branches section, then re-run\n"
+      unrel_out+="  $base — delivered, but no → #N annotation on a slice that was not deferred → cannot resolve a version\n    inspect: add → #N to a non-deferred branch in its Branches section, then re-run\n"
       n_unrel=$((n_unrel + 1))
       ;;
     shipped)
       slug=$(echo "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
-      unrel_out+="  $base — shipped in $release_detail, plan still Delivered\n"
-      unrel_out+="    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
+      unrel_out+="  $base — shipped in $release_detail, plan still Delivered\n    consider: /plot-release (records Phase: Released, ${slug%.md})\n"
       n_unrel=$((n_unrel + 1))
       ;;
     all-foreign)
-      unrel_out+="  $base — shipped in other repositories: $release_detail\n"
-      unrel_out+="    consider: /plot-release\n"
+      unrel_out+="  $base — shipped in other repositories: $release_detail\n    consider: /plot-release\n"
       n_unrel=$((n_unrel + 1))
       ;;
     *)
@@ -3517,6 +3513,17 @@ while IFS="$US" read -r f st _raw _alt _alt_raw _branches prs ptype _psprint; do
       ;;
   esac
 done <<< "$plan_rows"
+# THE docs/infra ARM ASKS THE RULE, NOT THE MERGE COMMIT. The loop above skips
+# `docs` and `infra` plans, and `releaseFinish` books every type, so a docs plan
+# that a changeset of the newest release names stayed Delivered with no finding
+# (measured on 2.36.0: 8 of 9 sprint plans reported). `plot-release-unbooked.mjs`
+# asks `releaseUnbooked` over the newest tag's scope, prints only owed plans of
+# Type `docs` or `infra` that read Delivered (the loop owns every other type),
+# and prints `(not evaluated — …)` where a read failed. It reads local git only,
+# so it runs under `--offline`/`--no-pr` too.
+unbooked=$(node "$script_dir/board/plot-release-unbooked.mjs" "$MAIN" 2>/dev/null) || unbooked="  (not evaluated — board/plot-release-unbooked.mjs could not be run)"
+n_unrel=$((n_unrel + $(grep -c '^    consider:' <<<"$unbooked")))
+[ -n "$unbooked" ] && unrel_out+="$unbooked\n"
 [ -n "$unrel_out" ] && printf '%b' "$unrel_out" || echo "  (none)"
 # SILENCE WOULD BE THE WORSE BUG. An empty section reads as "nothing to report",
 # and this section exists precisely because "cannot tell" and "nothing wrong"
@@ -3524,9 +3531,7 @@ done <<< "$plan_rows"
 # note names the number, because "some plans" is a sentence a reader cannot act
 # on and "3 delivered plans" is one they can.
 if [ "$PR_SOURCE" = off ] && [ "$n_unrel_unchecked" -gt 0 ]; then
-  echo "  note: release state not resolved for $n_unrel_unchecked delivered plan(s) (pr_source=off) —"
-  echo "        a delivered plan cannot be checked against a released version"
-  echo "        without asking the host. Re-run without --offline/--no-pr."
+  printf '  note: release state not resolved for %s delivered plan(s) (pr_source=off) —\n        a delivered plan cannot be checked against a released version\n        without asking the host. Re-run without --offline/--no-pr.\n' "$n_unrel_unchecked"
 fi
 node "$script_dir/board/plot-released-labels.mjs" --section "$do_pr"
 

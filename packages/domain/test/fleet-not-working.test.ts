@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAgentDesk, notWorkingReason, registryFact, workingCounts, type NotWorkingReason } from '../src/index.js';
+import { isAgentDesk, isFinishedDesk, notWorkingReason, registryFact, workingCounts, type NotWorkingReason } from '../src/index.js';
 
 describe('notWorkingReason', () => {
   it('names a finished agent whose branch merged as merged', () => {
@@ -43,9 +43,34 @@ describe('isAgentDesk', () => {
   });
 });
 
+describe('isFinishedDesk', () => {
+  it('reads a desk whose worker ended on a merged branch as finished', () => {
+    for (const state of ['finished', 'failed', 'ended']) expect(isFinishedDesk(state, true)).toBe(true);
+  });
+
+  it('keeps a desk on a branch with no merged PR, or an unread merge answer, as an agent', () => {
+    for (const state of ['finished', 'failed', 'ended', 'waiting', 'stalled']) expect(isFinishedDesk(state, false)).toBe(false);
+  });
+
+  it('keeps a live, waiting, stalled or unread desk on a merged branch as an agent', () => {
+    for (const state of ['running', 'waiting', 'stalled', 'unknown', 'elsewhere']) expect(isFinishedDesk(state, true)).toBe(false);
+  });
+
+  it('leaves a checkout where no worker ran to the checkout count', () => {
+    expect(isFinishedDesk('none', true)).toBe(false);
+  });
+});
+
 describe('registryFact', () => {
-  const counts = (manifestCount: number, synthesizedCount: number, checkoutCount = 0, unreadCount = 0) =>
-    ({ manifestCount, synthesizedCount, checkoutCount, unreadCount });
+  const counts = (manifestCount: number, synthesizedCount: number, checkoutCount = 0, unreadCount = 0, finishedCount = 0) =>
+    ({ manifestCount, synthesizedCount, checkoutCount, unreadCount, finishedCount });
+
+  it('leaves a finished desk out of both counts', () => {
+    // Measured 2026-11-24: 3 manifests and 10 synthesized desks, 5 of them on merged branches.
+    expect(registryFact(counts(3, 10, 0, 0, 5))).toEqual({ text: '5 of 8 agents have no registry file', warn: false });
+    expect(registryFact(counts(3, 5, 0, 0, 5))).toBeNull();
+    expect(registryFact(counts(0, 4, 1, 1, 1))).toEqual({ text: '0 of 1 agents have a registry file', warn: true });
+  });
 
   it('says nothing where every agent has a registry file', () => {
     expect(registryFact(counts(3, 0))).toBeNull();

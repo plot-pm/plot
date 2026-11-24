@@ -219,7 +219,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # THE PULL REQUEST'S OWN RULE, NOT main'S BUNDLE: a change to the rule
-      # selects by the rule it changes.
+      # selects by the rule it changes. The bundles come from the pull
+      # request's source, and the selection reads BOARD_BUNDLE_ENTRIES
+      # (packages/board/src/contract/bundles.generated.ts), so a changed entry
+      # source selects the tests that name its bundle.
       - name: Build the board bundles
         id: build
         if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && steps.install.outcome == 'success' }}

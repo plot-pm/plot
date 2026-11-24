@@ -677,6 +677,7 @@ export * from './rules/release-branch.js';
 export * from './rules/release-version.js';
 export * from './rules/release-head.js';
 export * from './rules/release-prepare.js';
+export * from './rules/release-unbooked.js';
 export * from './rules/sprint-scope.js';
 export * from './rules/sprint-membership.js';
 export * from './rules/sprint-member-gate.js';

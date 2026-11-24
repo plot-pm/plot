@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #3160, #3144, #3149
@@ -17,6 +17,8 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/desk-dirt-excuses-the-fleets-own-files`
 - **Started:** 2026-11-23, Jan Wloka, `bug/a-plan-pr-runs-the-estate-tests`
 - **Started:** 2026-11-23, Jan Wloka, `bug/an-entry-source-selects-its-bundle-tests`
+- **Delivered:** 2026-11-24
+- **Released:** 2026-11-24, v2.36.1
 
 ## Changelog
 

@@ -12,7 +12,7 @@ import { deskBranchMerged, mergedDeskState } from '@plot-pm/domain/rules/merged-
 import { deskManifest, manifestDirectory, type ManifestReading } from '@plot-pm/domain/rules/desk-manifest';
 import { deskProcessState, deskWorker, type ManifestWorkerReading } from '@plot-pm/domain/rules/desk-worker';
 import { deskClean } from '@plot-pm/domain/rules/desk-clean';
-import { isAgentDesk } from '@plot-pm/domain/rules/fleet-not-working';
+import { isAgentDesk, isFinishedDesk } from '@plot-pm/domain/rules/fleet-not-working';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -760,6 +760,11 @@ export interface RegistryInfo {
   checkoutCount: number;
   /** How many of the synthesized entries have the state `unknown`: the worker-state read gave no answer for their desk. */
   unreadCount: number;
+  /**
+   * How many of the synthesized entries are finished desks — `isFinishedDesk` answers `true` for their
+   * state and the PR index's merge fact for their branch. An unreadable index counts none.
+   */
+  finishedCount: number;
 }
 
 /**
@@ -881,18 +886,25 @@ export async function readAgentRegistryWithInfo(
     }
   }
   const log = opts.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+  // ONE index read per registry read, shared by the state refinement and the
+  // finished-desk count below.
+  const indexReader = opts.prIndex ?? defaultPrIndex(repoRoot, opts.scriptsDir);
+  let heldIndex: Promise<PrIndex | null> | undefined;
+  const readIndex = (): Promise<PrIndex | null> => (heldIndex ??= Promise.resolve().then(indexReader));
+  const branchOf = (entry: AgentEntry): string =>
+    deskBranches.get(entry.worktree)
+    ?? deskBranches.get(realpathOrUndefined(entry.worktree) ?? '')
+    ?? entry.branch;
   await refreshStates(out, opts.liveness ?? defaultLiveness(repoRoot, dir, log, opts.scriptsDir), opts.pidAlive ?? deskPidAlive, {
-    read: opts.prIndex ?? defaultPrIndex(repoRoot, opts.scriptsDir),
-    branchOf: (entry) =>
-      deskBranches.get(entry.worktree)
-      ?? deskBranches.get(realpathOrUndefined(entry.worktree) ?? '')
-      ?? entry.branch,
+    read: readIndex,
+    branchOf,
   });
   await placeWorkers(out, workerReadings, opts.deskPid ?? readDeskPid);
   // Counted before the settled drop below, like the manifests: the registry
   // fact is about what the read SAW, and the state is final from here on.
   const checkoutCount = synthesized.filter((e) => !isAgentDesk(e.state)).length;
   const unreadCount = synthesized.filter((e) => e.state === 'unknown').length;
+  const finishedCount = await countFinishedDesks(synthesized, readIndex, branchOf);
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
   const filtered = await dropSettledWorkers(
@@ -906,7 +918,7 @@ export async function readAgentRegistryWithInfo(
   const entries = filtered.sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
   return {
     entries,
-    info: { directory: dir, manifestCount, synthesizedCount: synthesized.length, checkoutCount, unreadCount },
+    info: { directory: dir, manifestCount, synthesizedCount: synthesized.length, checkoutCount, unreadCount, finishedCount },
   };
 }
 
@@ -961,6 +973,28 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
     state: 'unknown',
   };
 }
+
+/**
+ * How many synthesized desks are finished (`isFinishedDesk`), read against the PR index's merge fact.
+ *
+ * The index is read only where some desk's state could be finished, so a fleet with none costs no read.
+ * An index that throws or is absent counts no desk as finished: a missing merged row is never *not merged*.
+ */
+const countFinishedDesks = async (
+  synthesized: readonly AgentEntry[],
+  readIndex: () => Promise<PrIndex | null>,
+  branchOf: (entry: AgentEntry) => string,
+): Promise<number> => {
+  const candidates = synthesized.filter((e) => isFinishedDesk(e.state, true));
+  if (candidates.length === 0) return 0;
+  let index: PrIndex | null;
+  try {
+    index = await readIndex();
+  } catch {
+    return 0;
+  }
+  return candidates.filter((e) => isFinishedDesk(e.state, deskBranchMerged(index, branchOf(e)))).length;
+};
 
 /**
  * Refresh each entry's {@link AgentEntry.state} from liveness, in place.

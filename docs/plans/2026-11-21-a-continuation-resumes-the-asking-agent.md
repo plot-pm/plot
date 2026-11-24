@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3604
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3605 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/a-continuation-resumes-the-asking-agent`
 - **Delivered:** 2026-11-21
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

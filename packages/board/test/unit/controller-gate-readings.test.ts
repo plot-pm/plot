@@ -195,6 +195,7 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
     ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
+    ['release-finish', 'curl -X POST http://localhost:4000/api/release-finish'],
     // The same POST written the other ways an agent writes it. Each of these
     // passed the gate while only the bare `-X POST` form was read.
     ['a quoted URL', 'curl -X POST "http://localhost:4000/api/release"'],
@@ -274,6 +275,28 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('names the release-finish command, not the release receipt route, on a release-finish POST', async () => {
+    const dir = withReceipt('release');
+    try {
+      const { r } = readings({ root: { ok: true, value: dir }, linked: false });
+      const answer = await ask(r, 'curl -X POST http://localhost:4000/api/release-finish -d \'{"version":"2.36.0"}\'');
+      expect(answer.code).toBe(EXIT.refuse);
+      expect(answer.warned).toContain('plot-ask.mjs release-finish <version>');
+      expect(answer.warned).not.toContain('--unowned-action release');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['a grep for release-finish', 'grep release-finish docs'],
+    ['a heredoc body naming the route', "cat <<'EOF'\nPOST /api/release-finish books a merged release\nEOF"],
+    ['the release-finish command', 'node board/plot-ask.mjs release-finish 2.36.0'],
+  ])('allows %s', async (_label, command) => {
+    const { r } = readings(MAIN);
+    expect((await ask(r, command)).code).toBe(EXIT.allow);
   });
 
   it.each([

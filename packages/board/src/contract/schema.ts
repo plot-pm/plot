@@ -4228,6 +4228,13 @@ export const RegistryInfoSchema = z.object({
    * them out of both of its counts. A payload without the field reads 0.
    */
   unreadCount: z.number().int().default(0),
+  /**
+   * How many of the synthesized entries are finished desks: a worker ran,
+   * it ended, and the PR index holds a merged PR for the desk's branch.
+   * `registryFact` leaves them out of both of its counts. A payload without
+   * the field reads 0.
+   */
+  finishedCount: z.number().int().default(0),
 });
 export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
 
@@ -4377,6 +4384,21 @@ export type SprintCounts = z.infer<typeof SprintCountsSchema>;
 const ReleaseRowSchema = z.object({ releases: z.array(z.string()).optional() });
 
 /** The wire shape of the domain's `ReleaseTicketReading`. */
+/** One `releaseUnbooked` answer and its source. */
+export const ReleaseUnbookedShownSchema = z.object({
+  answer: z.union([
+    z.object({ version: z.string(), plans: z.array(z.string()).readonly(), sprintOpen: z.string().nullable() }),
+    z.literal('none'),
+    z.literal('unaskable'),
+  ]),
+  source: z.enum(['fleetd', 'board']),
+  /** The release's last recorded finish on this machine; `null` where none reads. */
+  lastFinish: z
+    .object({ at: z.string(), outcome: z.enum(['booked', 'refused', 'already-released']), reason: z.string() })
+    .nullable()
+    .default(null),
+});
+
 export const ReleaseTicketsSchema = z.object({
   open: z.array(ReleaseRowSchema),
   closed: z.array(ReleaseRowSchema).nullable(),
@@ -5003,6 +5025,13 @@ export const FleetShape = z.object({
    * an older server renders the line with slice counts only.
    */
   releaseTickets: ReleaseTicketsSchema.nullable().optional(),
+  /**
+   * What the newest merged release still owes, for the Delivery tab's
+   * `unbooked` row: `releaseUnbooked`'s answer and the reading it came from,
+   * `fleetd` (the channel's `release unbooked` finding) or `board` (the
+   * board's own reading). Optional so an older server renders no row.
+   */
+  releaseUnbooked: ReleaseUnbookedShownSchema.optional(),
   /**
    * The issues the Tickets section's scope groups read, from the same open and
    * closed sets as `releaseTickets`, with no `ISSUE_LIMIT` cut: each row a plan

@@ -694,8 +694,104 @@ test('state branch: with no key the write goes to main as today and the state br
   git(repo, 'fetch', '-q', 'origin');
   assert.match(git(repo, 'show', `origin/main:${deliverRel}`), /\*\*State:\*\* Delivered/);
   assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/plot/state').trim(), '', 'no state branch appears');
+});
+
+/** Commits one file in `repo` on its current branch. */
+const commitFile = (repo, rel, body, message) => {
+  writeFileSync(path.join(repo, rel), body);
+  git(repo, 'add', rel);
+  git(repo, 'commit', '-qm', message);
+};
+
+/** Pushes one commit to the origin's `main` from a second clone, so the origin is ahead of `repo`. */
+const moveOriginMain = (origin, rel, body) => {
+  const other = mkdtempSync(path.join(tmpdir(), 'plot-land-other-'));
+  made.push(other);
+  execFileSync('git', ['clone', '-q', origin, other]);
+  git(other, 'checkout', '-q', '-B', 'main', 'origin/main');
+  commitFile(other, rel, body, 'main moves on');
+  git(other, 'push', '-q', 'origin', 'main');
+};
+
+test('land: with no key, HEAD merges origin/main and lands on main through the push lock, exit 0', () => {
+  const { origin, repo } = stateSandbox('');
+  git(repo, 'checkout', '-q', 'main');
+  moveOriginMain(origin, 'theirs.txt', 'theirs\n');
+  commitFile(repo, 'record.txt', 'record\n', 'sprint: close a-sprint');
+
   const land = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
-  assert.equal(land.code, 4, 'no key: --land answers NO_STATE_BRANCH');
+  assert.equal(land.code, 0, land.out);
+  assert.match(land.out, /^push: clean — HEAD → main/m, 'plot-push-main.sh classified the push');
+  git(repo, 'fetch', '-q', 'origin');
+  assert.equal(git(repo, 'show', 'origin/main:record.txt'), 'record\n', 'the record is on main');
+  assert.equal(git(repo, 'show', 'origin/main:theirs.txt'), 'theirs\n', 'the origin\'s commit was merged, not overwritten');
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/plot/state').trim(), '', 'no state branch appears');
+  assert.equal(fsExistsSync(path.join(repo, '.git', 'plot-push-main.lock')), false, 'the push lock was released');
+});
+
+test('land: with no key, a lock another writer holds past the bound refuses with exit 6 and pushes nothing', () => {
+  const { origin, repo } = stateSandbox('');
+  git(repo, 'checkout', '-q', 'main');
+  commitFile(repo, 'record.txt', 'record\n', 'sprint: close a-sprint');
+  const before = git(repo, 'ls-remote', origin, 'refs/heads/main').trim();
+  const holder = spawn('sleep', ['30']);
+  try {
+    assert.equal(lockTake(repo, String(holder.pid), 'push plot/other').status, 0);
+    const land = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv({ PLOT_PUSH_LOCK_WAIT: '1' }) });
+    assert.equal(land.code, 6, land.out);
+    assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/main').trim(), before, 'origin/main did not move');
+  } finally {
+    lockRelease(repo, String(holder.pid));
+    holder.kill();
+  }
+});
+
+test('land: with no key, a conflict with origin/main refuses, names the file and pushes nothing', () => {
+  const { origin, repo } = stateSandbox('');
+  git(repo, 'checkout', '-q', 'main');
+  moveOriginMain(origin, 'record.txt', 'theirs\n');
+  commitFile(repo, 'record.txt', 'ours\n', 'sprint: close a-sprint');
+  const before = git(repo, 'ls-remote', origin, 'refs/heads/main').trim();
+
+  const land = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(land.code, 1, land.out);
+  assert.match(land.out, /conflicts in record\.txt; nothing was pushed/);
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/main').trim(), before, 'origin/main did not move');
+});
+
+test('land: with no key, HEAD on another branch or detached refuses with exit 1 and main is unchanged', () => {
+  const { origin, repo } = stateSandbox('');
+  git(repo, 'checkout', '-q', '-B', 'sprint/a-sprint', 'origin/main');
+  commitFile(repo, 'record.txt', 'record\n', 'sprint: commit a-sprint');
+  const before = git(repo, 'ls-remote', origin, 'refs/heads/main').trim();
+
+  const onBranch = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(onBranch.code, 1, onBranch.out);
+  assert.match(onBranch.out, /HEAD is on sprint\/a-sprint, not main\. Nothing was pushed\./);
+  git(repo, 'checkout', '-q', '--detach');
+  const detached = run('node', [stateCut, '--land'], { cwd: repo, env: cleanEnv() });
+  assert.equal(detached.code, 1, detached.out);
+  assert.match(detached.out, /HEAD is on a detached HEAD, not main\. Nothing was pushed\./);
+  assert.equal(git(repo, 'ls-remote', origin, 'refs/heads/main').trim(), before, 'origin/main did not move');
+});
+
+test('land: with no key on a github origin, a declared Writer app key takes the App path and no ambient push follows', () => {
+  const { dir, work, bare } = githubRepo(null);
+  // insteadOf, not only pushInsteadOf: --land fetches the default branch first.
+  git(work, 'config', `url.${bare}.insteadOf`, 'https://github.com/example/repo.git');
+  git(work, 'checkout', '-q', 'main');
+  git(work, 'commit', '-q', '--allow-empty', '-m', 'record');
+  const keyPath = throwawayKey(dir);
+  writeFileSync(path.join(work, 'CLAUDE.md'), `## Plot Config\n\n- **Writer app:** 999001 ${keyPath}\n`);
+  const before = mainLog(bare);
+  const land = run('node', [stateCut, '--land', 'main'], {
+    cwd: work,
+    env: cleanEnv({ GITHUB_API_URL: 'http://127.0.0.1:9' }),
+  });
+  assert.equal(land.code, 3, land.out);
+  assert.match(land.out, /App 999001 has no installation on example\/repo/, 'the token exchange ran');
+  assert.doesNotMatch(land.out, /not configured/);
+  assert.equal(mainLog(bare), before, 'no ambient push happened after the App path failed');
 });
 
 test('state branch: a forward-merge conflict refuses, names the file and leaves the state branch unmoved', () => {

@@ -5,6 +5,12 @@ import {
   releasePrepareNext,
   releaseStage,
   REVIEW_START_BUDGET,
+  releaseUnbooked,
+  releaseUnbookedDiff,
+  type Finding,
+  type MonitorName,
+  type ReleaseUnbookedAnswer,
+  type ReleaseUnbookedReadings,
   type ReleaseChangeset,
   type ReleaseChecksReading,
   type ReleaseFinishReading,
@@ -38,8 +44,21 @@ export interface ReleaseTickPorts {
   readonly headChanges: (sha: string) => Promise<ReleaseHeadReading | null>;
   readonly changesets: () => Promise<readonly ReleaseChangeset[] | 'unaskable'>;
   readonly finish: () => Promise<ReleaseFinishReading>;
+  /** What `releaseUnbooked` reads: the newest release tag, the sprints, the plans and the tag's changesets. */
+  readonly unbooked: () => Promise<ReleaseUnbookedReadings>;
   readonly log: RunLog;
   readonly notifier: Notifier;
+  /** The channel the `release unbooked` finding goes to; absent where no channel runs. */
+  readonly channel?: ReleaseChannel | null;
+  /** Receives one line per publish or retraction on the channel. */
+  readonly say?: (line: string) => void;
+}
+
+/** The part of the running channel the release tick writes to. */
+export interface ReleaseChannel {
+  findings(): readonly Finding[];
+  publish(finding: Finding): void;
+  seen(monitor: MonitorName): void;
 }
 
 /** The run-log outcome of a `review` step that `Auto-review` off kept from starting. */
@@ -55,6 +74,8 @@ export interface ReleaseTickResult {
   readonly skipped?: typeof REVIEW_SKIPPED_AUTO_REVIEW_OFF;
   /** Set where the step was `notify`: the send status the run log recorded. */
   readonly notified?: string;
+  /** What the newest release still owes, as `releaseUnbooked` answered it this tick. */
+  readonly unbooked?: ReleaseUnbookedAnswer;
 }
 
 /**
@@ -67,6 +88,10 @@ export interface ReleaseTickResult {
  * `skipped: auto-review-off` line and starts nothing; a `notify` step sends one
  * message through the `Notifier`. Each action appends one run-log line recording what fleetd did;
  * no line records readiness. fleetd never merges and never books a plan.
+ *
+ * Each tick also asks `releaseUnbooked` and brings the channel's
+ * `release unbooked` finding in line with the answer through
+ * `releaseUnbookedDiff`. It persists nothing and books nothing.
  *
  * @param ports - the readings and writes.
  * @param config - the rule's constants.
@@ -82,14 +107,17 @@ export const releaseTick = async (
   now: number,
   reviewEnabled = true,
 ): Promise<ReleaseTickResult> => {
-  const [scope, phases, pr, changesets, finish, logRead] = await Promise.all([
+  const [scope, phases, pr, changesets, finish, logRead, unbookedRead] = await Promise.all([
     ports.scope(),
     ports.phases(),
     ports.pr(),
     ports.changesets(),
     ports.finish(),
     ports.log.read(),
+    ports.unbooked(),
   ]);
+  const unbooked = releaseUnbooked(unbookedRead);
+  publishUnbooked(ports, unbooked, new Date(now).toISOString());
   const log = logRead.ok ? logRead.value : ('unaskable' as const);
   const row = pr === 'none' || pr === 'unaskable' ? null : pr;
   const checks: ReleaseChecksReading =
@@ -114,7 +142,7 @@ export const releaseTick = async (
   };
   const stage = releaseStage(readings);
   const step = releasePrepareNext(readings);
-  if (row === null || scope.read !== 'scope') return { stage, step };
+  if (row === null || scope.read !== 'scope') return { stage, step, unbooked };
   const at = new Date(now).toISOString();
   const line = (kind: RunLogLine['step'], head: string, outcome: string): RunLogLine => ({
     plan: scope.sprint.slug,
@@ -129,20 +157,40 @@ export const releaseTick = async (
   if (step.step === 'review' && reviewEnabled) {
     const started = startReview(row.number, step.head, { ...start, mode: 'review', now });
     await ports.log.append(line(RELEASE_REVIEW_STEP, step.head, started.started ? 'moved' : `failed: ${started.why}`));
-    return { stage, step, started };
+    return { stage, step, started, unbooked };
   }
   if (step.step === 'review') {
     await ports.log.append(line(RELEASE_REVIEW_STEP, step.head, REVIEW_SKIPPED_AUTO_REVIEW_OFF));
-    return { stage, step, skipped: REVIEW_SKIPPED_AUTO_REVIEW_OFF };
+    return { stage, step, skipped: REVIEW_SKIPPED_AUTO_REVIEW_OFF, unbooked };
   }
   if (step.step === 'notify' && changesets !== 'unaskable') {
     const sent = await ports.notifier.notify(releaseMessage(row.number, step, scope.sprint.slug));
     const status = sent.ok ? 'sent' : sent.why === 'unaskable' ? 'unaskable' : `failed ${sent.code}`;
     const files = changesets.map((c) => c.file);
     await ports.log.append(line(RELEASE_NOTIFIED_STEP, step.head, encodeNotifyOutcome(status, files)));
-    return { stage, step, notified: status };
+    return { stage, step, notified: status, unbooked };
   }
-  return { stage, step };
+  return { stage, step, unbooked };
+};
+
+/**
+ * Publishes and retracts the `release unbooked` finding for one answer.
+ *
+ * Marks the `ReleaseMonitor` seen unless the answer is `unaskable`.
+ *
+ * @param ports - the channel and the line sink.
+ * @param answer - the rule's answer.
+ * @param at - the tick's time, ISO-8601.
+ */
+const publishUnbooked = (ports: ReleaseTickPorts, answer: ReleaseUnbookedAnswer, at: string): void => {
+  const channel = ports.channel;
+  if (channel === undefined || channel === null) return;
+  const { publish, clear } = releaseUnbookedDiff(channel.findings(), answer, at);
+  for (const f of [...clear, ...publish]) {
+    channel.publish(f);
+    ports.say?.(`plot-fleetd: release ${f.finding === 'clear' ? 'clear' : 'publish'} ${f.monitor} ${f.branch}: ${f.evidence}`);
+  }
+  if (answer !== 'unaskable') channel.seen('ReleaseMonitor');
 };
 
 /**

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3388, #3122, #3159, #3163, #3140
 - **Review:** pr
@@ -20,6 +20,7 @@
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-quiet-invariant-reads-the-placement`
 - **Started:** 2026-11-23, Jan Wloka, `bug/the-escalation-reads-the-issue-once`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

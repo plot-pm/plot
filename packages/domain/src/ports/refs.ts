@@ -892,6 +892,17 @@ export interface Refs {
   tagDate(tag: string): Promise<PortResult<string>>;
 
   /**
+   * The release tags reachable from a ref, in version order.
+   *
+   * Only tags matching `v<major>.<minor>.<patch>` exactly are returned.
+   *
+   * @param ref - the revision whose history is read.
+   * @returns the matching tags, oldest version first; empty where none is
+   *   reachable; a failure where the ref does not resolve.
+   */
+  releaseTagsMerged(ref: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Whether a branch's tip on the remote still equals a commit, read live.
    *
    * **`git ls-remote`, NOT {@link Refs.remoteHead} or {@link Refs.branchTips}.**

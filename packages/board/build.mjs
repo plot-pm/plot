@@ -91,6 +91,23 @@ const BUNDLES_HEADER = `/**
 export const BOARD_ARTIFACT_PATHS: readonly string[] = [
 `;
 
+// The prose before the entry pairs in the generated module.
+const ENTRIES_HEADER = `
+/** One shipped bundle and the source file its esbuild call names as entry, both relative to the repository root. */
+export interface BoardBundleEntry {
+  readonly entry: string;
+  readonly shipped: string;
+}
+
+/**
+ * The entry source of each shipped bundle that \`build.mjs\` builds, sorted by
+ * the shipped path. A bundle the build only copies has no pair. The CI and
+ * local test selection reads it: a changed entry source selects the tests that
+ * name its bundle's basename.
+ */
+export const BOARD_BUNDLE_ENTRIES: readonly BoardBundleEntry[] = [
+`;
+
 // THE BUNDLE SET, DERIVED FROM THIS FILE AND WRITTEN FOR THE CONTRACT TO IMPORT.
 //
 // FIRST, before any esbuild call, because the contract it feeds is bundled INTO
@@ -134,7 +151,38 @@ const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
     console.error('Finding none means the build changed shape. Fix the derivation, not this file.');
     process.exit(1);
   }
-  const generated = `${BUNDLES_HEADER}${emitted.map((b) => `  '${b}',\n`).join('')}];\n`;
+  // THE ENTRY EACH BUNDLE IS BUILT FROM, read from the same text. An esbuild
+  // call names its entry source and an `outfile` variable; a copy names that
+  // variable and a shipped binding; the binding names the shipped path. A
+  // shipped bundle this build only copies, such as a fleet artifact, has no
+  // esbuild call here and gets no pair. The selection in
+  // `packages/domain/src/rules/local-checks.ts` reads the pairs, so a change to
+  // an entry source selects the tests that name its bundle.
+  const shippedBy = new Map(
+    [...source.matchAll(/const (shipped[A-Za-z]*) = path\.join\(\s*here,\s*'\.\.\/\.\.\/([^']*)',?\s*\)/g)].map((m) => [m[1], m[2]]),
+  );
+  const entryBy = new Map(
+    [...source.matchAll(/entryPoints:\s*\[\s*path\.join\(\s*here,\s*'(src\/[^']*)'\s*\)\s*\],(?:(?!entryPoints)[^])*?outfile:\s*([A-Za-z]\w*)/g)]
+      .map((m) => [m[2], `packages/board/${m[1]}`]),
+  );
+  const pairs = [
+    ...new Map(
+      [...source.matchAll(/fs\.copyFileSync\(\s*([A-Za-z]\w*),\s*(shipped[A-Za-z]*)\s*\)/g)]
+        .filter((m) => entryBy.has(m[1]) && shippedBy.has(m[2]))
+        .map((m) => [shippedBy.get(m[2]), { entry: entryBy.get(m[1]), shipped: shippedBy.get(m[2]) }]),
+    ).values(),
+  ].sort((a, b) => (a.shipped < b.shipped ? -1 : a.shipped > b.shipped ? 1 : 0));
+  if (pairs.length === 0) {
+    console.error('No bundle entry found in build.mjs — the entry derivation is blind.');
+    console.error('It pairs an esbuild entry source with the shipped binding its `outfile` is copied to.');
+    console.error('Finding none means the build changed shape. Fix the derivation, not this file.');
+    process.exit(1);
+  }
+  const generated =
+    `${BUNDLES_HEADER}${emitted.map((b) => `  '${b}',\n`).join('')}];\n` +
+    ENTRIES_HEADER +
+    pairs.map((p) => `  { entry: '${p.entry}', shipped: '${p.shipped}' },\n`).join('') +
+    '];\n';
   // Written only when it would CHANGE. `node --watch` serves the board during
   // development and restarts on any write under `src/`, so an unconditional
   // rewrite of a file inside the watched tree makes every build restart the
@@ -1977,6 +2025,26 @@ await esbuild.build({
 
 fs.copyFileSync(releasedLabelsArtifact, shippedReleasedLabels);
 fs.chmodSync(shippedReleasedLabels, 0o755);
+
+// The release-unbooked reading — reconcile section 6's docs/infra arm, an
+// operator-command entry like plot-released-labels.mjs above.
+const releaseUnbookedArtifact = path.join(here, 'dist/plot-release-unbooked.mjs');
+const shippedReleaseUnbooked = path.join(here, '../../skills/plot/scripts/board/plot-release-unbooked.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/release-unbooked.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: releaseUnbookedArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(releaseUnbookedArtifact, shippedReleaseUnbooked);
+fs.chmodSync(shippedReleaseUnbooked, 0o755);
 
 // The review-finding ticket triage — an operator-command entry like
 // plot-released-labels.mjs above, with no `.sh` launcher.

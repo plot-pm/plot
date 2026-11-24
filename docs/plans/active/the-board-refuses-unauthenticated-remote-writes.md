@@ -1,0 +1,1 @@
+../2026-11-23-the-board-refuses-unauthenticated-remote-writes.md

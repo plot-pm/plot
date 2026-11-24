@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-20, Jan Wloka, `feature/scope-ticket-rows-in-the-payload`
 - **Started:** 2026-11-22, Jan Wloka, `feature/tickets-show-what-the-sprint-delivers-and-found`
 - **Delivered:** 2026-11-22
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

@@ -12,9 +12,10 @@ import { planStoreShell } from '@plot-pm/domain/adapters/plan-store/plan-store-s
 import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import { refsGit } from '@plot-pm/domain/adapters/refs/refs-git';
-import { answered } from '@plot-pm/domain';
+import { answered, failed } from '@plot-pm/domain';
+import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import type { Host } from '@plot-pm/domain';
-import { finishRelease, type FinishContext } from '../../src/server/entry/release-finish.js';
+import { finishExitCode, finishRelease, finishReleaseVersion, type FinishContext } from '../../src/server/entry/release-finish.js';
 
 const SCRIPT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../skills/plot/scripts');
 const noWait = async (): Promise<void> => {};
@@ -226,9 +227,9 @@ describe('finishRelease against a real remote', () => {
     expect(readFileSync(path.join(repo, 'docs/plans/2026-10-01-alpha.md'), 'utf8')).toContain('- **State:** Delivered');
   });
 
-  it('refuses sprint-ambiguous and writes nothing when the active index holds two sprints', async () => {
+  it('refuses sprint-ambiguous and writes nothing when two active sprints are in the release', async () => {
     const { repo, origin, ctx } = estate({ tagged: true });
-    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon');
+    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon', '');
     const before = originMain(origin);
 
     const { code, err } = await run(ctx);
@@ -238,6 +239,19 @@ describe('finishRelease against a real remote', () => {
     expect(err).toContain('docs/sprints/active/2026-W44-s.md');
     expect(err).toContain('docs/sprints/active/2026-W46-t.md');
     expect(originMain(origin)).toBe(before);
+  });
+
+  it('books the in-scope sprint and leaves an active sprint naming another version alone', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    startSprint(path.dirname(repo), origin, '2026-W46', 'epsilon', '1.3.0');
+
+    const { code, out } = await run(ctx);
+
+    expect(code).toBe(0);
+    expect(out).toContain('finished: v1.2.3');
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Active');
+    expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
   });
 
   it('refuses release-scope-mismatch and writes nothing once a later sprint is active for a different release', async () => {
@@ -273,6 +287,25 @@ describe('finishRelease against a real remote', () => {
     expect(onMain(repo, 'docs/plans/2026-10-20-epsilon.md')).toMatch(/- \*\*Released:\*\* \d{4}-\d{2}-\d{2}, v1\.3\.0/);
     expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Closed');
     expect(activeOnMain(repo)).toEqual([]);
+  });
+
+  it('books the plans of a sprint closed before the finish ran, from outside the active index', async () => {
+    const { repo, ctx } = estate({ tagged: true });
+    writeFileSync(path.join(repo, 'docs/sprints/2026-W44-s.md'), sprint('Closed', 'State', ['alpha', 'beta', 'gamma'], '1.2.3'));
+    git(repo, 'rm', '-q', 'docs/sprints/active/2026-W44-s.md');
+    git(repo, 'commit', '-q', '-am', 'close the sprint');
+    git(repo, 'push', '-q', 'origin', 'main');
+
+    const first = await run(ctx);
+
+    expect(first.err).toBe('');
+    expect(first.code).toBe(0);
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    for (const slug of ['alpha', 'beta', 'gamma']) {
+      expect(onMain(repo, `docs/plans/2026-10-01-${slug}.md`)).toMatch(/- \*\*Released:\*\* \d{4}-\d{2}-\d{2}, v1\.2\.3/);
+    }
+    expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
+    expect((await run(ctx)).out).toContain('already-released');
   });
 
   it('reports already-released and writes nothing on a second run, and calls the tracker no further', async () => {
@@ -438,6 +471,7 @@ describe('finishRelease against a real remote', () => {
     origin: string,
     plans: readonly (readonly [string, string, string])[],
     changesets: readonly (readonly [string, string])[],
+    version = '1.3.0',
   ): Host => {
     const other = path.join(root, 'other-merge');
     git(root, 'clone', '-q', origin, other);
@@ -457,14 +491,14 @@ describe('finishRelease against a real remote', () => {
     git(other, 'push', '-q', 'origin', 'main');
     git(other, 'checkout', '-q', '-b', 'changeset-release/main');
     for (const [file] of changesets) git(other, 'rm', '-q', `.changeset/${file}.md`);
-    writeFileSync(path.join(other, 'package.json'), '{"name":"x","version":"1.3.0"}\n');
-    git(other, 'commit', '-q', '-am', 'release 1.3.0');
+    writeFileSync(path.join(other, 'package.json'), `{"name":"x","version":"${version}"}\n`);
+    git(other, 'commit', '-q', '-am', `release ${version}`);
     git(other, 'checkout', '-q', 'main');
     git(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #9', 'changeset-release/main');
     git(other, 'push', '-q', 'origin', 'main');
     const merge = git(other, 'rev-parse', 'HEAD').trim();
-    git(other, 'tag', 'v1.3.0');
-    git(other, 'push', '-q', 'origin', 'v1.3.0');
+    git(other, 'tag', `v${version}`);
+    git(other, 'push', '-q', 'origin', `v${version}`);
     expect(git(other, 'ls-tree', '--name-only', 'HEAD', '.changeset/')).toBe('.changeset/README.md\n');
     return {
       prState: async () => answered({ number: 9, head: 'changeset-release/main', base: 'main', state: 'MERGED', mergeCommit: merge }),
@@ -503,5 +537,176 @@ describe('finishRelease against a real remote', () => {
     expect(out).toContain('shipped-unread');
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(onMain(repo, 'docs/plans/2026-10-01-alpha.md')).toContain('- **State:** Released');
+  });
+  const runVersion = async (ctx: FinishContext, version: string) => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const outcome = await finishReleaseVersion(ctx, version, (s) => out.push(s), (s) => err.push(s));
+    return { outcome, code: finishExitCode(outcome), out: out.join(''), err: err.join('') };
+  };
+
+  /** The plan and sprint files on `origin/main`, with the booking date masked. */
+  const bookedTree = (repo: string): string[] => {
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    return git(repo, 'ls-tree', '-r', '--name-only', 'origin/main', 'docs/')
+      .split('\n')
+      .filter((f) => f.endsWith('.md'))
+      .map((f) => `${f}\n${onMain(repo, f).replace(/\d{4}-\d{2}-\d{2}/g, 'DATE')}`);
+  };
+
+  it('books through the version entry exactly what the PR entry books for the same release merge', async () => {
+    const changesets = [['one', '2026-10-02-omega']] as const;
+    const byPr = estate({ tagged: true });
+    const prHost = landMerge(path.dirname(byPr.repo), byPr.origin, [['omega', 'Delivered', '']], changesets);
+    const byVersion = estate({ tagged: true });
+    landMerge(path.dirname(byVersion.repo), byVersion.origin, [['omega', 'Delivered', '']], changesets);
+
+    const pr = await run({ ...byPr.ctx, host: prHost });
+    const version = await runVersion(byVersion.ctx, '1.3.0');
+
+    expect(pr.code).toBe(0);
+    expect(version.code).toBe(0);
+    expect(version.outcome).toMatchObject({ outcome: 'booked', version: 'v1.3.0', booked: ['alpha', 'beta', 'gamma', 'omega'] });
+    expect(version.out).toBe(pr.out);
+    expect(bookedTree(byVersion.repo)).toEqual(bookedTree(byPr.repo));
+  });
+
+  it('books both sprints naming the release, the closed one included, and a docs plan only a changeset names (2.36.0)', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    const root = path.dirname(repo);
+    writeFileSync(path.join(repo, 'docs/sprints/2026-W44-s.md'), sprint('Closed', 'State', ['alpha', 'beta'], '2.36.0'));
+    git(repo, 'rm', '-q', 'docs/sprints/active/2026-W44-s.md');
+    writeFileSync(path.join(repo, 'docs/plans/2026-10-02-manual.md'), plan('docs', 'Delivered'));
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'close the first sprint and add a docs plan');
+    git(repo, 'push', '-q', 'origin', 'main');
+    startSprint(root, origin, '2026-W46', 'epsilon', '2.36.0');
+    landMerge(root, origin, [], [['one', '2026-10-02-manual']], '2.36.0');
+
+    const { outcome, code, err } = await runVersion(ctx, 'v2.36.0');
+
+    expect(err).toBe('');
+    expect(code).toBe(0);
+    expect(outcome).toMatchObject({ outcome: 'booked', version: 'v2.36.0', booked: ['alpha', 'beta', 'epsilon', 'manual'] });
+    git(repo, 'fetch', '-q', 'origin', 'main');
+    for (const file of ['2026-10-01-alpha', '2026-10-01-beta', '2026-10-20-epsilon', '2026-10-02-manual']) {
+      expect(onMain(repo, `docs/plans/${file}.md`)).toMatch(/- \*\*Released:\*\* \d{4}-\d{2}-\d{2}, v2\.36\.0/);
+    }
+    expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Closed');
+    expect(activeOnMain(repo)).toEqual([]);
+  });
+
+  it('answers already-released, exit 0, and writes nothing on a second version-entry call', async () => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    landMerge(path.dirname(repo), origin, [], []);
+    expect((await runVersion(ctx, '1.3.0')).code).toBe(0);
+    const after = originMain(origin);
+
+    const second = await runVersion(ctx, '1.3.0');
+
+    expect(second.outcome.outcome).toBe('already-released');
+    expect(second.code).toBe(0);
+    expect(originMain(origin)).toBe(after);
+  });
+
+  it('refuses tag-absent with no wait and writes nothing when the version has no tag', async () => {
+    const { origin, ctx } = estate({ tagged: true });
+    const before = originMain(origin);
+
+    const { outcome, code, err } = await runVersion(ctx, '9.9.9');
+
+    expect(outcome).toMatchObject({ outcome: 'refused', reason: 'tag-absent' });
+    expect(code).toBe(1);
+    expect(err).toContain('tag-absent');
+    expect(originMain(origin)).toBe(before);
+  });
+
+  it('refuses version-invalid and reads nothing for a malformed version', async () => {
+    const { ctx } = estate({ tagged: true });
+    const { outcome, code } = await runVersion(ctx, '2.36');
+    expect(outcome).toMatchObject({ outcome: 'refused', reason: 'version-invalid' });
+    expect(code).toBe(1);
+  });
+
+  it.each(['unattended', 'fleetd'] as const)('books nothing for a %s caller through either entry', async (caller) => {
+    const { repo, origin, ctx } = estate({ tagged: true });
+    const host = landMerge(path.dirname(repo), origin, [], []);
+    const before = originMain(origin);
+
+    const pr = await run({ ...ctx, host, caller });
+    const version = await runVersion({ ...ctx, caller }, '1.3.0');
+
+    expect(pr.code).toBe(1);
+    expect(pr.err).toContain('unattended');
+    expect(version.outcome).toMatchObject({ outcome: 'refused', reason: 'unattended' });
+    expect(originMain(origin)).toBe(before);
+  });
+
+  describe('the finish record', () => {
+    /** The record the finish left under the repository's real state home, or `null` where none exists. */
+    const recordOf = (repo: string, version: string): Record<string, unknown> | null => {
+      const answer = stateHomeAtSync(repo);
+      if (!('home' in answer)) throw new Error('the test repository has no state home');
+      try {
+        return JSON.parse(readFileSync(path.join(answer.home, '.plot/state/release-finish', `${version}.json`), 'utf8')) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    it('writes refused and tag-absent for a finish refused with tag-absent', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+
+      expect((await runVersion(ctx, '9.9.9')).code).toBe(1);
+
+      expect(recordOf(repo, 'v9.9.9')).toMatchObject({
+        v: 1, version: 'v9.9.9', caller: 'person', outcome: 'refused', reason: 'tag-absent', booked: [], sprintClosed: null,
+      });
+    });
+
+    it('writes booked with the slugs and the closed sprint, and a second finish replaces it with already-released', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+
+      expect((await run(ctx)).code).toBe(0);
+      const first = recordOf(repo, 'v1.2.3');
+      expect(first).toMatchObject({ v: 1, version: 'v1.2.3', caller: 'person', outcome: 'booked', reason: '', sprintClosed: 's' });
+      expect([...(first?.booked as string[])].sort()).toEqual(['alpha', 'beta', 'gamma']);
+      expect(Number.isNaN(Date.parse(String(first?.at)))).toBe(false);
+
+      expect((await runVersion(ctx, '1.2.3')).outcome.outcome).toBe('already-released');
+      expect(recordOf(repo, 'v1.2.3')).toMatchObject({ outcome: 'already-released', reason: '', booked: [], sprintClosed: null });
+    });
+
+    it('writes the refusal of default-branch-unfetched, which comes before the booking', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      git(repo, 'remote', 'set-url', 'origin', path.join(path.dirname(repo), 'no-such-origin.git'));
+
+      expect((await runVersion(ctx, '1.2.3')).code).toBe(1);
+
+      expect(recordOf(repo, 'v1.2.3')).toMatchObject({ outcome: 'refused', reason: 'default-branch-unfetched' });
+    });
+
+    it('writes nothing for version-invalid', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      await runVersion(ctx, '2.36');
+      expect(recordOf(repo, 'v2.36')).toBeNull();
+    });
+
+    it('keeps the outcome and exit code of a finish whose record write fails, and names the failure', async () => {
+      const { repo, ctx } = estate({ tagged: true });
+      const broken = { read: async () => failed(), write: async () => failed<void>() };
+
+      const { code, out, err } = await run({ ...ctx, records: broken });
+
+      expect(code).toBe(0);
+      expect(out).toContain('finished: v1.2.3');
+      expect(err).toContain('record-unwritten');
+      git(repo, 'fetch', '-q', 'origin', 'main');
+      expect(onMain(repo, 'docs/plans/2026-10-01-alpha.md')).toContain('- **State:** Released');
+
+      const refused = await runVersion({ ...ctx, records: broken }, '9.9.9');
+      expect(refused.outcome).toMatchObject({ outcome: 'refused', reason: 'tag-absent' });
+      expect(refused.code).toBe(1);
+    });
   });
 });

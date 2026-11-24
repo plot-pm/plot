@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** delivery-ui-polish
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-tab-has-one-header`
 - **Started:** 2026-11-21, Jan Wloka, `feature/delivery-header-release-group`
 - **Delivered:** 2026-11-21
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 

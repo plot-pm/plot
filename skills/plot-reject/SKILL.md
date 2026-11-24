@@ -8,7 +8,7 @@ license: CC0-1.0
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.2.0
+  version: 1.2.1
 compatibility: Designed for Claude Code. Requires git and gh CLI.
 ---
 
@@ -146,10 +146,10 @@ If the plan has no `Sprint:` field, skip this step.
 ```bash
 git add docs/plans/ docs/sprints/
 git commit -m "plot: reject <slug> — <reason>"
-node ../plot/scripts/board/plot-state-cut.mjs --land || { [ $? -eq 4 ] && git push; }
+node ../plot/scripts/board/plot-state-cut.mjs --land
 ```
 
-Where `State branch` is declared in `## Plot Config`, `plot-state-cut.mjs --land` merges the state ref and the default branch into HEAD and pushes the record at the state ref. Exit 4 means no key is declared, and the plain `git push` runs.
+`plot-state-cut.mjs --land` merges the default branch into HEAD and pushes the record at the default branch through `plot-push-main.sh`, which takes the push lock and pushes as the `Writer app` on a GitHub origin where one is declared. Where `State branch` is declared in `## Plot Config`, it also merges the state ref and pushes the record at the state ref instead. This commit is made on a default-branch checkout; `--land` refuses with exit 1 where HEAD is on any other branch. A non-zero exit means nothing landed, and the reason is on stderr.
 
 **Important:** RC tags are NEVER deleted. They are preserved as historical records of what was attempted. The rejection commit documents why the delivery was reversed.
 

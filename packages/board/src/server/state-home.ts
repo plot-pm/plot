@@ -2,12 +2,14 @@ import {
   baseBranchFile,
   baseRepairFile,
   defaultBranchFile,
+  releaseFinishRecordFile,
   repairRecordFile,
   stateHomeAtSync,
 } from '@plot-pm/domain/adapters';
 import type { StateHomeAnswer } from '@plot-pm/domain';
 import { failed } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import type { ReleaseFinishRecordStore } from '@plot-pm/domain/ports/release-finish-record';
 import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 
 /** Where a process finds its repository, and the state home it resolved at start. */
@@ -74,3 +76,18 @@ export const baseBranchIn = (answer: StateHomeAnswer, base: string): DefaultBran
  */
 export const baseRepairIn = (answer: StateHomeAnswer, base: string): RepairRecordStore =>
   'home' in answer ? baseRepairFile(answer.home, base) : unreadRepairRecord;
+
+/** A release-finish record store over no file: every read and write fails. */
+const unreadReleaseFinishRecord: ReleaseFinishRecordStore = {
+  read: async () => failed(),
+  write: async () => failed<void>(),
+};
+
+/**
+ * The release-finish records' store under a state home.
+ *
+ * @param answer - the resolved state home.
+ * @returns the file store, or a store whose reads and writes fail where the home is unread.
+ */
+export const releaseFinishRecordIn = (answer: StateHomeAnswer): ReleaseFinishRecordStore =>
+  'home' in answer ? releaseFinishRecordFile(answer.home) : unreadReleaseFinishRecord;

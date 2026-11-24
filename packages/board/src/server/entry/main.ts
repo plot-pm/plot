@@ -18,8 +18,8 @@ import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt, nameRepairPrAt } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
-import { finishContextFor, mergePortsFor } from './merge-ports.js';
-import { finishRelease } from './release-finish.js';
+import { finishContextFor, mergePortsFor, versionFinishContextFor } from './merge-ports.js';
+import { finishExitCode, finishRelease, finishReleaseVersion, releaseVersionArg } from './release-finish.js';
 import { recordActionReceipt } from '../action-receipt.js';
 import { planGateAnswer, planGateAskFrom } from './plangate.js';
 import { licensedSpike } from '@plot-pm/domain/rules/spike';
@@ -36,6 +36,7 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * node skills/plot/scripts/board/plot-ask.mjs release-claim <branch>
  * node skills/plot/scripts/board/plot-ask.mjs merge <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
+ * node skills/plot/scripts/board/plot-ask.mjs release-finish <version>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
  * node skills/plot/scripts/board/plot-ask.mjs spike <slug> [<plan-file>]
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
@@ -249,6 +250,29 @@ export const run = async (
       (s) => write(s),
       (s) => process.stderr.write(s),
     );
+  }
+
+  if (argv[0] === 'release-finish') {
+    // A PERSON'S COMMAND, refused unattended before it reads anything. It books
+    // plan records and a sprint close in one revertible commit, so it carries no
+    // passkey assertion.
+    if (process.env.PLOT_UNATTENDED === '1') {
+      process.stderr.write('plot-ask: release-finish: unattended: a release finish needs a person; PLOT_UNATTENDED=1 is set, so nothing is read or written.\n');
+      return 1;
+    }
+    const [, version] = argv;
+    if (!version || argv.length > 2 || releaseVersionArg(version) === null) {
+      process.stderr.write('usage: plot-ask.mjs release-finish <version>\n');
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    const outcome = await finishReleaseVersion(
+      versionFinishContextFor(opts),
+      version,
+      (s) => write(s),
+      (s) => process.stderr.write(s),
+    );
+    return finishExitCode(outcome);
   }
 
   if (argv[0] === 'repair-pr') {

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3640
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/the-pulse-omission-is-one-domain-rule`
 - **Started:** 2026-11-22, Jan Wloka, `bug/a-delivered-docs-member-counts-as-finished`
 - **Delivered:** 2026-11-22
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
