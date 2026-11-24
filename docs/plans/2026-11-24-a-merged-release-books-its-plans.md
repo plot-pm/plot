@@ -53,7 +53,7 @@ Reconcile section 6 ("Delivered but already released") found 8 of the 9 sprint p
 
 ### Reading
 
-- `bug/the-release-reading-names-unbooked-plans` — `releaseUnbooked` and the shared release scope, read by `releaseFinish` and published by fleetd's release tick <!-- builds: releaseUnbooked, the unbooked-release rule --> <!-- tests: releaseUnbooked over the 2.36.0 fixture — two sprints name the version, a docs-type plan named only by a changeset counts as unbooked, a fully booked release answers none, a failed read answers unaskable; releaseFinish books a closed sprint's scope and refuses release-scope-mismatch only for an active sprint naming another version -->
+- `bug/the-release-reading-names-unbooked-plans` — `releaseUnbooked` and the shared release scope, read by `releaseFinish` and published by fleetd's release tick <!-- builds: releaseUnbooked, the unbooked-release rule --> <!-- tests: releaseUnbooked over the 2.36.0 fixture — two sprints name the version, a docs-type plan named only by a changeset counts as unbooked, a fully booked release answers none, a failed read answers unaskable; releaseFinish books a closed sprint's scope and refuses release-scope-mismatch only for an active sprint naming another version --> → #3703
 
 ### Repair
 
