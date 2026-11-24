@@ -99,3 +99,32 @@ export const finishContextFor = (opts: BuildBoardOptions, ports: MergePorts): Fi
     pollMs: 15_000,
   };
 };
+
+/**
+ * What `finishReleaseVersion` reads and writes through, with no host read.
+ *
+ * The version entry resolves the release merge from the tag locally, so it
+ * builds no merge ports. It waits for no tag: `tagWaitMs` is 0.
+ *
+ * @param opts - the board options the entry resolved.
+ * @param caller - who is asking; read from `PLOT_UNATTENDED` where absent.
+ * @returns the finish's context.
+ */
+export const versionFinishContextFor = (
+  opts: BuildBoardOptions,
+  caller: Caller = callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }),
+): FinishContext => {
+  const estate = realEstate(opts);
+  return {
+    repoRoot: opts.repoRoot,
+    refs: estate.refs,
+    host: estate.host,
+    planStore: estate.planStore,
+    scripts: scriptsFor(opts),
+    trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
+    scriptDir: opts.scriptsDir,
+    caller,
+    tagWaitMs: 0,
+    pollMs: 15_000,
+  };
+};

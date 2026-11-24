@@ -454,7 +454,7 @@ const APPROVE_MJS = 'plot-approve.mjs';
 const ASK_MJS = 'plot-ask.mjs';
 
 /** The lifecycle actions a gated script call can be. */
-export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede' | 'story-status';
+export type GatedAction = 'dispatch' | 'approve' | 'deliver' | 'release' | 'release-approve' | 'release-finish' | 'restart' | 'loose-delete' | 'needs-design' | 'supersede' | 'story-status';
 
 /** The scripts a command may run, and the action each bare call is. */
 const GATED: Record<string, 'dispatch' | 'approve' | 'deliver'> = {
@@ -613,11 +613,12 @@ const HTTP_PROGRAMS: ReadonlySet<string> = new Set(['curl', 'wget', 'http', 'htt
 
 /**
  * The board routes this gate refuses, each requiring a POST, longest
- * first so `/api/release-approve` is tried before the `/api/release` prefix
- * it would otherwise also match.
+ * first so `/api/release-approve` and `/api/release-finish` are tried before
+ * the `/api/release` prefix they would otherwise also match.
  */
 const ROUTE_ACTION: ReadonlyArray<readonly [string, GatedAction]> = [
   ['/api/release-approve', 'release-approve'],
+  ['/api/release-finish', 'release-finish'],
   ['/api/release', 'release'],
   ['/api/restart', 'restart'],
   ['/api/loose-delete', 'loose-delete'],
