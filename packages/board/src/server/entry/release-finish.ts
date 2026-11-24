@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import type { Caller, PlanStore, Refs, Host, Scripts, Trees } from '@plot-pm/domain';
 import { parseChangeset } from '@plot-pm/domain/rules/changeset';
-import { scopeSlugs } from '@plot-pm/domain/rules/release-scope';
+import { releaseScopeSprintOf } from '@plot-pm/domain/rules/release-scope';
 import { planSlug, type ReleaseChangeset } from '@plot-pm/domain';
 import { releaseFinish, type FinishSprint, type ScopePlan } from '@plot-pm/domain/workflows/release-finish';
 import { flipFrontMatterPhase, flipStatusValue, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
@@ -62,22 +62,6 @@ const shippedChangesets = async (refs: Refs, mergeCommit: string): Promise<reado
   return out;
 };
 
-/**
- * A field of a sprint file's `## Status` section, as the file spells it.
- *
- * @param content - the whole sprint file.
- * @param names - the field's names; the first one the section holds answers.
- * @returns the trimmed value, or `''` where the section holds none of them.
- */
-const statusField = (content: string, names: readonly string[]): string => {
-  const body = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/)?.[1] ?? '';
-  for (const name of names) {
-    const value = body.match(new RegExp(`^- \\*\\*${name}:\\*\\*\\s*(.*)$`, 'm'))?.[1];
-    if (value !== undefined) return value.trim();
-  }
-  return '';
-};
-
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -104,9 +88,9 @@ const closeSprintText = (content: string, on: string): string => {
  * `package.json` and never from the release branch, which the host may delete
  * on merge. Waits up to `tagWaitMs` for the version's tag, then books every
  * scope plan as Released, closes the sprint and removes its active index entry
- * in ONE commit and ONE push onto the default branch. The scope is the only
- * sprint in the active index at the default branch's latest commit, struck
- * items excluded.
+ * in ONE commit and ONE push onto the default branch. The sprints are every
+ * sprint file in the `Sprint directory` at the default branch's latest commit,
+ * active or closed, and the scope is the domain's `releaseScope` over them.
  *
  * @param ctx - the ports, the caller and the wait bound.
  * @param prNumber - the merged release PR.
@@ -149,6 +133,7 @@ export const finishRelease = async (
 
   const deadline = Date.now() + ctx.tagWaitMs;
   let tagExists = false;
+  let tagDate = '';
   for (;;) {
     await ctx.trees.fetch(ctx.repoRoot, mainBranch);
     // `git fetch origin <branch>` follows no tag, and publish creates the tag on
@@ -157,6 +142,7 @@ export const finishRelease = async (
     await ctx.trees.fetch(ctx.repoRoot, `refs/tags/${tag}:refs/tags/${tag}`);
     const dated = await ctx.refs.tagDate(tag);
     tagExists = dated.ok && dated.value !== '';
+    tagDate = dated.ok ? dated.value : '';
     if (tagExists || Date.now() >= deadline) break;
     await sleep(ctx.pollMs);
   }
@@ -189,70 +175,45 @@ export const finishRelease = async (
   /** Decides from the text `wt` holds now, applies the edits, and stages them. */
   const book = async (wt: string): Promise<void> => {
     refusal = null;
+    const linkOf = new Map<string, string>();
     const active = await ctx.planStore.listDir(path.join(wt, sprintDir, 'active'));
-    const sprints: FinishSprint[] = [];
-    const contents = new Map<string, string>();
-    for (const name of (active.ok ? active.value : []).filter((f) => f.endsWith('.md')).sort()) {
+    for (const name of (active.ok ? active.value : []).filter((f) => f.endsWith('.md'))) {
       const link = path.join(sprintDir, 'active', name);
       // The active entry is a symlink; the edit goes to the file it names.
-      const file = (() => {
-        try {
-          return path.relative(realpathSync(wt), realpathSync(path.join(wt, link)));
-        } catch {
-          return link;
-        }
-      })();
+      try {
+        linkOf.set(path.relative(realpathSync(wt), realpathSync(path.join(wt, link))), link);
+      } catch {
+        linkOf.set(link, link);
+      }
+    }
+    const listedSprints = await ctx.planStore.listDir(path.join(wt, sprintDir));
+    const sprintFiles = new Set((listedSprints.ok ? listedSprints.value : []).filter((f) => f.endsWith('.md')).map((f) => path.join(sprintDir, f)));
+    for (const file of linkOf.keys()) sprintFiles.add(file);
+    const sprints: FinishSprint[] = [];
+    const contents = new Map<string, string>();
+    for (const file of [...sprintFiles].sort()) {
       const text = await ctx.planStore.readText(path.join(wt, file));
       const content = text.ok && text.value !== null ? text.value : '';
       contents.set(file, content);
-      sprints.push({
-        slug: path.basename(file, '.md'),
-        file,
-        link,
-        state: statusField(content, ['State', 'Phase']),
-        start: statusField(content, ['Start']),
-        release: statusField(content, ['Release']),
-      });
+      sprints.push({ ...releaseScopeSprintOf(file, content), file, link: linkOf.get(file) ?? '' });
     }
-    const only = sprints.length === 1 ? sprints[0] : undefined;
-    const slugs = only === undefined ? [] : scopeSlugs(contents.get(only.file) ?? '');
 
     const listed = await ctx.planStore.listDir(path.join(wt, planDir));
     const files = listed.ok ? listed.value : [];
-    const scope: ScopePlan[] = [];
-    for (const slug of slugs) {
-      const name = files.find((f) => f.endsWith(`-${slug}.md`) || f === `${slug}.md`);
-      if (name === undefined) {
-        scope.push({ slug, file: '', type: '', phase: 'none', releasedRecord: '' });
-        continue;
-      }
-      const rel = path.join(planDir, name);
-      const read = await ctx.planStore.readPlan(path.join(wt, rel));
-      scope.push({
-        slug,
-        file: read.ok ? rel : '',
-        type: read.ok ? read.value.type : '',
-        phase: read.ok ? String(read.value.phase) : 'none',
-        releasedRecord: read.ok ? read.value.releasedRaw : '',
-      });
-    }
-
-    const inScope = new Set(slugs);
-    const outside: ScopePlan[] = [];
+    const plans: ScopePlan[] = [];
     for (const name of files.filter((f) => f.endsWith('.md'))) {
       const slug = planSlug(name);
-      if (inScope.has(slug)) continue;
       const rel = path.join(planDir, name);
       const read = await ctx.planStore.readPlan(path.join(wt, rel));
-      if (!read.ok) {
-        outside.push({ slug, file: '', type: '', phase: 'none', releasedRecord: '' });
-        continue;
-      }
-      outside.push({ slug, file: rel, type: read.value.type, phase: String(read.value.phase), releasedRecord: read.value.releasedRaw });
+      plans.push(
+        read.ok
+          ? { slug, file: rel, type: read.value.type, phase: String(read.value.phase), releasedRecord: read.value.releasedRaw }
+          : { slug, file: '', type: '', phase: 'none', releasedRecord: '' },
+      );
     }
 
     const out = releaseFinish(
-      { caller: ctx.caller, version: tag, tagExists, scope, outside, shipped, sprints },
+      { caller: ctx.caller, version: tag, tagExists, tagDate, plans, shipped, sprints },
       { on },
     );
     if (out.outcome === 'refused') {
@@ -261,7 +222,7 @@ export const finishRelease = async (
     }
     booked = out.detail.booked;
     notes = out.detail.notes;
-    const bookedScope = [...scope, ...outside].filter((s) => out.detail.booked.includes(s.slug));
+    const bookedScope = plans.filter((s) => s.file !== '' && out.detail.booked.includes(s.slug));
     bookedFiles = bookedScope.map((p) => ({ slug: p.slug, file: p.file }));
     const staged: string[] = [];
     for (const p of bookedScope) {
@@ -284,12 +245,14 @@ export const finishRelease = async (
       const written = await ctx.planStore.writeText(path.join(wt, close.file), closeSprintText(contents.get(close.file) ?? '', close.actualEnd));
       if (!written.ok) throw new Refused(`could not write ${close.file}; nothing was pushed.`);
       recordStateReceipt(ctx.repoRoot, close.file, 'Closed');
-      try {
-        unlinkSync(path.join(wt, close.link));
-      } catch {
-        throw new Refused(`could not remove the active index entry ${close.link}; nothing was pushed.`);
+      if (close.link !== '') {
+        try {
+          unlinkSync(path.join(wt, close.link));
+        } catch {
+          throw new Refused(`could not remove the active index entry ${close.link}; nothing was pushed.`);
+        }
       }
-      staged.push(close.file, close.link);
+      staged.push(close.file, ...(close.link === '' ? [] : [close.link]));
     }
     await ctx.trees.stage(wt, staged);
   };
