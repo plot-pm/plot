@@ -154,6 +154,17 @@ into a reported failure on a loaded machine.
 - **Not adoption.** `/plot-board-setup` writes the config and verifies the
   prerequisites, once per repository.
 
+## Writing from another machine
+
+The board serves its write endpoints only on a loopback bind (`localhost`, `127.0.0.1`, `::1`). On any other bind, `HOST=0.0.0.0` included, it serves reads and answers every write endpoint with 403. No variable opens the write endpoints on a non-loopback bind: `PLOT_BOARD_ALLOW_REMOTE_WRITES` did until issue #3311, and the board now names it in the refusal and otherwise ignores it.
+
+Two routes reach a loopback board from another machine:
+
+- **`tailscale serve`** proxies a tailnet address to the loopback port, and `PLOT_BOARD_ORIGINS` names the served origin (for example `https://machine.tailnet.ts.net`) so that the write endpoints admit the page's requests. This route trusts the tailnet's access rules: every device and user that the rules let reach the machine can write.
+- **An SSH tunnel**, `ssh -L <port>:localhost:<port> <machine>`, forwards a local port to the board, and the browser opens `http://localhost:<port>`. This route trusts the SSH account: whoever can log in as that account can write.
+
+**`tailscale funnel` must not front the board.** It publishes the address to the internet, and a request through it reaches the loopback port like any other proxied request, so anyone who finds the URL can claim branches, approve plans and start agents.
+
 ## Where the pidfile lives, and why there
 
 `.plot/state/board.pid` — machine-local and gitignored, for the same reason

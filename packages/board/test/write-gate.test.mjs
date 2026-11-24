@@ -169,13 +169,17 @@ describe('the write gate: bound off loopback, the write endpoints refuse', () =>
       body: JSON.stringify({ slug: 'ship-the-widget' }),
     });
     const { error } = JSON.parse(res.body);
-    // The three things a developer who bound to 0.0.0.0 on purpose needs: what
-    // the server is bound to, that the binding is the cause, and the exact
-    // opt-in. Asserted as content rather than as an exact sentence so the
+    // The things a developer who bound to 0.0.0.0 on purpose needs: what the
+    // server is bound to, that the binding is the cause, and the two routes
+    // that keep the board on loopback. No variable opens the gate, so none is
+    // named. Asserted as content rather than as an exact sentence so the
     // wording can improve without breaking the test.
     assert.match(error, /0\.0\.0\.0/, 'names the binding it refused for');
     assert.match(error, /loopback/, 'names the boundary');
-    assert.match(error, /PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand/, 'names the escape exactly');
+    assert.match(error, /tailscale serve/, 'names the tailscale route');
+    assert.match(error, /PLOT_BOARD_ORIGINS/, 'names the variable that admits the served origin');
+    assert.match(error, /ssh -L <port>:localhost:<port> <machine>/, 'names the SSH tunnel');
+    assert.doesNotMatch(error, /PLOT_BOARD_ALLOW_REMOTE_WRITES/, 'names no removed variable that is not set');
   });
 
   it('ran NOTHING — the refusal precedes the spawn, which is what makes it a gate', async () => {
@@ -212,14 +216,17 @@ describe('the write gate: bound off loopback, the write endpoints refuse', () =>
   });
 });
 
-describe('the write gate: the opt-in is deliberate and exact', () => {
+describe('the write gate: the removed opt-in opens nothing', () => {
   let tmp, server, stub;
 
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
-    // Configure the Implement command — dispatch now calls /plot-implement first.
+    // Configured so that a request the gate let through would spawn: the
+    // assertion below that nothing ran is then a statement about the gate.
     writeImplementCommand(tmp, { bin: stub.implementBin });
+    // Until issue #3311 this variable opened every write route on any bind,
+    // and `curl` from any machine that reached the address could start agents.
     server = await startServer(tmp, {
       HOST: '0.0.0.0',
       PLOT_SCRIPTS_DIR: stub.dir,
@@ -233,31 +240,32 @@ describe('the write gate: the opt-in is deliberate and exact', () => {
     if (tmp) rmTree(tmp);
   });
 
-  it('serves the write endpoints once the named opt-in is set', async () => {
+  it('refuses POST /api/dispatch with 403, says the variable no longer opens it, and runs nothing', async () => {
     const res = await request(server.port, {
       method: 'POST',
       path: '/api/dispatch',
-      headers: { 'sec-fetch-site': 'same-origin' },
       body: JSON.stringify({ slug: 'ship-the-widget' }),
     });
-    assert.equal(res.status, 202, 'the opt-in must actually open the gate');
+    assert.equal(res.status, 403, 'the removed opt-in must not open the gate');
+    const { error } = JSON.parse(res.body);
+    assert.match(error, /PLOT_BOARD_ALLOW_REMOTE_WRITES is set, and it no longer opens/);
+    await settle();
+    assert.deepEqual(stub.runs(), [], 'a refused request must not have spawned the dispatcher');
   });
 });
 
-describe('the write gate: a truthy guess does not open it', () => {
+describe('the write gate: a loopback board admits the origin PLOT_BOARD_ORIGINS declares', () => {
+  const SERVED = 'https://machine.tailnet.ts.net';
   let tmp, server, stub;
 
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
-    // `1` is what a person types when guessing at a flag, and guessing is the
-    // failure mode the named value exists to prevent. The value is checked,
-    // never merely the presence of the variable.
-    server = await startServer(tmp, {
-      HOST: '0.0.0.0',
-      PLOT_SCRIPTS_DIR: stub.dir,
-      PLOT_BOARD_ALLOW_REMOTE_WRITES: '1',
-    });
+    writeImplementCommand(tmp, { bin: stub.implementBin });
+    // The operator's setup: the board stays on loopback, `tailscale serve`
+    // proxies to it, and PLOT_BOARD_ORIGINS admits the served origin. It
+    // needs no opt-in.
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir, PLOT_BOARD_ORIGINS: SERVED });
   });
 
   after(async () => {
@@ -266,14 +274,24 @@ describe('the write gate: a truthy guess does not open it', () => {
     if (tmp) rmTree(tmp);
   });
 
-  it('still refuses — the opt-in must be typed knowingly, not guessed', async () => {
+  it('refuses POST /api/dispatch from an undeclared origin', async () => {
     const res = await request(server.port, {
       method: 'POST',
-      path: '/api/claim',
-      headers: { 'sec-fetch-site': 'same-origin' },
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin', origin: 'https://other.tailnet.ts.net' },
       body: JSON.stringify({ slug: 'ship-the-widget' }),
     });
     assert.equal(res.status, 403);
+  });
+
+  it('serves POST /api/dispatch from the declared origin', async () => {
+    const res = await request(server.port, {
+      method: 'POST',
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin', origin: SERVED },
+      body: JSON.stringify({ slug: 'ship-the-widget' }),
+    });
+    assert.equal(res.status, 202, 'the tailscale serve route must still write');
   });
 });
 
