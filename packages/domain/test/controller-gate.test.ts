@@ -255,6 +255,7 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['needs-design', 'curl -X POST http://localhost:4000/api/needs-design'],
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
     ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
+    ['release-finish', 'curl -X POST http://localhost:4000/api/release-finish'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -358,6 +359,10 @@ describe('controllerHttpAction', () => {
   it('answers null for a GET', () => {
     expect(controllerHttpAction('curl http://localhost:4000/api/release')).toBeNull();
   });
+
+  it('does not read a release-finish POST as release', () => {
+    expect(controllerHttpAction('curl -X POST http://localhost:4000/api/release-finish')).not.toBe('release');
+  });
 });
 
 describe('finalControllerRefusal', () => {
@@ -420,6 +425,14 @@ describe('finalControllerRefusal', () => {
     const text = finalControllerRefusal('loose-delete', dir);
     expect(text).toContain('POST /api/loose-delete');
     expect(text).toContain(`node ${dir}/board/plot-loose-delete-command.mjs <branch>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
+    expect(text).not.toContain('plot-restart-command');
+  });
+
+  it('names the board button and the release-finish bundle for release-finish, with no receipt bypass', () => {
+    const text = finalControllerRefusal('release-finish', dir);
+    expect(text).toContain('POST /api/release-finish');
+    expect(text).toContain(`node ${dir}/board/plot-ask.mjs release-finish <version>`);
     expect(text).not.toContain('plot-state-receipt.sh');
     expect(text).not.toContain('plot-restart-command');
   });

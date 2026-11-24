@@ -1009,6 +1009,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
       if (
         httpAction === 'release' || httpAction === 'restart' || httpAction === 'loose-delete'
         || httpAction === 'needs-design' || httpAction === 'supersede' || httpAction === 'story-status'
+        || httpAction === 'release-finish'
       ) return finalControllerRefusal(httpAction, scriptDir);
     }
 
@@ -1047,7 +1048,7 @@ export const controllerGateOf = (readings: ControllerReadings): Gate => ({
 
     const action = controllerInvocation(stripped);
     const refusals = unpinnedMerges(stripped).map((program) => unpinnedMergeRefusal(scriptDir, program));
-    if (action === 'loose-delete' || action === 'needs-design' || action === 'supersede' || action === 'story-status') {
+    if (action === 'loose-delete' || action === 'needs-design' || action === 'supersede' || action === 'story-status' || action === 'release-finish') {
       refusals.unshift(finalControllerRefusal(action, scriptDir));
     } else if (action !== null) {
       if (!existsSync(join(root.value, '.plot', 'state'))) {

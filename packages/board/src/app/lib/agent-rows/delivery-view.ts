@@ -49,6 +49,7 @@ import {
   agentPills,
   type StatusPill,
 } from '@plot-pm/domain';
+import type { ReleaseUnbooked } from '@plot-pm/domain/rules/release-unbooked';
 import type { AgentRow, Card, DispatchInfo, DraftPlan, FleetSprint, IssueAnswer, IssueRow, Slice } from '../../../contract/schema.js';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import { countedSlicesByPlan, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
@@ -105,6 +106,8 @@ export interface PlacedItemView {
   draft: DraftPlan | null;
   /** The ticket the item stands for; `null` for every other kind. */
   ticket: IssueRow | null;
+  /** What the unbooked release this item stands for still owes; `null` for every other item. */
+  unbooked: ReleaseUnbooked | null;
   /** The label a link to this item shows. */
   label: string;
   /** The DOM id a link to this item scrolls to. */
@@ -979,7 +982,7 @@ export const deliveryView = (
     return placedIds.has(item) ? item : null;
   };
   const labelOfItem = (id: string): string =>
-    itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null, planIndex);
+    mapping.unbookedByItem[id] !== undefined ? `release ${mapping.unbookedByItem[id].version}` : itemLabel(id, mapping.rowsByItem[id] ?? [], mapping.draftsByItem[id] ?? null, mapping.ticketsByItem[id] ?? null, planIndex);
   const labelOfAgent = (id: string): string => agentLabel(id, mapping.agentsById[id] ?? null);
   const kindOfItem = (id: string): LinkIconKind | null => {
     const item = placement.items.find((i) => i.id === id);
@@ -991,6 +994,7 @@ export const deliveryView = (
     rows: mapping.rowsByItem[p.id] ?? [],
     draft: mapping.draftsByItem[p.id] ?? null,
     ticket: mapping.ticketsByItem[p.id] ?? null,
+    unbooked: mapping.unbookedByItem[p.id] ?? null,
     label: labelOfItem(p.id),
     anchor: itemAnchor(p.id),
     links: p.agents.map((a) => ({ label: labelOfAgent(a), anchor: agentAnchor(a), icon: linkIconKind('agent') })),

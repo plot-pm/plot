@@ -4384,6 +4384,16 @@ export type SprintCounts = z.infer<typeof SprintCountsSchema>;
 const ReleaseRowSchema = z.object({ releases: z.array(z.string()).optional() });
 
 /** The wire shape of the domain's `ReleaseTicketReading`. */
+/** One `releaseUnbooked` answer and its source. */
+export const ReleaseUnbookedShownSchema = z.object({
+  answer: z.union([
+    z.object({ version: z.string(), plans: z.array(z.string()).readonly(), sprintOpen: z.string().nullable() }),
+    z.literal('none'),
+    z.literal('unaskable'),
+  ]),
+  source: z.enum(['fleetd', 'board']),
+});
+
 export const ReleaseTicketsSchema = z.object({
   open: z.array(ReleaseRowSchema),
   closed: z.array(ReleaseRowSchema).nullable(),
@@ -5010,6 +5020,13 @@ export const FleetShape = z.object({
    * an older server renders the line with slice counts only.
    */
   releaseTickets: ReleaseTicketsSchema.nullable().optional(),
+  /**
+   * What the newest merged release still owes, for the Delivery tab's
+   * `unbooked` row: `releaseUnbooked`'s answer and the reading it came from,
+   * `fleetd` (the channel's `release unbooked` finding) or `board` (the
+   * board's own reading). Optional so an older server renders no row.
+   */
+  releaseUnbooked: ReleaseUnbookedShownSchema.optional(),
   /**
    * The issues the Tickets section's scope groups read, from the same open and
    * closed sets as `releaseTickets`, with no `ISSUE_LIMIT` cut: each row a plan

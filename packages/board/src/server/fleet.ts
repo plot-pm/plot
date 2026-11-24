@@ -41,6 +41,7 @@ import {
 import { stuckState, summarizeStuck } from './stuck.js';
 import { listRecordBlobs } from '@plot-pm/domain/workflows/record-listing';
 import { blobIdOfBytes, parsePlanMetaFiles, planMetaOf, planSlug, heldRefsFor, workingTreeSprints, planStatusBySlug, planEstate, approvedSpikeKey, readConfigAsync, declaredPhaseMap, scriptsFor, refsFor, defaultBranchOf, fleetStateFor, treesFor, hostFor, buildPortFor, readerLockFor, detachedFor, processProbeFor, type BuildBoardOptions, type PlanOwnerFields } from './board.js';
+import { releaseUnbookedFor } from './release-unbooked-reading.js';
 import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
@@ -9110,6 +9111,8 @@ export async function buildFleet(
     waiting: entry.waiting,
     // The index's `releases`, for the Delivery tab's release line: no second read.
     releaseTickets: releaseTicketsOf(entry.issueSets),
+    // fleetd's `release unbooked` finding while its heartbeat is live; the board's own reading otherwise.
+    releaseUnbooked: await releaseUnbookedFor(opts, await fleetdHeartbeatFor(opts), now),
     // The scope groups' rows and plans, from the same sets and plan read: no second read.
     planTicketRows: planTicketRowsOf(entry.issueSets, entry.ticketPlans, entry.refutedIssues, now),
     ticketPlans: Object.fromEntries(entry.ticketPlans ?? []),

@@ -1,4 +1,5 @@
 import type { Ownership } from './ownership.js';
+import type { ReleaseUnbooked } from './release-unbooked.js';
 
 /**
  * The sections of the Delivery tab, top to bottom, and the groups inside the
@@ -80,6 +81,8 @@ export interface WorkItemReading {
   releases?: readonly string[];
   /** What was measured to decide whether a PR or branch is loose; absent where nobody asked. */
   loose?: LooseReading;
+  /** A merged release that still owes bookings: set only on a `release` item, absent where nobody read it. */
+  unbooked?: ReleaseUnbooked;
 }
 
 /**
@@ -148,7 +151,8 @@ export type YouReason =
   | 'merge-conflict'
   | 'person-comment'
   | 'agent-died'
-  | 'loose';
+  | 'loose'
+  | 'unbooked';
 
 export type ItemPlacement =
   | { id: string; kind: ItemKind; section: 'you'; group: YouGroup; marker: YouMarker; reason: YouReason; agents: string[] }
@@ -223,6 +227,7 @@ const YOU_GROUP_OF: Record<YouReason, YouGroup> = {
   'person-comment': 'blocks-delivery',
   'agent-died': 'blocks-delivery',
   loose: 'unblock',
+  unbooked: 'unblock',
 };
 
 const YOU_CASES = Object.fromEntries(
@@ -238,7 +243,7 @@ const YOU_CASES = Object.fromEntries(
  */
 export const youCaseOf = (reason: YouReason): YouCase => YOU_CASES[reason];
 
-const STUCK_REASONS: readonly YouReason[] = ['blocked-marker', 'fleet-stuck', 'merge-conflict', 'agent-died', 'loose'];
+const STUCK_REASONS: readonly YouReason[] = ['blocked-marker', 'fleet-stuck', 'merge-conflict', 'agent-died', 'loose', 'unbooked'];
 
 /**
  * Whether a reason names an item the fleet cannot take further alone.
@@ -247,7 +252,7 @@ const STUCK_REASONS: readonly YouReason[] = ['blocked-marker', 'fleet-stuck', 'm
  * move with the fold of Review a result into Blocks delivery.
  *
  * @param reason - the reason an item sits under You.
- * @returns true for `blocked-marker`, `fleet-stuck`, `merge-conflict`, `agent-died` and `loose`.
+ * @returns true for `blocked-marker`, `fleet-stuck`, `merge-conflict`, `agent-died`, `loose` and `unbooked`.
  */
 export const isStuckReason = (reason: YouReason): boolean => STUCK_REASONS.includes(reason);
 
@@ -348,6 +353,7 @@ export const youCaseOfItem = (
   live: number,
   stopped: number,
 ): YouCase | null => {
+  if (item.kind === 'release' && item.unbooked !== undefined) return YOU_CASES['unbooked'];
   if (item.phase === 'draft' || item.phase === 'design') return YOU_CASES['draft-plan'];
   if (item.approvalOwed === 'plan') return YOU_CASES['plan-approval'];
   if (item.approvalOwed === 'spike') return YOU_CASES['spike-approval'];
@@ -462,7 +468,7 @@ export const placeDelivery = (readings: DeliveryReadings, input: DeliveryInput):
   const tickets: TicketPlacement[] = [];
   const releases: string[] = [];
   for (const item of readings.items) {
-    if (item.kind === 'release' || item.approvalOwed === 'release') {
+    if ((item.kind === 'release' || item.approvalOwed === 'release') && item.unbooked === undefined) {
       releases.push(item.id);
       continue;
     }

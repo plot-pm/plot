@@ -1,4 +1,4 @@
-import type { StateHomeAnswer } from '@plot-pm/domain';
+import type { Finding, StateHomeAnswer } from '@plot-pm/domain';
 import type { SnapshotLink } from '@plot-pm/domain/rules/snapshot-link';
 import type { HeldSnapshot } from '@plot-pm/domain/rules/snapshot-sync';
 import { createHash } from 'node:crypto';
@@ -258,6 +258,11 @@ export interface BuildBoardOptions {
    * board never serves from a snapshot.
    */
   channelSnapshot?: () => { link: SnapshotLink; held: HeldSnapshot | undefined };
+  /**
+   * The findings the hub holds, or `null` while its subscription is not up.
+   * Absent means no hub: the board reads the release debt itself.
+   */
+  channelFindings?: () => readonly Finding[] | null;
   /**
    * Starts the machine's PR reader. Absent means a real detached `node`
    * process, the same seam `handleNeedsDesign` uses for its own bundle.

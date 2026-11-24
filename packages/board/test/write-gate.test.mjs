@@ -113,6 +113,10 @@ const WRITE_ROUTES = [
   // Story-status moves a story's front-matter status and pushes, so it is
   // gated by the same loopback boundary as /api/supersede.
   { path: '/api/story-status', body: { slug: 'a-story', status: 'active' } },
+  // Release-finish books a merged release's plans, closes its sprint, and
+  // pushes one commit, so it is gated by the same loopback boundary as
+  // /api/supersede.
+  { path: '/api/release-finish', body: { version: '1.2.3' } },
   // Release-approve approves a release PR on a verified passkey assertion, and
   // the two passkey routes issue its challenge and register its credential. A
   // passkey binds to `localhost`, so none of the three may answer a request

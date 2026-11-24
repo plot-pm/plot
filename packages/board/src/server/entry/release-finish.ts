@@ -80,17 +80,78 @@ const closeSprintText = (content: string, on: string): string => {
   return content.replace(status[0], `${status[1]}${body}`);
 };
 
+/** How one finish ended: what it booked, the safe second-run answer, or the refusal by name. */
+export type FinishOutcome =
+  | { readonly outcome: 'booked'; readonly version: string; readonly booked: readonly string[]; readonly notes: readonly string[] }
+  | { readonly outcome: 'already-released'; readonly version: string; readonly detail: string }
+  | { readonly outcome: 'refused'; readonly reason: string; readonly detail: string };
+
+/**
+ * The exit code of a finish: 0 for `booked` and `already-released`, 1 for a refusal.
+ *
+ * @param outcome - the finish's outcome.
+ */
+export const finishExitCode = (outcome: FinishOutcome): number => (outcome.outcome === 'refused' ? 1 : 0);
+
+/** What a finish's head resolved before the shared tail books. */
+interface FinishHead {
+  readonly mainBranch: string;
+  /** The version's tag, `vN.N.N`. */
+  readonly tag: string;
+  readonly tagExists: boolean;
+  readonly tagDate: string;
+  /** The release merge commit; `''` where unread, which reads the shipped changesets as `unaskable`. */
+  readonly mergeCommit: string;
+}
+
+const refusedWith = (label: string, warn: Printer, reason: string, detail: string): FinishOutcome => {
+  warn(`plot-ask: ${label}: ${reason}: ${detail}\n`);
+  return { outcome: 'refused', reason, detail };
+};
+
+/** The default branch's name, `main` where unread. */
+const mainBranchOf = async (ctx: FinishContext): Promise<string> => {
+  const main = await ctx.refs.defaultBranch();
+  return main.ok && main.value !== '' ? main.value : 'main';
+};
+
+/**
+ * Fetches the default branch and the tag by their own refspecs, up to `waitMs`, and reads the tag's date.
+ *
+ * `git fetch origin <branch>` follows no tag, and publish creates the tag on the
+ * remote, so the tag is fetched by its own refspec. A failed fetch leaves the
+ * tag unread locally, and the finish then refuses `tag-absent`.
+ */
+const awaitTag = async (
+  ctx: FinishContext,
+  mainBranch: string,
+  tag: string,
+  waitMs: number,
+): Promise<{ tagExists: boolean; tagDate: string }> => {
+  const sleep = ctx.sleep ?? realSleep;
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    await ctx.trees.fetch(ctx.repoRoot, mainBranch);
+    await ctx.trees.fetch(ctx.repoRoot, `refs/tags/${tag}:refs/tags/${tag}`);
+    const dated = await ctx.refs.tagDate(tag);
+    const tagExists = dated.ok && dated.value !== '';
+    if (tagExists || Date.now() >= deadline) return { tagExists, tagDate: dated.ok ? dated.value : '' };
+    await sleep(ctx.pollMs);
+  }
+};
+
+/** The canonical `vN.N.N` spelling of a version argument, or `null` where it is not `N.N.N` or `vN.N.N`. */
+export const releaseVersionArg = (given: string): string | null =>
+  /^v?\d+\.\d+\.\d+$/.test(given) ? (given.startsWith('v') ? given : `v${given}`) : null;
+
 /**
  * Finishes a merged release in the person's own call.
  *
  * Fetches the default branch on its own and refuses `default-branch-unfetched`
  * when that fetch fails. Reads the version from the fetched default branch's
  * `package.json` and never from the release branch, which the host may delete
- * on merge. Waits up to `tagWaitMs` for the version's tag, then books every
- * scope plan as Released, closes the sprint and removes its active index entry
- * in ONE commit and ONE push onto the default branch. The sprints are every
- * sprint file in the `Sprint directory` at the default branch's latest commit,
- * active or closed, and the scope is the domain's `releaseScope` over them.
+ * on merge. Waits up to `tagWaitMs` for the version's tag, then books as
+ * {@link finishReleaseVersion} does, from the PR's merge commit.
  *
  * @param ctx - the ports, the caller and the wait bound.
  * @param prNumber - the merged release PR.
@@ -103,19 +164,23 @@ export const finishRelease = async (
   prNumber: number,
   write: Printer,
   warn: Printer,
-): Promise<number> => {
-  const sleep = ctx.sleep ?? realSleep;
-  const main = await ctx.refs.defaultBranch();
-  const mainBranch = main.ok && main.value !== '' ? main.value : 'main';
+): Promise<number> => finishExitCode(await finishReleaseOfPr(ctx, prNumber, write, warn));
+
+const finishReleaseOfPr = async (
+  ctx: FinishContext,
+  prNumber: number,
+  write: Printer,
+  warn: Printer,
+): Promise<FinishOutcome> => {
+  const label = 'release-approve';
+  const mainBranch = await mainBranchOf(ctx);
   const pr = await ctx.host.prState(prNumber);
   if (!pr.ok || pr.value === null) {
-    warn(`plot-ask: release-approve: the host did not answer for PR #${prNumber}; the finish writes nothing.\n`);
-    return 1;
+    return refusedWith(label, warn, 'unaskable', `the host did not answer for PR #${prNumber}; the finish writes nothing.`);
   }
   const fetched = await ctx.trees.fetch(ctx.repoRoot, mainBranch);
   if (!fetched.ok) {
-    warn(`plot-ask: release-approve: default-branch-unfetched: could not fetch '${mainBranch}' from origin, so the released version is unknown. The finish writes nothing; run it again once the fetch works.\n`);
-    return 1;
+    return refusedWith(label, warn, 'default-branch-unfetched', `could not fetch '${mainBranch}' from origin, so the released version is unknown. The finish writes nothing; run it again once the fetch works.`);
   }
   const shown = await ctx.refs.showFile(`origin/${mainBranch}`, 'package.json');
   const version = (() => {
@@ -126,28 +191,65 @@ export const finishRelease = async (
     }
   })();
   if (version === '') {
-    warn('plot-ask: release-approve: cannot read a version from package.json; the finish writes nothing.\n');
-    return 1;
+    return refusedWith(label, warn, 'version-unread', 'cannot read a version from package.json; the finish writes nothing.');
   }
   const tag = version.startsWith('v') ? version : `v${version}`;
+  const { tagExists, tagDate } = await awaitTag(ctx, mainBranch, tag, ctx.tagWaitMs);
+  return finishTail(ctx, { mainBranch, tag, tagExists, tagDate, mergeCommit: pr.value.mergeCommit }, label, write, warn);
+};
 
-  const deadline = Date.now() + ctx.tagWaitMs;
-  let tagExists = false;
-  let tagDate = '';
-  for (;;) {
-    await ctx.trees.fetch(ctx.repoRoot, mainBranch);
-    // `git fetch origin <branch>` follows no tag, and publish creates the tag on
-    // the remote, so the tag is fetched by its own refspec. A failed fetch leaves
-    // the tag unread locally, and the finish then refuses `tag-absent`.
-    await ctx.trees.fetch(ctx.repoRoot, `refs/tags/${tag}:refs/tags/${tag}`);
-    const dated = await ctx.refs.tagDate(tag);
-    tagExists = dated.ok && dated.value !== '';
-    tagDate = dated.ok ? dated.value : '';
-    if (tagExists || Date.now() >= deadline) break;
-    await sleep(ctx.pollMs);
+/**
+ * Finishes a merged release by its version, with no host call.
+ *
+ * Fetches the default branch and refuses `default-branch-unfetched` when that
+ * fetch fails, fetches the version's tag by its own refspec once, and resolves
+ * the release merge commit as `<tag>^{commit}` locally. A tag absent after that
+ * one fetch refuses `tag-absent` and writes nothing. The booking is the PR
+ * entry's: every scope plan is booked as Released, the open sprint of the
+ * release closes and its active index entry goes, in ONE commit and ONE push
+ * onto the default branch. A second call answers `already-released`.
+ *
+ * @param ctx - the ports and the caller; `tagWaitMs` is not read.
+ * @param version - `N.N.N` or `vN.N.N`.
+ * @param write - where progress goes.
+ * @param warn - where a refusal goes.
+ * @returns the outcome; `refused` with `version-invalid` for a malformed version.
+ */
+export const finishReleaseVersion = async (
+  ctx: FinishContext,
+  version: string,
+  write: Printer,
+  warn: Printer,
+): Promise<FinishOutcome> => {
+  const label = 'release-finish';
+  const tag = releaseVersionArg(version);
+  if (tag === null) return refusedWith(label, warn, 'version-invalid', `'${version}' is not N.N.N; the finish writes nothing.`);
+  const mainBranch = await mainBranchOf(ctx);
+  const fetched = await ctx.trees.fetch(ctx.repoRoot, mainBranch);
+  if (!fetched.ok) {
+    return refusedWith(label, warn, 'default-branch-unfetched', `could not fetch '${mainBranch}' from origin. The finish writes nothing; run it again once the fetch works.`);
   }
+  const { tagExists, tagDate } = await awaitTag(ctx, mainBranch, tag, 0);
+  const merge = tagExists ? await ctx.refs.resolve(`${tag}^{commit}`) : null;
+  const mergeCommit = merge !== null && merge.ok ? merge.value.trim() : '';
+  return finishTail(ctx, { mainBranch, tag, tagExists, tagDate, mergeCommit }, label, write, warn);
+};
 
-  const shipped = await shippedChangesets(ctx.refs, pr.value.mergeCommit);
+/**
+ * The booking every entry shares, from the head it resolved.
+ *
+ * Reads the changesets the merge removed, cuts a booking worktree, decides
+ * through `releaseFinish`, and commits and pushes onto the default branch.
+ */
+const finishTail = async (
+  ctx: FinishContext,
+  head: FinishHead,
+  label: string,
+  write: Printer,
+  warn: Printer,
+): Promise<FinishOutcome> => {
+  const { mainBranch, tag, tagExists, tagDate } = head;
+  const shipped = await shippedChangesets(ctx.refs, head.mergeCommit);
   const on = localDate();
   const [planDirCfg, sprintDirCfg, worktreeCfg, userName] = await Promise.all([
     ctx.scripts.config('Plan directory', 'docs/plans/'),
@@ -162,8 +264,7 @@ export const finishRelease = async (
   const tmpwt = path.join(wtRoot, `.plot-release-finish-${process.pid}`);
   const added = await cutBooking(ctx, tmpwt, bookbr, mainBranch, 'add');
   if (!added.ok) {
-    warn(`plot-ask: release-approve: could not prepare a booking worktree at ${tmpwt}; the finish writes nothing.\n`);
-    return 1;
+    return refusedWith(label, warn, 'booking-unprepared', `could not prepare a booking worktree at ${tmpwt}; the finish writes nothing.`);
   }
   const cleanup = () => ctx.trees.removeWithBranch(tmpwt, bookbr);
 
@@ -264,11 +365,10 @@ export const finishRelease = async (
       if (r.reason === 'already-released') {
         write(`already-released: ${r.detail}\n`);
         await cleanup();
-        return 0;
+        return { outcome: 'already-released', version: tag, detail: r.detail };
       }
-      warn(`plot-ask: release-approve: ${r.reason}: ${r.detail}\n`);
       await cleanup();
-      return 1;
+      return refusedWith(label, warn, r.reason, r.detail);
     }
     const pushed = await commitAndPush(
       { repoRoot: ctx.repoRoot, scripts: ctx.scripts, trees: ctx.trees, retryWait: ctx.retryWait, lock: ctx.lock },
@@ -286,9 +386,8 @@ export const finishRelease = async (
       write,
     );
     if ('rejected' in pushed) {
-      warn(`plot-ask: release-approve: the booking is committed on '${bookbr}' but did not reach ${mainBranch}. Run the finish again once the push works.\n`);
       await ctx.trees.removeOnly(tmpwt);
-      return 1;
+      return refusedWith(label, warn, 'push-rejected', `the booking is committed on '${bookbr}' but did not reach ${mainBranch}. Run the finish again once the push works.`);
     }
     const tracker = await tellTrackerAbout(
       tmpwt,
@@ -304,12 +403,11 @@ export const finishRelease = async (
     write(`finished: ${tag} booked ${booked.join(', ') || 'none'} (${pushed.pushed})\n`);
     write(`summary: issues closed=${tracker.issues.closed} left-open=${tracker.issues.leftOpen}${reasons === '' ? '' : ` (${reasons})`}\n`);
     await cleanup();
-    return 0;
+    return { outcome: 'booked', version: tag, booked, notes };
   } catch (err) {
     await cleanup();
     if (err instanceof Refused) {
-      warn(`plot-ask: release-approve: ${err.message}\n`);
-      return 1;
+      return refusedWith(label, warn, 'write-failed', err.message);
     }
     throw err;
   }

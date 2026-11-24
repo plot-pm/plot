@@ -67,6 +67,7 @@ import { ReleasePersonCards } from './ReleasePersonCards.js';
 import { LinkTupleView, MARKS_CELL, TUPLE_TRACKS, WorkGridContext, YouLeadContext, type YouLead } from './TupleRow.js';
 import { LINE_TRACKS, LineLinks, LineSlice, LineState, PlanOwner, PhaseChip, PlanName, PlanStrip, PlanTableHead, PLAN_TRACKS, ReleaseHeaderCounts, ReleaseLine } from './ReleasePlanParts.js';
 import { CleanUpMenu } from './CleanUpMenu.js';
+import { UnbookedRelease } from './UnbookedRelease.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
@@ -1294,6 +1295,7 @@ export function AgentList({
           releases: sprintReleases(activeSprints, scopeSelection),
           sprints: (fleet.sprints ?? []).map((s) => ({ release: s.release, started: s.start ?? '' })),
           releaseTickets: fleet.releaseTickets,
+          releaseUnbooked: fleet.releaseUnbooked?.answer,
           roleRuns: fleet.roleRuns ?? [],
           rateLimit: rateLimitOf(fleet.machine?.host, Date.now()),
           bounds: fleet.bounds,
@@ -1549,7 +1551,10 @@ export function AgentList({
             </span>
           </li>,
         ];
-        const itemBody = (item: PlacedItemView, inPlan = false) => [
+        const itemBody = (item: PlacedItemView, inPlan = false) => item.unbooked !== null ? [
+          anchorOf(item),
+          <UnbookedRelease key={`unbooked-${item.unbooked.version}`} unbooked={item.unbooked} anchor={item.anchor} />,
+        ] : [
           anchorOf(item),
           ...item.rows.map((r) => withLead(item, <Row key={rowKey(r)} {...rowProps(r)} inPlanGroup={inPlan} by={byItem(item)} pills={pillsItem(item)} menu={looseMenuOf(item)} />, rowKey(r))),
           ...(item.ticket !== null
