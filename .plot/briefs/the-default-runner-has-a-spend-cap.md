@@ -1,82 +1,66 @@
 ## Implementation brief — the-default-runner-has-a-spend-cap
 
-- **Plan (canonical):** `docs/plans/2026-11-23-the-default-runner-has-a-spend-cap.md` on `main`
+- **Plan (canonical):** docs/plans/2026-11-23-the-default-runner-has-a-spend-cap.md on main
 - **Approved:** 2026-11-24, jwloka, plan-PR #3698 merged
 - **Branch:** `feature/the-default-runner-has-a-spend-cap` (base: `main`)
-- **Ends as:** one PR to `main`, opened with `skills/plot/scripts/plot-open-pr.sh`
-- **Review of the code:** per repo convention — the PR is reviewed as code; CI is the authority for e2e
+- **Ends as:** one PR to `main`
+- **Review of the code:** `plot/review` required on `main` since 2026-10-15; one full review per PR
 
-The plan has one slice. Nothing waits on it and it waits on nothing. Line numbers below are read on `origin/main` at `03376c9ed`; run `git grep` for the name if a line has moved.
+One slice, one wave (`### Cap`). Nothing waits on it and it waits on nothing.
 
 ### What to build
 
-A slice on the default `command` runner has no ceiling. `Agent max spend` and `Slice max spend` bound the SDK runner only, both are blank by default, and Plot's own `CLAUDE.md` sets no `Agent runner`, so every agent here runs on `command` with no bound but `Worker bound` (28800 s) and `Correction budget` (2). The record of what a slice spent exists (`.git/.plot/state/slice-spend.jsonl`, 82 lines on 2026-11-23) but a `command` slice writes its line only when it is sealed (`recordSliceSpend`, `packages/domain/src/workflows/slice-spend.ts`), so mid-slice the record reads nothing.
+A slice on the default `command` runner has no ceiling today. `Slice max spend` and `Agent max spend` (`skills/plot/scripts/plot-config.sh:163-168`) bound only the SDK runner, `Agent runner` is absent in Plot's own `CLAUDE.md`, and the only bounds on a `command` agent are `Worker bound` (28800 s) and `Correction budget` (2). Add one `## Plot Config` key, `Slice max tokens`, and make the worker loop end a slice `spend-limit` instead of starting another run once the slice's tokens reach it.
 
-Add a `## Plot Config` key, `Slice max tokens`. Before each run the worker loop sums what the slice has spent in tokens. A slice at or above the cap starts no further run and ends `spend-limit`, the ending an SDK slice at `Slice max spend` already gets. With the key absent, nothing changes.
+The seams already exist; this slice reuses all of them.
 
-The mechanism, on top of what exists:
-
-1. **A domain rule** `sliceTokenCap(spent, cap)` in `packages/domain/src/rules/`, answering `under`, `reached` or `unread`. A new file, an arrow function, TSDoc that states behaviour only. Export it the way `slice-spend-refusal.ts` is exported and add it to the domain's index if the others are.
-2. **A reading.** `WorkerLoopPorts.sliceCostUsd` (`packages/fleet/src/server/entry/worker-loop.ts:224`, built at `:280`) answers dollars from `readSliceSpend`. Add a sibling port that answers tokens: the run lines' and newest seal's tokens that `readSpend` already derives (`SpendRead.tokens`), plus, for a `command` slice, the slice's own session transcripts that no seal covers yet (`SliceSpendRecord.sessions(worktree)`, the same call `recordSliceSpend` makes).
-3. **A config key.** `readPass` builds the readings (`worker-loop.ts:932`, `:962-963`) and `main` reads the config (`:2819-2820`). Add `sliceMaxTokens` beside `sliceMaxSpendUsd`. Read it like `Slice max spend`: absent or blank is no limit, and a present value that is not a positive whole number refuses the worker's start, logged with the key and the raw value, as the loop at `:2707-2713` does for the dollar keys.
-4. **A decision.** `spendLimitEnding` (`packages/domain/src/workflows/agent-loop.ts:427`) is asked at every place a run starts (`:502`, `:547`, `:725`, `:1011`, `:1044`). Extend it, or add a sibling asked at the same five places, so a reached cap ends `spend-limit` with a `blockedDeclaration`. Its summary names the token cap, not dollars.
-5. **The docs line.** `skills/plot/scripts/plot-config.sh:163-168` documents the two spend keys. Add `Slice max tokens` there.
+- **The ending.** `spendLimitEnding` (`packages/domain/src/workflows/agent-loop.ts:414`) already produces the `spend-limit` ending and is called at five run-starting sites (lines 502, 547, 725, 1011, 1044). Extend it to ask the token rule as well, so every site that already refuses on dollars refuses on tokens. Do not add a sixth call site and do not invent a new ending word: `spend-limit` already has a board word (`rules/board-run-end.ts:98`) and an ending action (`rules/ending-action.ts`).
+- **The rule.** New `sliceTokenCap(spent, cap)` in `packages/domain/src/rules/`, answering `under`, `reached` or `unread`, beside `slice-spend-refusal.ts`. An arrow function, TSDoc that states what it returns and how it fails, no decision history in the comment.
+- **The reading.** `AgentLoopReadings` (`agent-loop.ts:141-156`) carries `sliceCostUsd` and `sliceMaxSpendUsd`; add the slice's counted tokens and `sliceMaxTokens` the same way, resolved in `worker-loop.ts` beside `sliceCostUsd` (`:280`) and `sliceMaxSpendUsd` (`:2820`). `readSliceSpend` already returns `SpendRead.tokens` (SDK run lines plus the newest seal), so the SDK half needs no new read.
+- **The key.** Follow `Slice max spend` exactly: absent or blank is no limit; a present value that is not a positive whole number refuses the worker's start. The refusal loop is at `worker-loop.ts:2707`, which today iterates the two dollar keys through `dollarsOrUnset`. Add a whole-number reading next to `dollarsOrUnset` (`:2237`) rather than bending the dollar parser, and document the key in the `plot-config.sh` header block next to `Slice max spend`. Add `Slice max tokens` to `LOOP_CONFIG_KEYS` (`:2563`) if the shell reader needs it.
 
 ### The decisions the plan settles — do not re-derive them
 
-**Tokens, not dollars.** A `command` run reports no price and its transcripts report tokens. `SpendRead.costUsd` is `null` for a slice with no run line, because a seal line records no cost (`slice-spend-record.ts`). A dollar cap cannot bound a `command` slice, so do not extend `Slice max spend` to do it and do not add a price table. `slice-tokens.ts` records that this estate excluded a price table on 2026-08-29.
+**The `command` half needs a new reading, and this is the one hard part.** A `command` slice writes its seal line only when the slice ends (`recordSliceSpend`, `workflows/slice-spend.ts:87`), so `SpendRead.tokens` is empty for it while it runs and a cap read from the record alone would never fire. The plan's answer: before each run, also sum the slice's own session transcripts that the record does not yet hold. `recordSliceSpend` already does the sum: `record.sessions(worktree)`, skip sessions that hold a run line, `tokensForBranch(...)`. Factor that into a read that returns the unsealed tokens without appending, and add it to the sealed total. Do not copy the transcript-walking code. Do not write a seal line to make the number readable: a seal is once per slice, and a mid-slice seal would double-count against the real seal.
 
-**Cache reads do not count.** Input, output and cache-creation tokens count. Cache-read tokens are billed at a fraction and dominate every line of the record: 6,680,819 cache-read against 26,060 output on the first line, and 99.36% of a four-counter total on the largest of three transcripts measured on 2026-09-15 (`slice-tokens.ts`). The plan leaves a weight for cache reads as an open question (`question-cache-reads`). Do not implement a weight. Count cache reads as zero.
+**Count input, output and cache-creation tokens. Cache-read tokens do not count.** Cache reads are billed at a fraction and dominate every line of the record (6,680,819 cache-read against 26,060 output on the first line of `.git/.plot/state/slice-spend.jsonl`, 82 lines on 2026-11-23). `rules/slice-tokens.ts` measured them at 98.6%, 99.3% and 99.36% of a naive four-counter total. Counting them would make the cap fire on how much context a slice re-read, not on what it generated.
 
-**Do not add a fifth summed field.** `slice-tokens.ts` forbids a pre-summed total on `TokenCounts`, because a four-field total is a cache-read count wearing a cost's name. The cap's sum of three counters is computed inside `sliceTokenCap`'s caller or the rule itself, from the four kept-apart counters. Do not change `TokenCounts`, `SPEND_USAGE_FIELDS` or `CONTEXT_USAGE_FIELDS`.
+**No stored total.** `rules/slice-tokens.ts` and `entities/slice-spend.ts` forbid a fifth, summed field in the record, and a test asserts the key set. `sliceTokenCap` sums the three counters at read time and nothing persists the sum. Do not add a field, and do not touch `TokenCountsSchema`. That doc also rules out a price-weighted sum for want of a price table; the plan's unweighted three-counter sum is a cap and not a cost, and the plan says so. Do not reopen it.
 
-**`unread` starts the run.** A transcript that does not parse reads `unread`. The loop logs the reason and starts the run, because a reading failure must not stop the fleet. This is the opposite of an unreadable key, which refuses the start: a cap the operator wrote and the loop cannot read is a silent loss, and a transcript the loop cannot read is a fault in the record. Do not collapse the two.
+**Tokens, not dollars.** A `command` run reports no price; its transcripts report tokens. One key in tokens bounds both runners with one number. `Slice max spend` stays for the SDK runner's dollars, and both may be set: either one reached ends the slice.
 
-**No default cap.** The plan leaves a shipped default as an open question (`question-default`). Ship none. With the key absent the loop behaves exactly as before.
+**`unread` starts the run.** A transcript that does not parse must not stop the fleet. `sliceTokenCap` answers `unread`, the loop starts the run, and the loop's log names the reason. This is the same rule `sliceSpendRefusal` states for an unmeasured slice: absent is not false, and a record that cannot be read is a reason to run and find out. The reading that matters is "no measurement", never "zero spent".
 
-**No board change.** `spend-limit` already has a board word. The plan leaves the board's tokens-against-cap display open (`question-board`). Build none.
+**Open questions stay at the plan's current text.** The plan lists three: weighting cache reads, shipping a default cap, and a board display. Build what the plan's Design says: cache reads count at zero weight, **no default** (an absent key changes nothing for every adopter), and the board shows only the existing ending reason. If you find a reason one of these cannot hold, report it; do not resolve it by choice.
 
-**Rules carried over unchanged.** Absent is not false: an absent key never refuses and never reads as `0`. Read the exit code, not the emptiness: an unreadable record and an empty one are different answers (`recordSliceSpend` says so at its `transcripts-unreadable` refusal), and only an answered zero says the slice spent nothing. A function you write or rewrite is an arrow.
-
-### Two hazards the plan does not name
-
-**Sealed sessions must not count twice.** A seal line carries a total and no session ids. `recordSliceSpend` re-sums every session that has no run line each time it seals, so the newest seal already holds the earlier ones, and `readSpend` takes the newest seal only. A reading that adds the newest seal's tokens to a fresh sum of every non-run transcript counts the sealed sessions twice, and a slice reaches the cap at about half of it. Decide how the reading separates sealed from unsealed sessions, state the rule in the TSDoc, and test it with a slice that carries a seal line and a later unsealed session. If the record cannot separate them, report it as a plan question and do not guess.
-
-**Read transcripts only where a cap is set and a run is about to start.** `readPass` reads `sliceCostUsd` on every pass, and a pass can poll while it waits. The largest worker transcript measured was 7.7 MiB (`slice-spend.ts`). Summing transcripts on every pass for every slice costs reads the key's absence must not pay. With `Slice max tokens` absent, open no transcript. A test names this.
+**The bound path records nothing, and that is a stated gap.** `slice-spend.ts` documents that a worker killed by `Worker bound` never seals, so the record is biased low. The unsealed-session sum closes this for the cap and does not change what the seal records. Do not write on the bound path.
 
 ### Done when
 
-The plan's `## Done when` list is the specification: `sliceTokenCap` answers `under`, `reached` and `unread`; the loop starts no run at the cap and logs `unread`; an absent key changes nothing. Assertions that exist because a naive implementation passes without them:
+The plan's tests line is the specification: `sliceTokenCap` — under, reached and unread; the loop starts no run at the cap and logs unread; an absent key changes nothing. Lift these assertions, each of which a naive implementation passes without:
 
-- **At the cap is reached.** The cap is "at or above". A test pins `spent === cap` as `reached` and `cap - 1` as `under`. A strict `>` passes every other test.
-- **Cache reads are ignored.** A slice with 10 input, 10 output, 10 cache-creation and 1,000,000 cache-read tokens against a cap of 31 is `reached`; against a cap of 32 it is `under`. This catches a four-field sum.
-- **Absent runs, unreadable refuses.** `Slice max tokens` absent starts the loop. `x`, `0`, `-5` and `1.5` each return a non-zero code from `main`, naming the key and the raw value, before any take-up write and before any runner start. A parser that refuses everything non-numeric, absence included, passes the `x` test and stops every loop.
-- **Both runners.** A cap reached on an SDK slice and on a `command` slice each end `spend-limit`. A fix wired to one runner passes a one-runner test.
-- **The `command` slice is bounded while it runs.** A fixture with unsealed session transcripts and no seal line reads `reached`. This catches a reading that waits for the seal, which is the gap the plan exists to close.
-- **No transcript opens with the key absent.** A test asserts the sessions port is not called.
-- **No double count.** The seal-plus-unsealed fixture above.
-- **The ending carries a declaration.** `spend-limit` ends with a `blockedDeclaration` naming the token cap, so the board's word and the continue route's refusal have something to show.
+- **A `command` slice with no seal line and transcripts over the cap ends `spend-limit`.** A test that seeds only a seal line passes a build that never reads transcripts. This one catches the whole `command` half.
+- **A cache-read-heavy slice under the cap on the three counted kinds does not end.** Seed cache-read tokens far above the cap and the other three below it. A build that sums all four fails here.
+- **A session that already has a run line is not summed twice.** Seed one SDK session with a run line and its transcript. A build that sums transcripts blindly double-counts and ends the slice early.
+- **An absent key leaves every existing worker-loop test unchanged**, and the run reads no transcript for the cap when the key is absent.
+- **A present key of `0`, `-5`, `1.5` or `lots` refuses the start**, naming the key, as `Slice max spend` does. An absent or blank key does not.
+- **The record's key set is unchanged.** The existing `slice-spend` tests must pass without edits.
+- **Each of the five run-starting sites refuses at the cap**, not only the first. The sites are 502, 547, 725, 1011 and 1044; a build that wires one passes a one-site test.
 
-Plus the repo's gates. A changeset with the description first and the `bumps:` block last; the description is what the changelog publishes. `plot-config.sh` is a shipped script, so the changeset names `'plot': patch`. Run `scripts/check-changeset-packages.sh` locally; it names the package names it accepts. `scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base; the `plot-config.sh` edit is comment text, so confirm the gate passes, and if it does not, remove an equal number of shell lines elsewhere in the same change. The gate stores no number and has no override. `skills/plot/scripts/board/plot-worker-loop.mjs` is generated: `pnpm build:board` rebuilds it for local tests only, and a committed rebuild fails `scripts/check-no-bundle-diff.sh`.
+Plus: a changeset for `plot` with the description first and the `bumps:` block last (naming `plot-config` consumers only if a skill's text changes; the `plot` package patch or minor is the author's call, and the key is new behaviour, so `minor`). Run `./scripts/check-changeset-packages.sh`. Body prose in `plot-config.sh` and any doc is in English. If the slice changes `skills/plot/scripts/plot-config.sh`, note that open PR #3634 (`docs/config-comments-match-the-code`) edits the same file's comments: rebase on it rather than resolving by hand.
 
-For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. Do not run `test:e2e` locally. Use Node 26 (`nvm use`).
+For tests, run `node skills/plot/scripts/board/plot-local-checks.mjs` before each push and run what it prints. The suites in the `CI suites` config key run in CI, and a failure there comes back as a correction. Run no full suite and no `test:e2e`. A bundle change (`skills/plot/scripts/board/plot-worker-loop.mjs`) is generated: do not commit a rebuilt bundle (`scripts/check-no-bundle-diff.sh`).
+
+`scripts/check-shell-lines.sh` refuses a pull request whose shell under `skills/` is longer than at its merge base. The only shell this slice may touch is the comment block in `plot-config.sh`; comments are not commands, but if you add any command there, remove an equal number elsewhere. The rule belongs in the domain and the loop asks it through the bundle; write no shell for it.
 
 ### Bookkeeping
 
-Push the first real commit as soon as it exists. Open the PR with `skills/plot/scripts/plot-open-pr.sh` (add `--draft` while the work moves), never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section. Where a project board is configured, set the PR to "Ready" with `plot-update-board.sh`. The PR body names the three open questions and states that none of them is built.
+Push the first real commit as soon as it exists. Open the PR with `../plot/scripts/plot-open-pr.sh` (add `--draft` while the work is moving), never `gh pr create`. When the PR exists, append `→ #<number>` to this branch's line in the plan's `## Slices` section.
 
 ### Scope guard
 
-This branch owns the token cap:
+This branch owns `packages/domain/src/rules/` (the new `sliceTokenCap` and its test), `packages/domain/src/workflows/agent-loop.ts` and `slice-spend.ts` (reading and ending), `packages/fleet/src/server/entry/worker-loop.ts` (key parsing, the reading, the start refusal), the key's comment block in `skills/plot/scripts/plot-config.sh`, and the matching tests under `packages/domain/test/` and `packages/fleet/test/unit/`.
 
-- `packages/domain/src/rules/` — the new `sliceTokenCap` rule and its test in `packages/domain/test/`.
-- `packages/domain/src/workflows/agent-loop.ts` — `AgentLoopReadings`, `spendLimitEnding` and its five call sites.
-- `packages/fleet/src/server/entry/worker-loop.ts` — the new reading port, `readPass`, the config read in `main` and the start refusal.
-- `packages/fleet/test/unit/worker-loop-run.test.ts`, `worker-loop-sdk.test.ts` and `packages/domain/test/workflows-agent-loop.test.ts` — the new cases.
-- `skills/plot/scripts/plot-config.sh` — the key's documentation, comment text only.
+In flight at dispatch: PR #3634 (`docs/config-comments-match-the-code`) touches `skills/plot/scripts/plot-config.sh`, comments only. No other open PR touches `worker-loop.ts`, `agent-loop.ts`, `slice-spend.ts` or `slice-tokens.ts`.
 
-Not this branch's: the continue route. `packages/fleet/src/shared/continuation.ts:959-970` refuses a continuation on `Slice max spend` and reads no token cap, and `ContinueWithAnAnswer.tsx:63` words `spend-limit` as a `Slice max spend` limit. A slice that ends `spend-limit` on the token cap and then takes a continuation is not stopped by it. Report this in the PR body as a follow-up and do not widen this branch. Also not this branch's: `TokenCounts` and the transcript summing in `slice-tokens.ts`, the board's display, and the `Slice max spend` dollar parser.
-
-Other branches in flight, checked at dispatch on `origin`: `bug/a-new-failure-on-main-starts-a-repair`, `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts`, `bug/the-board-reader-reads-main` and `feature/the-main-reading-becomes-a-pr-status`. The names do not suggest a collision with `worker-loop.ts` or `agent-loop.ts`, but that is read from the names and not from the diffs. `worker-loop.ts` is a large file that many plans touch; rebase before the PR.
-
-If you find something the plan did not anticipate, report it rather than improvising outside scope.
+Out of scope: the board display of tokens against a cap, a default cap, a cache-read weight, a price table, any write on the `Worker bound` path, and a new ending word. If you find something the plan did not anticipate, report it rather than improvising outside scope.
