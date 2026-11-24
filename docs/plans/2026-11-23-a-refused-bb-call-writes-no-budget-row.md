@@ -50,7 +50,7 @@ Issue #3690 reports that the `bb()` wrapper records one `budget.tsv` row for eve
 
 ### Wrapper
 
-- `bug/a-refused-bb-call-writes-no-budget-row` — the `bb()` wrapper copies `bb`'s stderr to a per-run file and records no `budget.tsv` row for an exit 75 whose stderr names the ceiling or the pause; a corpus test holds the shell match to `bbThrottleCause` <!-- builds: the spend argument of host_cli_call and the refused-call match in bb() --> <!-- tests: a stub bb that exits 75 with the pause phrase and with the ceiling phrase writes no row; exit 75 after a 429 and exit 0 write one row each; the caller still reads bb's stderr; a corpus test agrees with bbThrottleCause on every phrase -->
+- `bug/a-refused-bb-call-writes-no-budget-row` — the `bb()` wrapper copies `bb`'s stderr to a per-run file and records no `budget.tsv` row for an exit 75 whose stderr names the ceiling or the pause; a corpus test holds the shell match to `bbThrottleCause` <!-- builds: the spend argument of host_cli_call and the refused-call match in bb() --> <!-- tests: a stub bb that exits 75 with the pause phrase and with the ceiling phrase writes no row; exit 75 after a 429 and exit 0 write one row each; the caller still reads bb's stderr; a corpus test agrees with bbThrottleCause on every phrase --> → #3713
 
 ## Notes
 
