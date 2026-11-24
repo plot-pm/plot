@@ -578,11 +578,11 @@ describe('proposeBbCli — which bb answers', () => {
   });
 
   it('answers by the line where the Homebrew bb comes first', () => {
-    expect(asked('bb 1.15.1', ['/opt/homebrew/bin/bb', '/Users/x/.local/bin/bb']).state).toBe('quatico');
+    expect(asked('bb 1.15.1', ['/opt/homebrew/bin/bb', '/Users/x/.local/bin/bb'])?.state).toBe('quatico');
   });
 
   it('cannot tell shadowed without a brew prefix, and answers by the line', () => {
-    expect(asked('bb 1.0.0', ['/Users/x/.local/bin/bb', '/opt/homebrew/bin/bb'], '').state).toBe('quatico');
+    expect(asked('bb 1.0.0', ['/Users/x/.local/bin/bb', '/opt/homebrew/bin/bb'], '')?.state).toBe('quatico');
   });
 
   it('answers null where the collector did not ask, which is not absent', () => {

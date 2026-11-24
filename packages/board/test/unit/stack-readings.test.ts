@@ -102,3 +102,23 @@ describe('readingsFrom — wave 1\'s default-branch pair', () => {
     expect(r.hostDefaultBranch).toBe('');
   });
 });
+
+describe('readingsFrom — which bb answers', () => {
+  const bb = { bb_version_line: '', bb_paths: ['/a/bb', 7, ''], bb_brew_prefix: '/opt/homebrew' };
+
+  it('reads the bb fields on a Bitbucket repository, an empty line included', () => {
+    const r = readingsFrom({ git_host: 'bitbucket', ...bb });
+    expect(r.bbVersionLine).toBe('');
+    expect(r.bbPaths).toEqual(['/a/bb']);
+    expect(r.brewPrefix).toBe('/opt/homebrew');
+  });
+
+  it('reads an empty line elsewhere as not asked, never as an absent bb', () => {
+    expect(readingsFrom({ git_host: 'github', ...bb }).bbVersionLine).toBeNull();
+    expect(readingsFrom({ git_host: '', ...bb }).bbVersionLine).toBeNull();
+  });
+
+  it('reads a Bitbucket report from a probe with no bb fields as not asked', () => {
+    expect(readingsFrom({ git_host: 'bitbucket' }).bbVersionLine).toBeNull();
+  });
+});
