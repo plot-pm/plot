@@ -2131,6 +2131,10 @@ describe('workerLoopPorts and main', () => {
     expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBeNull();
     expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', result)).toBeNull();
     expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBe(1.5);
+    expect(await ports.sliceTokens(r.wt, BRANCH)).toEqual({
+      kind: 'read',
+      tokens: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 },
+    });
     expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', { ...result, costUsd: null })).toBe('no-cost');
     expect(await ports.recordLimits(result, 0)).toBe(0);
   });
@@ -2514,6 +2518,14 @@ describe('Slice max tokens', () => {
       stderr.mockClear();
     }
     stderr.mockRestore();
+  });
+
+  it('starts normally when Slice max tokens reads a positive whole number', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.setSystemTime(ZURICH_NOON);
+    const r = rig({ ...ASSIGNED, branch: '' }, []);
+    const config = (_root: string, k: string) => (k === 'Slice max tokens' ? '2000000' : undefined);
+    expect(await driven(main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile, PLOT_WORKER_BOUND: '1' }, r.dir, config, noStop))).toBe(124);
   });
 
   it('with the key absent, reads no transcript for the cap and starts the run', async () => {
