@@ -45,7 +45,7 @@ The record exists. `.git/.plot/state/slice-spend.jsonl` holds 82 lines on 2026-1
 
 ### Cap
 
-- `feature/the-default-runner-has-a-spend-cap` — `Slice max tokens`, read before each run on both runners through `sliceTokenCap`, with unsealed `command` sessions summed from their transcripts; a slice at the cap ends `spend-limit` <!-- builds: sliceTokenCap and the Slice max tokens key --> <!-- tests: sliceTokenCap — under, reached and unread; the loop starts no run at the cap and logs unread; an absent key changes nothing -->
+- `feature/the-default-runner-has-a-spend-cap` — `Slice max tokens`, read before each run on both runners through `sliceTokenCap`, with unsealed `command` sessions summed from their transcripts; a slice at the cap ends `spend-limit` <!-- builds: sliceTokenCap and the Slice max tokens key --> <!-- tests: sliceTokenCap — under, reached and unread; the loop starts no run at the cap and logs unread; an absent key changes nothing --> → #3715
 
 ## Notes
 
