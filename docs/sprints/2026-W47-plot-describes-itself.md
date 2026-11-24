@@ -38,7 +38,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 ### Should Have
 
 - [ ] [the-default-runner-has-a-spend-cap] The default runner has a spend cap (plan PR #3698) <!-- pr: #3698, branch: feature/the-default-runner-has-a-spend-cap -->
-- [ ] [delivery-is-measured-from-the-plan-files] Delivery is measured from the plan files (plan PR #3698) <!-- pr: #3698, branch: feature/delivery-is-measured-from-the-plan-files -->
+- [x] [delivery-is-measured-from-the-plan-files] Delivery is measured from the plan files (plan PR #3698) <!-- pr: #3698, branch: feature/delivery-is-measured-from-the-plan-files -->
 - [ ] [the-board-refuses-unauthenticated-remote-writes] The board refuses unauthenticated remote writes (#3311, plan PR #3699) <!-- pr: #3699, branch: bug/the-board-refuses-the-remote-write-opt-in -->
 
 ### Could Have
