@@ -1258,6 +1258,9 @@ export const refsGit = (
       runScript('git', ['log', '-1', '--format=%as', tag], asText, inRepo),
 
     releaseTagsMerged: async (ref) => {
+      // plot-ancestry: evidence — names the newest release tag the ref carries;
+      //   releaseUnbooked reports from it and books, deletes or merges nothing,
+      //   and a failed read answers unaskable.
       const run = await runProcess('git', ['tag', '--merged', ref], inRepo);
       if (run.code !== 0) return failed<readonly string[]>();
       return answered(
