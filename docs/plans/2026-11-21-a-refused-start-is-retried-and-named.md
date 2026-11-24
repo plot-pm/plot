@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Issue:** #3134, #3141, #3125
 - **Review:** pr
@@ -17,6 +17,7 @@
 - **Started:** 2026-11-22, Jan Wloka, `bug/the-probe-and-the-loop-name-the-charter-prompt`
 - **Started:** 2026-11-23, Jan Wloka, `bug/a-red-pr-is-re-run-once-per-head`
 - **Delivered:** 2026-11-23
+- **Released:** 2026-11-23, v2.36.0
 
 ## Changelog
 
