@@ -68,7 +68,7 @@ Reconcile section 6 ("Delivered but already released") found 8 of the 9 sprint p
 
 ### Reconcile
 
-- `bug/reconcile-counts-unbooked-docs-plans` — section 6 asks `releaseUnbooked` through a bundle and reports a `docs` or `infra` plan that the newest release scope names and that still reads Delivered <!-- waits: bug/the-release-reading-names-unbooked-plans --> <!-- builds: section 6's release-scope arm --> <!-- tests: a docs-type plan named by a removed changeset of the newest tag is reported; a docs-type plan named by no release stays silent -->
+- `bug/reconcile-counts-unbooked-docs-plans` — section 6 asks `releaseUnbooked` through a bundle and reports a `docs` or `infra` plan that the newest release scope names and that still reads Delivered <!-- waits: bug/the-release-reading-names-unbooked-plans --> <!-- builds: section 6's release-scope arm --> <!-- tests: a docs-type plan named by a removed changeset of the newest tag is reported; a docs-type plan named by no release stays silent --> → #3707
 
 ## Notes
 
