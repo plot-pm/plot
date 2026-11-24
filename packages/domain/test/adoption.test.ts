@@ -8,7 +8,14 @@ import {
   type AdoptionInput,
   type AdoptionReadings,
 } from '../src/rules/adoption.js';
-import { proposeCi, proposeStack, proposeTicket, type StackProposal } from '../src/rules/stack.js';
+import {
+  BB_INSTALL,
+  proposeBbCli,
+  proposeCi,
+  proposeStack,
+  proposeTicket,
+  type StackProposal,
+} from '../src/rules/stack.js';
 
 const readings = (over: Partial<AdoptionReadings> = {}): AdoptionReadings => ({
   hasPlotConfig: false,
@@ -658,5 +665,59 @@ describe('ignoreLineFor', () => {
 
   it('answers `’’` for an absolute root, which needs no rule', () => {
     expect(ignoreLineFor('/var/plot/desks')).toBe('');
+  });
+});
+
+describe('composeAdoption — the bb CLI gap', () => {
+  const decidedWith = (bbCli: StackProposal['bbCli']) => {
+    const result = composeAdoption(
+      input({ readings: readings({ gitHost: 'bitbucket' }), proposal: { ...bare(), bbCli } }),
+    );
+    if (isAdoptionRefusal(result)) throw new Error(result.detail);
+    return result;
+  };
+  const bbGaps = (gaps: readonly string[]) => gaps.filter((g) => /\bbb\b/.test(g));
+
+  it('names the brew install where no bb answers', () => {
+    const gaps = bbGaps(decidedWith(proposeBbCli({ bbVersionLine: '', brewPrefix: '/opt/homebrew' })).gaps);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain(BB_INSTALL);
+  });
+
+  it('names the brew install where another bb answers, with its line', () => {
+    const gaps = bbGaps(decidedWith(proposeBbCli({ bbVersionLine: 'bb version 0.6.0 (abc1234)' })).gaps);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain('bb version 0.6.0 (abc1234)');
+    expect(gaps[0]).toContain(BB_INSTALL);
+    expect(gaps[0]).toContain('no brew on PATH');
+  });
+
+  it('names the shadowing path and the Homebrew one', () => {
+    const gaps = bbGaps(
+      decidedWith(
+        proposeBbCli({
+          bbVersionLine: 'bb 1.0.0',
+          bbPaths: ['/Users/x/.local/bin/bb', '/opt/homebrew/bin/bb'],
+          brewPrefix: '/opt/homebrew',
+        }),
+      ).gaps,
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain('/Users/x/.local/bin/bb');
+    expect(gaps[0]).toContain('/opt/homebrew/bin/bb');
+  });
+
+  it('announces nothing for Quatico\'s bb', () => {
+    expect(bbGaps(decidedWith(proposeBbCli({ bbVersionLine: 'bb 1.15.1' })).gaps)).toEqual([]);
+  });
+
+  it('announces nothing where nobody asked, so a GitHub adoption is unchanged', () => {
+    const asked = composeAdoption(input({ proposal: { ...bare(), bbCli: null } }));
+    const fromWire = composeAdoption(
+      input({ proposal: (({ bbCli: _bbCli, ...rest }) => rest)(bare()) as StackProposal }),
+    );
+    expect(fromWire).toEqual(asked);
+    if (isAdoptionRefusal(asked)) throw new Error(asked.detail);
+    expect(bbGaps(asked.gaps)).toEqual([]);
   });
 });
