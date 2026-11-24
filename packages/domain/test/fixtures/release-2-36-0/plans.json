@@ -1,0 +1,184 @@
+[
+  {
+    "slug": "delivery-link-tuples-everywhere",
+    "file": "docs/plans/2026-11-20-delivery-link-tuples-everywhere.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "every-delivery-section-folds",
+    "file": "docs/plans/2026-11-20-every-delivery-section-folds.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "folded-sections-summarise-visually",
+    "file": "docs/plans/2026-11-20-folded-sections-summarise-visually.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "delivery-tab-has-one-header",
+    "file": "docs/plans/2026-11-20-delivery-tab-has-one-header.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "delivery-rows-act-from-one-place",
+    "file": "docs/plans/2026-11-20-delivery-rows-act-from-one-place.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "tickets-show-what-the-sprint-delivers-and-found",
+    "file": "docs/plans/2026-11-20-tickets-show-what-the-sprint-delivers-and-found.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "delivery-activity-has-three-signals",
+    "file": "docs/plans/2026-11-20-delivery-activity-has-three-signals.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "delivery-sections-count-alike",
+    "file": "docs/plans/2026-11-22-delivery-sections-count-alike.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "templates-show-named-identifiers",
+    "file": "docs/plans/2026-11-16-templates-show-named-identifiers.md",
+    "type": "docs",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "bitbucket-and-jira-read-in-process",
+    "file": "docs/plans/2026-11-10-bitbucket-and-jira-read-in-process.md",
+    "type": "feature",
+    "phase": "released",
+    "releasedRecord": "2026-11-16, v2.34.0"
+  },
+  {
+    "slug": "triggers-replace-the-tick",
+    "file": "docs/plans/2026-11-10-triggers-replace-the-tick.md",
+    "type": "feature",
+    "phase": "released",
+    "releasedRecord": "2026-11-16, v2.34.0"
+  },
+  {
+    "slug": "main-ci-runs-only-for-the-newest-head",
+    "file": "docs/plans/2026-11-21-main-ci-runs-only-for-the-newest-head.md",
+    "type": "infra",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "a-continuation-never-resumes-a-role-session",
+    "file": "docs/plans/2026-11-21-a-continuation-never-resumes-a-role-session.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "a-continuation-resumes-the-asking-agent",
+    "file": "docs/plans/2026-11-21-a-continuation-resumes-the-asking-agent.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "a-delivered-docs-plan-counts-as-finished",
+    "file": "docs/plans/2026-11-21-a-delivered-docs-plan-counts-as-finished.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "board-readings-take-the-domain-answer",
+    "file": "docs/plans/2026-11-21-board-readings-take-the-domain-answer.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "reports-name-their-cause-and-ci-selects-their-tests",
+    "file": "docs/plans/2026-11-21-reports-name-their-cause-and-ci-selects-their-tests.md",
+    "type": "bug",
+    "phase": "approved",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "a-refused-start-is-retried-and-named",
+    "file": "docs/plans/2026-11-21-a-refused-start-is-retried-and-named.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-controller-gate-reads-every-command-segment",
+    "file": "docs/plans/2026-11-21-the-controller-gate-reads-every-command-segment.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "bitbucket-shares-one-budget-with-bb",
+    "file": "docs/plans/2026-11-20-bitbucket-shares-one-budget-with-bb.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "shell-scripts-refuse-a-second-mode-and-name-the-fetch",
+    "file": "docs/plans/2026-11-21-shell-scripts-refuse-a-second-mode-and-name-the-fetch.md",
+    "type": "bug",
+    "phase": "approved",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "fleet-state-is-read-whole-and-from-one-home",
+    "file": "docs/plans/2026-11-21-fleet-state-is-read-whole-and-from-one-home.md",
+    "type": "bug",
+    "phase": "approved",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "plot-approve-finds-a-plan-pr-at-any-age",
+    "file": "docs/plans/2026-11-21-plot-approve-finds-a-plan-pr-at-any-age.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "reconcile-section-13-suggests-an-annotation",
+    "file": "docs/plans/2026-11-21-reconcile-section-13-suggests-an-annotation.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "fleet-agents-start-only-the-mcp-servers-they-use",
+    "file": "docs/plans/2026-11-21-fleet-agents-start-only-the-mcp-servers-they-use.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-fleet-fixes-every-red-or-conflicting-pr",
+    "file": "docs/plans/2026-11-20-the-fleet-fixes-every-red-or-conflicting-pr.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  }
+]
