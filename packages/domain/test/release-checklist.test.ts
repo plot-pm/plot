@@ -5,6 +5,7 @@ import {
   freshChecklist,
   hasRcLine,
   listsOnChecklist,
+  newestChecklist,
   renderChecklistEntry,
   withChecklistEntry,
   type ChecklistEntry,
@@ -202,5 +203,36 @@ describe('withChecklistEntry', () => {
     expect(lines[0]).toBe('## Verification');
     expect(next.indexOf('## Verification')).toBeLessThan(next.indexOf('## Automated Tests'));
     expect(next).toContain('- [ ] a — a summary — verified 1/1');
+  });
+});
+
+describe('newestChecklist', () => {
+  const both = (names: readonly string[]): readonly (string | null)[] => [
+    newestChecklist(names),
+    newestChecklist([...names].reverse()),
+  ];
+
+  it('orders versioned names by version, not by text', () => {
+    expect(both(['v2.1.0-checklist.md', 'v2.9.0-checklist.md', 'v2.19.0-checklist.md'])).toEqual([
+      'v2.19.0-checklist.md',
+      'v2.19.0-checklist.md',
+    ]);
+  });
+
+  it('returns vnext-checklist.md beside versioned names', () => {
+    expect(both(['v2.9.0-checklist.md', 'vnext-checklist.md', 'v2.19.0-checklist.md'])).toEqual([
+      'vnext-checklist.md',
+      'vnext-checklist.md',
+    ]);
+  });
+
+  it('ignores a name that is not vN.N.N, even one that would sort last', () => {
+    const names = ['v2.9.0-checklist.md', 'v2.19.0-rc.1-checklist.md', 'zz-notes-checklist.md', 'notes-checklist.md', 'README.md'];
+    expect(both(names)).toEqual(['v2.9.0-checklist.md', 'v2.9.0-checklist.md']);
+  });
+
+  it('returns null for an empty list and for a list with no checklist name', () => {
+    expect(both([])).toEqual([null, null]);
+    expect(both(['README.md', 'notes-checklist.md', 'v2.19.0-rc.1-checklist.md'])).toEqual([null, null]);
   });
 });

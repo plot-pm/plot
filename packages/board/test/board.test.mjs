@@ -397,6 +397,27 @@ describe('board: Approved is Development, Ready or In progress, via the started 
   });
 });
 
+describe('board: the checklist badge reads the newest release by version', () => {
+  let tmp, server;
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-01-15-webhook-support.md', content: DRAFT }] });
+    const releases = path.join(tmp, 'docs/releases');
+    fs.mkdirSync(releases, { recursive: true });
+    fs.writeFileSync(path.join(releases, 'v2.9.0-checklist.md'), '- [x] a\n- [ ] b\n', 'utf8');
+    fs.writeFileSync(path.join(releases, 'v2.19.0-checklist.md'), '- [x] a\n- [x] b\n- [ ] c\n- [ ] d\n- [ ] e\n', 'utf8');
+    server = await startServer(tmp);
+  });
+  after(() => {
+    server?.kill();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('counts v2.19.0-checklist.md, not v2.9.0, which sorts after it as text', async () => {
+    const board = await fetchBoard(server.port);
+    assert.deepEqual(board.checklist, { done: 2, total: 5 });
+  });
+});
+
 // The card carries the PR numbers a plan names, and NO url it made up itself.
 // A scratch repo has no git remote and no host CLI to ask, which is precisely
 // the condition under which a board that templated addresses would produce a

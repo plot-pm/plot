@@ -5,6 +5,7 @@
  */
 
 import type { PlanState } from '../transitions/plan.js';
+import { compareVersions } from '../entities/version.js';
 import { changelogOf } from './claims.js';
 import { fencedLines } from './fences.js';
 
@@ -168,4 +169,28 @@ export const withChecklistEntry = (text: string, entry: ChecklistEntry): string 
     next = [...next.slice(0, at), `## ${heading}`, '', rendered, '', ...next.slice(at)];
   }
   return next.join('\n');
+};
+
+/** The running checklist's file name. */
+const VNEXT_CHECKLIST = 'vnext-checklist.md';
+
+/** Matches a released version's checklist name and captures its `vN.N.N` tag. */
+const VERSIONED_CHECKLIST = /^(v\d+\.\d+\.\d+)-checklist\.md$/;
+
+/**
+ * Picks the checklist file the release badge counts.
+ *
+ * @param names - the file names in the release directory, in any order.
+ * @returns `vnext-checklist.md` where the list holds it; otherwise the
+ *   `vN.N.N-checklist.md` name with the highest version by `compareVersions`;
+ *   `null` where the list holds neither. Every other name, such as
+ *   `v2.19.0-rc.1-checklist.md` or `notes-checklist.md`, is ignored.
+ */
+export const newestChecklist = (names: readonly string[]): string | null => {
+  if (names.includes(VNEXT_CHECKLIST)) return VNEXT_CHECKLIST;
+  return names.reduce<{ name: string; tag: string } | null>((best, name) => {
+    const tag = VERSIONED_CHECKLIST.exec(name)?.[1];
+    if (tag === undefined) return best;
+    return best === null || compareVersions(tag, best.tag) > 0 ? { name, tag } : best;
+  }, null)?.name ?? null;
 };
