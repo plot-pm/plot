@@ -2757,9 +2757,10 @@ export const main = async (
       return 1;
     }
   }
-  const maxTokens = tokensOrUnset(configKey(worktree, 'Slice max tokens'));
+  const rawMaxTokens = configKey(worktree, 'Slice max tokens');
+  const maxTokens = tokensOrUnset(rawMaxTokens);
   if (maxTokens.kind === 'unreadable') {
-    stderrLog(`plot-worker-loop: unreadable Slice max tokens "${configKey(worktree, 'Slice max tokens')}" — refusing to start`);
+    stderrLog(`plot-worker-loop: unreadable Slice max tokens "${rawMaxTokens}" — refusing to start`);
     return 1;
   }
   const boundSeconds = count(env.PLOT_WORKER_BOUND, count(configKey(worktree, 'Worker bound'), 28800));
