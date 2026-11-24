@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { scriptsFor, primeAgentSettings, refsFor, gateContractFor, type BuildBoardOptions } from '../board.js';
+import { scriptsFor, primeAgentSettings, refsFor, hostFor, gateContractFor, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv, realEstate } from '../estate.js';
 import { leaveBoardRunsToTheBoard } from '../board-run.js';
 import { gatherReadingsAndRelease } from '../release-claim.js';
@@ -10,7 +10,10 @@ import { stateHomeAtSync } from '@plot-pm/domain/adapters/main-checkout';
 import { stateHomeReadOf } from '@plot-pm/domain';
 import { baseBranchIn, baseRepairIn, repairRecordIn, stateHomeFor } from '../state-home.js';
 import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
-import { CALLER_ENV, fleetdStartFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
+import { CALLER_ENV, fleetdStartFile, prIndexFile, readFleetdHeartbeatSync } from '@plot-pm/domain/adapters';
+import { deliveryMetrics, deliveryMetricsLines, lastIsoWeeks, planTransitionsOf, type PlanTransitions } from '@plot-pm/domain/rules/delivery-metrics';
+import type { Host } from '@plot-pm/domain/ports/host';
+import type { Refs } from '@plot-pm/domain/ports/refs';
 import { hostTransportStatusLine } from '@plot-pm/domain/rules/host-transport';
 import { trackerTransportStatusLine } from '@plot-pm/domain/rules/tracker-transport';
 import { spawnerStatus, spawnerStatusText, spawnerStatusLines, bundleDriftDetected, bundleDriftText } from '@plot-pm/domain/rules/spawn-contract';
@@ -41,6 +44,7 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * node skills/plot/scripts/board/plot-ask.mjs spike <slug> [<plan-file>]
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
+ * node skills/plot/scripts/board/plot-ask.mjs metrics [--weeks N]
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
  * ```
@@ -78,6 +82,14 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * exits 2 where no plan file matches the slug or the file does not parse as a
  * plan. `<plan-file>` names the file to read instead of the configured plan
  * directory's, for a caller that parsed a plan from another commit.
+ *
+ * **`metrics` prints a table of words, not JSON.** One header line and one
+ * line per ISO week, oldest first, from {@link deliveryMetricsLines}: the plan
+ * files on `origin/<default branch>` and the PR index's MERGED rows, over the
+ * last `N` weeks (8 by default). It asks no host. An index that is missing,
+ * unparseable or of another version prints `unread` in the merged column.
+ * Exit 0 prints the table, 2 is a usage error or a plan directory git cannot
+ * list, which prints `unaskable plans-unread`.
  *
  * The other answers go to stdout as JSON and nothing else does. Diagnostics go to
  * stderr, so a caller can pipe stdout into a parser the way
@@ -137,6 +149,64 @@ export const spikeAnswerOf = async (store: PlanStore, file: string): Promise<{ l
   return answer.licensed
     ? { line: `licensed ${answer.branch} ${date}`, code: 0 }
     : { line: `unlicensed ${answer.reason} ${date}`, code: 1 };
+};
+
+/** The number of weeks `metrics` prints when `--weeks` is not given. */
+export const METRICS_DEFAULT_WEEKS = 8;
+
+/**
+ * The week count `metrics` was asked for.
+ *
+ * @param args - the arguments after `metrics`.
+ * @returns the count, or null where the arguments are not `[]` or `--weeks <1-9999>`.
+ */
+export const metricsWeeksArg = (args: readonly string[]): number | null => {
+  if (args.length === 0) return METRICS_DEFAULT_WEEKS;
+  if (args.length === 2 && args[0] === '--weeks' && /^[1-9]\d{0,3}$/.test(args[1])) return Number(args[1]);
+  return null;
+};
+
+/**
+ * The transition records of every plan file directly in the plan directory on
+ * `origin/<default branch>`, read in one listing and one batch read.
+ *
+ * @param refs - the repository's refs port.
+ * @param planDir - the configured plan directory, relative to the root.
+ * @returns the records, or null where the default branch or its plan directory cannot be read.
+ */
+export const defaultBranchPlans = async (refs: Refs, planDir: string): Promise<PlanTransitions[] | null> => {
+  const branch = await refs.defaultBranch();
+  if (!branch.ok || branch.value.trim() === '') return null;
+  const listed = await refs.listBlobs(`origin/${branch.value.trim()}`, planDir);
+  if (!listed.ok) return null;
+  const files = listed.value.filter(
+    (blob) => (blob.mode === '100644' || blob.mode === '100755') && path.posix.dirname(blob.path) === planDir && blob.path.endsWith('.md'),
+  );
+  if (files.length === 0) return [];
+  const read = await refs.readBlobs(files.map((blob) => blob.sha));
+  if (!read.ok) return null;
+  return files.flatMap((blob) => {
+    const text = read.value.get(blob.sha);
+    return text === undefined ? [] : [planTransitionsOf(text)];
+  });
+};
+
+/**
+ * The `mergedAt` of every MERGED row in this repository's PR index.
+ *
+ * The connector is the git host's backend word, which `plot-host.sh backend`
+ * reads from config and the remote URL without a network call.
+ *
+ * @param host - the git host port, asked only for its backend word.
+ * @param repoRoot - the checkout whose common git dir holds the index.
+ * @returns the timestamps, or null where the backend, the file or its version cannot be read.
+ */
+export const indexMergedAt = async (host: Host, repoRoot: string): Promise<string[] | null> => {
+  const backend = await host.backend();
+  if (!backend.ok) return null;
+  const held = await prIndexFile({ cwd: repoRoot }).read(backend.value);
+  if (!held.ok || held.value === null) return null;
+  return held.value.rows.flatMap((row) => (row.state === 'MERGED' && row.mergedAt !== undefined ? [row.mergedAt] : []));
 };
 
 /** Everything the entry point needs, assembled from the environment. */
@@ -302,6 +372,23 @@ export const run = async (
     return result.named ? 0 : 1;
   }
 
+  if (argv[0] === 'metrics') {
+    const weeks = metricsWeeksArg(argv.slice(1));
+    if (weeks === null) {
+      process.stderr.write('usage: plot-ask.mjs metrics [--weeks N]\n');
+      return 2;
+    }
+    const { opts, planDir } = contextFrom(here);
+    const plans = await defaultBranchPlans(refsFor(opts), planDir);
+    if (plans === null) {
+      write('unaskable plans-unread\n');
+      return 2;
+    }
+    const merged = await indexMergedAt(hostFor(opts), opts.repoRoot);
+    for (const line of deliveryMetricsLines(deliveryMetrics(plans, merged, lastIsoWeeks(Date.now(), weeks)))) write(`${line}\n`);
+    return 0;
+  }
+
   if (argv[0] === 'spike') {
     const [, slug, given] = argv;
     if (!slug || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(slug) || argv.length > 3) {
@@ -446,7 +533,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spike <slug> [<plan-file>] | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main>\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spike <slug> [<plan-file>] | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main> | metrics [--weeks N]\n',
     );
     return 2;
   }
