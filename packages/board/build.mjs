@@ -2026,6 +2026,26 @@ await esbuild.build({
 fs.copyFileSync(releasedLabelsArtifact, shippedReleasedLabels);
 fs.chmodSync(shippedReleasedLabels, 0o755);
 
+// The release-unbooked reading — reconcile section 6's docs/infra arm, an
+// operator-command entry like plot-released-labels.mjs above.
+const releaseUnbookedArtifact = path.join(here, 'dist/plot-release-unbooked.mjs');
+const shippedReleaseUnbooked = path.join(here, '../../skills/plot/scripts/board/plot-release-unbooked.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/release-unbooked.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: releaseUnbookedArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(releaseUnbookedArtifact, shippedReleaseUnbooked);
+fs.chmodSync(shippedReleaseUnbooked, 0o755);
+
 // The review-finding ticket triage — an operator-command entry like
 // plot-released-labels.mjs above, with no `.sh` launcher.
 const findingTicketsArtifact = path.join(here, 'dist/plot-finding-tickets.mjs');
