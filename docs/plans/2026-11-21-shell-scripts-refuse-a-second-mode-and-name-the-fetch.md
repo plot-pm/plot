@@ -107,7 +107,7 @@
 
 ### Fetch Hints
 
-- `bug/check-scripts-name-the-default-branch-fetch` — `scripts/lib-default-ref.sh` with `default_ref` and `fetch_hint`, used by `check-sprint-members.sh`, `check-shell-lines.sh` and `check-decision-count.sh` for a named missing-ref refusal and an explicit-refspec hint, with no fetch line for a SHA or a local ref, and the tests for all three <!-- builds: lib-default-ref.sh, the shared default-ref and fetch-hint helper -->
+- `bug/check-scripts-name-the-default-branch-fetch` — `scripts/lib-default-ref.sh` with `default_ref` and `fetch_hint`, used by `check-sprint-members.sh`, `check-shell-lines.sh` and `check-decision-count.sh` for a named missing-ref refusal and an explicit-refspec hint, with no fetch line for a SHA or a local ref, and the tests for all three <!-- builds: lib-default-ref.sh, the shared default-ref and fetch-hint helper --> → #3734
 
 ## Notes
 
