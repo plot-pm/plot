@@ -32,25 +32,10 @@ import { dispatchAvailability } from './dispatch.js';
  */
 
 /**
- * The named opt-in. Deliberate and awkward on purpose.
- *
- * `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` rather than a bare `1`, and
- * not `--allow-remote` or `PLOT_UNSAFE=1`: the brief's constraint is that the
- * escape must not read like a convenience, because a flag that reads like one
- * gets set by someone who has not thought about it. This one cannot be typed
- * by reflex and cannot be misread as a performance switch.
- *
- * The value is checked, not merely the presence of the variable. An empty or
- * truthy-looking value (`1`, `true`, `yes`) does NOT open the gate — those are
- * what a person types when guessing, and guessing is the failure mode.
+ * The variable that opened every write route on any bind until issue #3311.
+ * The gate reads it only to say that it no longer opens anything.
  */
-export const ALLOW_REMOTE_ENV = 'PLOT_BOARD_ALLOW_REMOTE_WRITES';
-export const ALLOW_REMOTE_VALUE = 'i-understand';
-
-/** Whether the deliberate opt-in is present, read from the process env. */
-export function remoteWritesAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env[ALLOW_REMOTE_ENV] === ALLOW_REMOTE_VALUE;
-}
+const REMOVED_OPT_IN = 'PLOT_BOARD_ALLOW_REMOTE_WRITES';
 
 export interface WriteGateVerdict {
   /** Whether a write endpoint may be served at all. */
@@ -69,26 +54,30 @@ export interface WriteGateVerdict {
  * and it is exactly what the fleet user test uses to read the board over
  * Tailscale. A phone may read this board. It may not approve from it.
  *
- * THE REFUSAL NAMES THE ESCAPE. A bare 403 sends a developer who bound to
- * `0.0.0.0` for a reason to the source to find out why, and the message is the
- * only part of a gate they will read. So it says three things: what was
- * refused, that the binding is the cause, and the exact variable that opts in.
+ * The refusal names what was refused, the two routes that keep the board on
+ * loopback (`tailscale serve` with `PLOT_BOARD_ORIGINS`, and an SSH tunnel),
+ * and, where `PLOT_BOARD_ALLOW_REMOTE_WRITES` is still set in `env`, that it no
+ * longer opens the gate. No variable opens it.
  */
 export function writeGate(
   host: string,
   env: NodeJS.ProcessEnv = process.env,
 ): WriteGateVerdict {
   if (dispatchAvailability(host).available) return { allowed: true, reason: '' };
-  if (remoteWritesAllowed(env)) return { allowed: true, reason: '' };
+  const removed =
+    env[REMOVED_OPT_IN] !== undefined
+      ? ` ${REMOVED_OPT_IN} is set, and it no longer opens the write endpoints on any bind.`
+      : '';
   return {
     allowed: false,
     reason:
       `this board is bound to ${host}, which is not loopback, so its write endpoints are refused: ` +
       'reaching a loopback address is what stands in for authentication here, and a non-loopback ' +
       'binding is reachable by things that are not sitting at this machine. ' +
-      `To serve them anyway, restart the board with ${ALLOW_REMOTE_ENV}=${ALLOW_REMOTE_VALUE} — ` +
-      'which grants anyone who can reach this address the ability to claim branches, approve ' +
-      'plans and start agents on this machine.',
+      'To write from another machine, keep the board on loopback and reach it through ' +
+      '`tailscale serve` with the served origin in PLOT_BOARD_ORIGINS, or through an SSH tunnel: ' +
+      '`ssh -L <port>:localhost:<port> <machine>`.' +
+      removed,
   };
 }
 

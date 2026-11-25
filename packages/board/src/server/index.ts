@@ -286,8 +286,8 @@ async function handleRequest(
   // exists is gated, and a route absent from the table is not reachable at all.
   // The shape is the claim, exactly as MARKDOWN_ROUTES above.
   //
-  // `PLOT_BOARD_ALLOW_REMOTE_WRITES=i-understand` opts out, deliberately awkward
-  // so it cannot be set by reflex — see write-gate.ts.
+  // No variable opens the gate on a non-loopback bind: a remote writer reaches a
+  // loopback board through `tailscale serve` or an SSH tunnel — see write-gate.ts.
   const WRITE_ROUTES = [
     { path: '/api/approve', verb: 'approving', handle: handleApprove },
     // POST /api/needs-design — a Draft plan moves to Design. Detached, like

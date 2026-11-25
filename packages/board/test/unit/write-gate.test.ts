@@ -1,20 +1,15 @@
-// The loopback predicate and its opt-in, as values.
+// The loopback predicate, as a value.
 //
 // `test/write-gate.test.mjs` asserts the GATE — that a bound server refuses and
 // spawns nothing. This asserts the DECISION the gate consults, where the exact
-// membership of "loopback" and the exactness of the opt-in are testable without
-// binding a port.
+// membership of "loopback" is testable without binding a port.
 import { describe, it, expect } from 'vitest';
-import {
-  ALLOW_REMOTE_ENV,
-  ALLOW_REMOTE_VALUE,
-  remoteWritesAllowed,
-  writeGate,
-} from '../../src/server/write-gate.js';
+import { writeGate } from '../../src/server/write-gate.js';
 
-/** No opt-in present — the state every normal board runs in. */
+/** An empty env — the state every normal board runs in. */
 const NO_OPT_IN: NodeJS.ProcessEnv = {};
-const OPTED_IN: NodeJS.ProcessEnv = { [ALLOW_REMOTE_ENV]: ALLOW_REMOTE_VALUE };
+/** The variable that opened the gate on any bind until issue #3311. */
+const REMOVED_OPT_IN: NodeJS.ProcessEnv = { PLOT_BOARD_ALLOW_REMOTE_WRITES: 'i-understand' };
 
 describe('writeGate: which hosts count as loopback', () => {
   for (const host of ['localhost', '127.0.0.1', '::1']) {
@@ -49,15 +44,14 @@ describe('writeGate: the refusal is legible', () => {
     expect(reason).toContain('loopback');
   });
 
-  it('names the escape exactly, including its value', () => {
-    // A bare 403 sends a developer who bound wide for a reason to the source.
-    // The message is the only part of a gate they will read, so it carries the
-    // literal variable AND value — not a description of one.
-    expect(reason).toContain(`${ALLOW_REMOTE_ENV}=${ALLOW_REMOTE_VALUE}`);
+  it('names the two routes that keep the board on loopback', () => {
+    expect(reason).toContain('tailscale serve');
+    expect(reason).toContain('PLOT_BOARD_ORIGINS');
+    expect(reason).toContain('ssh -L <port>:localhost:<port> <machine>');
   });
 
-  it('says what the escape costs, so it is not set casually', () => {
-    expect(reason).toMatch(/claim branches|start agents|approve plans/);
+  it('does not name the removed variable where it is not set', () => {
+    expect(reason).not.toContain('PLOT_BOARD_ALLOW_REMOTE_WRITES');
   });
 
   it('is empty when the gate is open — there is nothing to explain', () => {
@@ -65,29 +59,29 @@ describe('writeGate: the refusal is legible', () => {
   });
 });
 
-describe('remoteWritesAllowed: the opt-in must be typed knowingly', () => {
-  it('opens on the exact named value', () => {
-    expect(remoteWritesAllowed(OPTED_IN)).toBe(true);
-    expect(writeGate('0.0.0.0', OPTED_IN).allowed).toBe(true);
+describe('writeGate: the removed opt-in opens nothing', () => {
+  it('refuses 0.0.0.0 with the old variable set, and says why it stopped working', () => {
+    // A gate that only deleted the opt-in branch would refuse here too, and
+    // still never tell the operator why their setting stopped working.
+    const verdict = writeGate('0.0.0.0', REMOVED_OPT_IN);
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toContain('PLOT_BOARD_ALLOW_REMOTE_WRITES');
+    expect(verdict.reason).toMatch(/no longer opens/);
+    expect(verdict.reason).toContain('tailscale serve');
+    expect(verdict.reason).toContain('PLOT_BOARD_ORIGINS');
+    expect(verdict.reason).toMatch(/SSH tunnel/);
   });
 
-  for (const guess of ['1', 'true', 'yes', 'on', '', 'I-UNDERSTAND', 'i understand']) {
-    it(`stays shut for ${JSON.stringify(guess)} — a guess is not consent`, () => {
-      // The VALUE is checked, never merely the presence of the variable. These
-      // are what a person types when guessing at a flag, and guessing is the
-      // failure mode a deliberate opt-in exists to prevent.
-      expect(remoteWritesAllowed({ [ALLOW_REMOTE_ENV]: guess })).toBe(false);
-      expect(writeGate('0.0.0.0', { [ALLOW_REMOTE_ENV]: guess }).allowed).toBe(false);
+  for (const value of ['1', 'true', '', 'I-UNDERSTAND']) {
+    it(`refuses 0.0.0.0 with the old variable set to ${JSON.stringify(value)}`, () => {
+      expect(writeGate('0.0.0.0', { PLOT_BOARD_ALLOW_REMOTE_WRITES: value }).allowed).toBe(false);
     });
   }
 
-  it('the opt-in cannot be read as a convenience', () => {
-    // The brief's constraint: a flag that reads like a convenience will be set
-    // by someone who has not thought about it. Both halves of the name say what
-    // it does — remote, writes — and the value is a sentence rather than a
-    // switch.
-    expect(ALLOW_REMOTE_ENV).toMatch(/REMOTE/);
-    expect(ALLOW_REMOTE_ENV).toMatch(/WRITES/);
-    expect(ALLOW_REMOTE_VALUE).not.toMatch(/^(1|true|yes|on)$/i);
-  });
+  for (const host of ['localhost', '127.0.0.1', '::1']) {
+    it(`still allows ${host} with the old variable set, and with an empty env`, () => {
+      expect(writeGate(host, REMOVED_OPT_IN)).toEqual({ allowed: true, reason: '' });
+      expect(writeGate(host, {})).toEqual({ allowed: true, reason: '' });
+    });
+  }
 });
