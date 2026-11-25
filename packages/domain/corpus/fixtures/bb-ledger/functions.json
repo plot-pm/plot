@@ -1,5 +1,5 @@
 {
-  "bb": "bb 1.15.0 (quatico-bb — brew install quatico-solutions/tap/quatico-bb)",
+  "bb": "bb 1.15.2 (quatico-bb — brew install quatico-solutions/tap/quatico-bb)",
   "now": 1788000123,
   "hourStamps": [
     {
@@ -137,12 +137,12 @@
     {
       "email": "ÜMLAUT@example.com",
       "c": "c402b751590d",
-      "utf8": "cc9a9505fcdf"
+      "utf8": "c402b751590d"
     },
     {
       "email": "Ärger.Öl@Straße.de",
       "c": "b8fed1f5168f",
-      "utf8": "e339336a11f8"
+      "utf8": "b8fed1f5168f"
     },
     {
       "email": "",
@@ -455,8 +455,8 @@
       "stored": null,
       "retryAfter": "1234567890",
       "now": 1788000123,
-      "tail": "Bitbucket asked to wait 1234567890 s; bb paused until 12:28:42Z (in 999999999 s)",
-      "file": "2788000122 999999999\n"
+      "tail": "Bitbucket asked to wait 1234567890 s; bb paused until 10:42:03Z (in 86400 s)",
+      "file": "1788086523 86400\n"
     },
     {
       "stored": "1788000023 300\n",

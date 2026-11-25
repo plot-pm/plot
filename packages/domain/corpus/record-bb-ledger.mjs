@@ -3,7 +3,7 @@
  * Records the fixtures `bb-ledger.corpus.test.ts` reads.
  *
  * A person runs it once per `bb` version. It refuses any `bb` that does not
- * report `1.15.0`. It makes no network call: the ledger functions run on fixed
+ * report `1.15.2`. It makes no network call: the ledger functions run on fixed
  * inputs in bash, and the real `bb` runs against a stub Bitbucket on
  * 127.0.0.1 with fixture credentials and a scratch state directory.
  *
@@ -21,7 +21,7 @@
  * - `interop.json`: the files the TS adapter wrote, and what the lifted
  *   `bb_budget_count` and `bb_pause_read` read from them.
  *
- * Usage: BB=<path to bb 1.15.0> node packages/domain/corpus/record-bb-ledger.mjs
+ * Usage: BB=<path to bb 1.15.2> node packages/domain/corpus/record-bb-ledger.mjs
  * (`BB` defaults to the `bb` on `PATH`; the file is run with bash, so it need
  * not be executable).
  */
@@ -35,7 +35,7 @@ import { join } from 'node:path';
 const ROOT = new URL('../../..', import.meta.url).pathname.replace(/\/$/, '');
 const OUT = join(ROOT, 'packages/domain/corpus/fixtures/bb-ledger');
 const BB = process.env.BB || execFileSync('bash', ['-c', 'command -v bb'], { encoding: 'utf8' }).trim();
-const VERSION = '1.15.0';
+const VERSION = '1.15.2';
 const LOOPBACK = 'http://127.0.0.1:9';
 // 2026-08-29T10:42:03Z.
 const NOW = 1_788_000_123;
@@ -59,9 +59,18 @@ const lift = () =>
   }).join('\n');
 
 /** The constants the lifted functions read, lifted with grep. */
+const LIFTED_CONSTANTS = ['BB_BUDGET_DEFAULT', 'BB_BUDGET_WINDOW', 'BB_PAUSE_SKEW', 'BB_RETRY_AFTER_MAX'];
+
+/**
+ * The `BB_*` names a lifted function may read without the prelude defining
+ * them: per-process flags `bb` sets empty at start, and environment variables
+ * the recorder passes per case.
+ */
+const UNLIFTED = ['BB_STATE_WARNED', 'BB_STATE_WORLD_WRITABLE', 'BB_API_URL', 'BB_HOURLY_LIMIT', 'BB_NOW', 'BB_STATE_DIR'];
+
 const constants = () => {
   const text = readFileSync(BB, 'utf8');
-  const lines = ['BB_BUDGET_DEFAULT', 'BB_BUDGET_WINDOW', 'BB_PAUSE_SKEW'].map((name) => {
+  const lines = LIFTED_CONSTANTS.map((name) => {
     const line = text.split('\n').find((one) => one.startsWith(`${name}=`));
     if (line === undefined) throw new Error(`could not lift ${name}`);
     return line;
@@ -71,7 +80,22 @@ const constants = () => {
   return `${lines.join('\n')}\n${flavour[0]}`;
 };
 
-const PRELUDE = `${constants()}\n${lift()}\n`;
+/**
+ * Refuses a lifted function that reads a `BB_*` constant the prelude does not
+ * define: bash reads an undefined name as empty, and `[[ 900 -gt "" ]]`
+ * compares against 0, so the function answers on a path `bb` never takes.
+ */
+const checkConstants = (prelude, functions) => {
+  const defined = new Set([...prelude.matchAll(/(?:^|[\s);])(BB_[A-Z_]+)=/gm)].map((match) => match[1]));
+  const named = new Set(functions.match(/BB_[A-Z_]+/g) ?? []);
+  const missing = [...named].filter((name) => !defined.has(name) && !UNLIFTED.includes(name)).sort();
+  if (missing.length > 0) throw new Error(`the lifted functions read ${missing.join(', ')}, which the prelude does not define`);
+};
+
+const LIFTED = lift();
+const CONSTANTS = constants();
+checkConstants(CONSTANTS, LIFTED);
+const PRELUDE = `${CONSTANTS}\n${LIFTED}\n`;
 
 /** Runs `body` in bash with the lifted functions, the given environment and `BB_NOW`. */
 const shell = (body, env = {}, now = NOW) => {
