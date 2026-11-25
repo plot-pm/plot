@@ -3814,6 +3814,23 @@ test('--status from a desk under the estate own desk root is not refused', () =>
   assert.doesNotMatch(r.out, /not part of the estate/);
 });
 
+test('--status in a submodule checkout exits as a normal checkout does (#3043)', () => {
+  // The submodule's common dir is `<ws>/.git/modules/app/web`; its parent is
+  // not the checkout, so the estate check refused the checkout itself.
+  const { root, box, guardBin } = sandbox('submodule');
+  const ws = path.join(box, 'ws');
+  fs.mkdirSync(ws);
+  git(ws, 'init', '-q', '-b', 'main');
+  git(ws, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', root, 'app/web');
+  const sub = path.join(ws, 'app', 'web');
+  const subCtl = path.join(sub, 'skills', 'plot', 'scripts', 'plot-fleetctl.sh');
+  const normal = run(path.join(root, 'skills', 'plot', 'scripts', 'plot-fleetctl.sh'), ['--status'], root, guardBin);
+  const r = run(subCtl, ['--status'], sub, guardBin);
+  assert.doesNotMatch(r.out, /not part of the estate/, r.out);
+  assert.notEqual(r.status, 3, r.out);
+  assert.equal(r.status, normal.status, `submodule: ${r.out}\nnormal: ${normal.out}`);
+});
+
 // ── The desk root is compared as a physical path (#1586) ──────────────────────
 
 const symlinkedDeskRoot = (label) => {
