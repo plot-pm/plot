@@ -138,8 +138,8 @@ desk_dirt_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-desk-dirt.sh"
 # `--show-toplevel` ANSWERS THE DESK inside a linked worktree, which is the whole
 # of #1086: this function derived `<desk>/.plot/agents` and found no manifest, so
 # every worker-state reading taken from inside a dispatched desk read its agent
-# as unregistered. Every linked worktree shares ONE common git dir, so the
-# parent of `--git-common-dir` is the main checkout from anywhere.
+# as unregistered. Every linked worktree shares ONE common git dir, so
+# `plot_checkout_of_common` answers the main checkout from anywhere.
 #
 # THE COMMON DIR MAY BE RELATIVE. In a linked worktree git prints an absolute
 # path; in the main checkout it prints `.git`, relative to the tree. So it is
@@ -155,7 +155,7 @@ plot_main_checkout_of() { # $1=directory → the main checkout, or "" (non-zero)
   local at="$1" common
   [ -n "$at" ] || return 1
   common=$(plot_given_common_dir "$at") || { common=$(git -C "$at" rev-parse --git-common-dir 2>/dev/null) && common=$(cd -- "$at" && cd -- "$common" && pwd -P); } || return 1
-  printf '%s' "${common%/*}"
+  plot_checkout_of_common "$common"
 }
 
 # The `Agent registry` directory for a main checkout — `manifestDirectory`'s rule.

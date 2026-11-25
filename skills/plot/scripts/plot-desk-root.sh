@@ -15,6 +15,7 @@
 # second default, and two defaults are the defect this removes.
 #
 #   plot_repo_root            → the MAIN checkout, from anywhere
+#   plot_checkout_of_common dir → the main checkout of a physical common git dir
 #   plot_desk_root [repo [configured]] → the desk root; exit 3 when unaskable
 #   plot_exclude_desk_root [repo] → keep it out of `git status`; never fails
 #   plot_given_common_dir dir [top] → the common git dir (or top level) from an
@@ -47,27 +48,36 @@ plot_given_common_dir() { # $1=directory [$2=top] → the physical common dir (o
   [ "${2:-}" = top ] && c=$d; printf '%s' "$c"
 }
 
+# The main checkout of a physical common git dir.
+#
+# A common dir named `.git` lies in its checkout, so the answer is its parent
+# and no process starts: `plot-worker-state.sh` asks this once per desk probe.
+# Any other common dir (a submodule's `<workspace>/.git/modules/app/web`) names
+# its checkout in `core.worktree`, relative to the common dir or absolute. With
+# no such key, or a key naming no directory, the answer is the parent (#3043).
+# Reading `core.worktree` of a `.git` dir would move a checkout that sets the
+# key for another reason.
+plot_checkout_of_common() { # $1=physical common dir → the main checkout
+  local wt
+  [ "${1##*/}" != .git ] && wt=$(git --git-dir="$1" config --get core.worktree 2>/dev/null) && (cd -- "$1" && cd -- "$wt" && pwd -P) 2>/dev/null || dirname -- "$1"
+}
+
 # The MAIN checkout, from a desk as readily as from the checkout itself.
 #
 # `--show-toplevel` answers the DESK inside a linked worktree, so with
 # `.worktrees` as the default it would resolve `<desk>/.worktrees` and place
-# every tree under a root nothing else reads. `plot-reap.sh:440-447` recorded
-# that failure on 2026-09-10, when every tree read as unplaceable.
+# every tree under a root nothing else reads (`plot-reap.sh:440-447`,
+# 2026-09-10). Every linked worktree shares one common dir, so
+# `plot_checkout_of_common` answers the main checkout from anywhere;
+# `--show-toplevel` is the fallback outside that.
 #
-# The parent of `--git-common-dir` is the main checkout from anywhere, because
-# every linked worktree shares that one directory. It is asked FIRST and
-# `--show-toplevel` is the fallback, since the common dir is also correct in a
-# non-worktree checkout: there `.git` is a real directory in the root.
-#
-# AN EXPORTED ANSWER IS TAKEN WHEN IT IS THIS CHECKOUT'S (`plot_given_common_dir`),
-# and git is asked otherwise.
-#
-# PHYSICAL, through `pwd -P`: `git worktree list` and `--show-toplevel` print
-# resolved paths, and a desk root composed from a logical one (`/tmp` against
-# `/private/tmp` on macOS) is a prefix no worktree path ever starts with.
+# An exported answer is taken when it is this checkout's (`plot_given_common_dir`),
+# and git is asked otherwise. The answer is PHYSICAL, through `pwd -P`: a desk
+# root composed from a logical path (`/tmp` against `/private/tmp` on macOS) is
+# a prefix no path `git worktree list` prints starts with.
 plot_repo_root() {
   local root
-  root=$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && root=$(cd -- "$root" 2>/dev/null && pwd -P) && root=$(dirname -- "$root") || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
+  root=$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && root=$(cd -- "$root" 2>/dev/null && pwd -P) && root=$(plot_checkout_of_common "$root") || root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$(pwd)
   printf '%s\n' "$root"
 }
 
