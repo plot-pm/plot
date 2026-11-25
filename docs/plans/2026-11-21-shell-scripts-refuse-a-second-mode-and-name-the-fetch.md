@@ -102,7 +102,7 @@
 
 ### Restart Roots
 
-- `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts` — `--restart` reads the bundle commit from the loaded unit's own checkout under a git ceiling, and `--restart` and `--start` compare the loaded job against `plot_repo_root`, with the plugin-checkout, no-`.git`, worktree-ahead and `--start`-from-worktree contract tests <!-- builds: plot-fleetctl --restart bundle commit and owner root -->
+- `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts` — `--restart` reads the bundle commit from the loaded unit's own checkout under a git ceiling, and `--restart` and `--start` compare the loaded job against `plot_repo_root`, with the plugin-checkout, no-`.git`, worktree-ahead and `--start`-from-worktree contract tests <!-- builds: plot-fleetctl --restart bundle commit and owner root --> → #3728
 
 ### Fetch Hints
 
