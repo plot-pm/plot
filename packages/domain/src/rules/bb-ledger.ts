@@ -4,8 +4,8 @@ import { DEFAULT_PREDICTED_HOST_LIMIT } from './declared-host-limit.js';
 /**
  * `bb`'s request ledger, read and decided over values.
  *
- * A declared duplicate of the budget functions in `cli/bb` 1.15.0 (agent-skills
- * `2c904ab17`), held to them by `corpus/bb-ledger.corpus.test.ts`. The file IO
+ * A declared duplicate of the budget functions in `cli/bb` 1.15.2 (agent-skills
+ * `83d16f25c`), held to them by `corpus/bb-ledger.corpus.test.ts`. The file IO
  * lives in `adapters/host/bb-ledger-file.ts`.
  */
 
@@ -14,6 +14,9 @@ export const BB_HOURLY_DEFAULT = 800;
 
 /** The window a request counts in, in seconds (`BB_BUDGET_WINDOW`). */
 export const BB_BUDGET_WINDOW_S = 3600;
+
+/** The longest `Retry-After` a pause honours, in seconds (`BB_RETRY_AFTER_MAX`). */
+export const BB_RETRY_AFTER_MAX_S = 86400;
 
 /** Seconds a pause may run past its length before it is stale (`BB_PAUSE_SKEW`). */
 export const BB_PAUSE_SKEW_S = 5;
@@ -285,13 +288,15 @@ export const bbPauseLeft = (pause: BbPause | null, now: number): number | null =
  * A `Retry-After` value as `bb_pause_after_429` reads it.
  *
  * @param raw - the header as sent, or null.
- * @returns the seconds, leading zeros not counted and more than 9 digits read
- *   as 999999999, or null where the value is not all digits.
+ * @returns the seconds, leading zeros not counted, with more than 9 digits or
+ *   a value above `BB_RETRY_AFTER_MAX_S` read as `BB_RETRY_AFTER_MAX_S`, or
+ *   null where the value is not all digits.
  */
 export const bbRetryAfter = (raw: string | null): number | null => {
   if (raw === null || !DIGITS.test(raw)) return null;
   const digits = unpadded(raw);
-  return digits.length > 9 ? CLAMP : Number(digits || '0');
+  if (digits.length > 9) return BB_RETRY_AFTER_MAX_S;
+  return Math.min(Number(digits || '0'), BB_RETRY_AFTER_MAX_S);
 };
 
 /**

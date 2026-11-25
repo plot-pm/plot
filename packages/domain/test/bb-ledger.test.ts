@@ -133,7 +133,10 @@ describe('the pause', () => {
   it('reads Retry-After as bb_pause_after_429 does', () => {
     expect(bbRetryAfter('120')).toBe(120);
     expect(bbRetryAfter('000')).toBe(0);
-    expect(bbRetryAfter('0001234567890')).toBe(999_999_999);
+    expect(bbRetryAfter('0001234567890')).toBe(86400);
+    expect(bbRetryAfter('86400')).toBe(86400);
+    expect(bbRetryAfter('86401')).toBe(86400);
+    expect(bbRetryAfter('00429')).toBe(429);
     expect(bbRetryAfter('12s')).toBeNull();
     expect(bbRetryAfter(null)).toBeNull();
   });

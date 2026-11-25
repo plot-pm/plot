@@ -24,23 +24,16 @@ import {
 import { compareField, describingAs, type Disagreement } from './compare.js';
 
 /**
- * Do the ledger rules answer what `bb` 1.15.0 answers?
+ * Do the ledger rules answer what `bb` 1.15.2 answers?
  *
  * Reads the recordings `record-bb-ledger.mjs` took from the real `bb` and
  * needs no `bb` installed. The recorder runs once per `bb` version.
- *
- * THE ONE DECLARED DIVERGENCE is the account key of an email that holds a
- * non-ASCII capital, read under a UTF-8 locale. `bb_account_key` lowercases
- * with `tr '[:upper:]' '[:lower:]'`, which follows the caller's locale, and
- * `bbAccountKey` lowercases ASCII `A`-`Z` only, as `bb` does under `LC_ALL=C`.
- * The fix belongs in `bb` (quatico-solutions/agent-skills#135), and `bb`
- * 1.15.1 still holds it. The C-locale comparison is asserted whole.
  */
 
 const DIR = new URL('./fixtures/bb-ledger/', import.meta.url);
 const read = <T>(name: string): T => JSON.parse(readFileSync(new URL(name, DIR), 'utf8')) as T;
 const report = describingAs({ left: 'rule', right: 'shell' });
-const VERSION = 'bb 1.15.0 ';
+const VERSION = 'bb 1.15.2 ';
 
 interface Functions {
   readonly bb: string;
@@ -121,7 +114,7 @@ const rateLimitOf = (one: Outputs['cases'][number]): string => {
 };
 
 describe("the ledger rules agree with the recorded bb's functions", () => {
-  it('was recorded from bb 1.15.0 over a ceiling, a pause and a non-ASCII email, so this is not vacuous', () => {
+  it('was recorded from bb 1.15.2 over a ceiling, a pause and a non-ASCII email, so this is not vacuous', () => {
     for (const bb of [recorded.bb, outputs.bb, interop.bb]) expect(bb.startsWith(VERSION)).toBe(true);
     expect(recorded.accountKey.some((one) => /[^\x00-\x7f]/.test(one.email))).toBe(true);
     expect(outputs.cases.map((one) => one.status)).toEqual(expect.arrayContaining([0, 75]));
@@ -161,12 +154,11 @@ describe("the ledger rules agree with the recorded bb's functions", () => {
     expect(found.map(report)).toEqual([]);
   });
 
-  it('declares the divergence: under a UTF-8 locale bb_account_key differs only for a non-ASCII capital', () => {
+  it('keys an account as bb_account_key does under a UTF-8 locale, a non-ASCII capital included', () => {
     const found: Disagreement[] = [];
     for (const one of recorded.accountKey) compareField(found, one.email, 'key', bbAccountKey(one.email), one.utf8);
-    const nonAsciiCapital = recorded.accountKey.filter((one) => one.email.toLowerCase() !== one.email.replace(/[A-Z]/g, (c) => c.toLowerCase()));
-    expect(nonAsciiCapital.length).toBeGreaterThan(0);
-    expect(found.map((one) => one.subject)).toEqual(nonAsciiCapital.map((one) => one.email));
+    expect(recorded.accountKey.some((one) => one.email.toLowerCase() !== one.email.replace(/[A-Z]/g, (c) => c.toLowerCase()))).toBe(true);
+    expect(found.map(report)).toEqual([]);
   });
 
   it('reads BB_HOURLY_LIMIT as bb_hourly_limit does', () => {
@@ -218,6 +210,7 @@ describe("the ledger rules agree with the recorded bb's functions", () => {
       compareField(found, subject, 'file', bbPauseLine(pause), String(one.file));
       compareField(found, subject, 'tail', bbPauseTail(pause, one.retryAfter, one.now, 'Bitbucket'), one.tail);
     }
+    expect(recorded.pauseAfter429.some((one) => one.tail.includes('asked to wait'))).toBe(true);
     expect(found.map(report)).toEqual([]);
   });
 
