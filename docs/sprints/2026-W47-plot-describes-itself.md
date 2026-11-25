@@ -48,7 +48,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [github-refuses-a-merge-into-a-red-main] GitHub refuses a merge into a red main <!-- pr: #3691, branch: docs/the-repository-requires-plot-main -->
 
 <!-- add items here -->
-- [ ] [fleetctl-runs-in-a-submodule-checkout] fleetctl runs in a submodule checkout (#3043, plan PR #3699) <!-- pr: #3699, branch: bug/the-repo-root-reads-core-worktree -->
+- [x] [fleetctl-runs-in-a-submodule-checkout] fleetctl runs in a submodule checkout (#3043, plan PR #3699) <!-- pr: #3699, branch: bug/the-repo-root-reads-core-worktree -->
 - [ ] [plot-init-checks-for-the-bb-cli] /plot-init checks for the bb CLI (#2533, plan PR #3699) <!-- pr: #3699, branch: bug/plot-init-proposes-the-bb-install -->
 - [x] [a-refused-bb-call-writes-no-budget-row] A refused bb call writes no budget row (#3690, plan PR #3699) <!-- pr: #3699, branch: bug/a-refused-bb-call-writes-no-budget-row -->
 - [x] [a-held-board-shows-the-indexed-tickets] A held board shows the indexed tickets (#3551, plan PR #3699) <!-- pr: #3699, branch: bug/a-held-board-shows-tickets-after-its-first-render -->
