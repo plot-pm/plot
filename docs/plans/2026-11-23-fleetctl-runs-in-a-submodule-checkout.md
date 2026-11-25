@@ -51,7 +51,7 @@ A home-automation repository is often a submodule of a workspace repository. A s
 
 ### Domain state home
 
-- `bug/the-state-home-reads-core-worktree` — `mainCheckoutOf` decides the main checkout from the common dir and its `core.worktree`, `stateHomeOf` asks it, the two adapters read `core.worktree`, and a corpus test holds the shell pair <!-- builds: mainCheckoutOf, the main-checkout rule --> <!-- tests: state-home.test.ts — a common dir `.git/modules/app/web` with core.worktree `../../../../app/web` answers home `<workspace>/app/web`, no core.worktree and a non-.git dir answers unread; main-checkout.corpus.test.ts — rule and plot_repo_root agree on a normal checkout, a desk and a submodule -->
+- `bug/the-state-home-reads-core-worktree` — `mainCheckoutOf` decides the main checkout from the common dir and its `core.worktree`, `stateHomeOf` asks it, the two adapters read `core.worktree`, and a corpus test holds the shell pair <!-- builds: mainCheckoutOf, the main-checkout rule --> <!-- tests: state-home.test.ts — a common dir `.git/modules/app/web` with core.worktree `../../../../app/web` answers home `<workspace>/app/web`, no core.worktree and a non-.git dir answers unread; main-checkout.corpus.test.ts — rule and plot_repo_root agree on a normal checkout, a desk and a submodule --> → #3721
 
 ## Notes
 
