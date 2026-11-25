@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #3311
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-board-refuses-the-remote-write-opt-in`
+- **Delivered:** 2026-11-25
 
 ## Changelog
 
