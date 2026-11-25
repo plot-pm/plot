@@ -3865,9 +3865,11 @@ test('--status from a linked worktree outside a symlinked desk root is still ref
 // A `launchctl` that logs every call and answers `print` from a counter file:
 // the pid before the first `kickstart` and the pid after it, or the same pid
 // forever with `stuck`. `workdir` names this checkout so `--start`'s label
-// check passes.
+// check passes, and `arguments` names the bundle the unit runs — by default
+// this checkout's, the way `--start` fills it — so the reported commit is read
+// from the bundle's checkout (#3367).
 
-const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false, kickExit = 0 } = {}) => {
+const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = false, kickExit = 0, bundle = path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-fleetd.mjs') } = {}) => {
   const bin = path.join(box, 'restart-bin');
   fs.mkdirSync(bin, { recursive: true });
   const log = path.join(box, 'launchctl.log');
@@ -3886,6 +3888,7 @@ const stubRestartLaunchctl = (box, root, fleetLabel, { loaded = true, stuck = fa
     'if [ "$1" = print ]; then',
     `  if [ -f '${kicked}' ] && [ ${stuck ? 0 : 1} = 1 ]; then pid=5555; else pid=4242; fi`,
     `  printf '\\tworking directory = ${root}\\n\\tpid = %s\\n' "$pid"`,
+    `  printf '\\targuments = {\\n\\t\\t/usr/bin/node\\n\\t\\t${bundle}\\n\\t}\\n'`,
     'fi',
     'exit 0',
   ].join('\n'));
@@ -3989,6 +3992,92 @@ test('--restart --dry-run prints the unit, the pid and the commit, and reloads n
   assert.match(r.out, /supervisor pid: 4242/);
   assert.match(r.out, /bundle commit: /);
   assert.equal(calls().some((l) => l.startsWith('kickstart')), false);
+});
+
+// ── --restart reports the bundle's commit and asks from the main checkout ────
+//
+// `sandbox()` puts the scripts inside the sandbox root, so the repository, the
+// script's checkout and the bundle's checkout are one directory there. These
+// fixtures separate them: a plugin outside the consumer, a plugin with no
+// `.git`, and a linked worktree ahead of main (#3367).
+
+const commitOnce = (dir) => {
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 'test@example.invalid');
+  git(dir, 'config', 'user.name', 'Plot Test');
+  git(dir, 'config', 'commit.gpgsign', 'false');
+  git(dir, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  return git(dir, 'rev-parse', '--short', 'HEAD').trim();
+};
+
+const restartConsumer = (label, { pluginGit = false, parentGit = false } = {}) => {
+  const c = consumerSandbox(label);
+  const pluginHead = pluginGit ? commitOnce(c.plugin) : '';
+  if (parentGit) commitOnce(path.dirname(c.plugin));
+  const consumerHead = git(c.consumer, 'rev-parse', '--short', 'HEAD').trim();
+  const restart = (args) => {
+    const { bin } = stubRestartLaunchctl(c.box, c.consumer, c.fleetLabel, { bundle: c.bundle });
+    return run(c.ctl, args, c.consumer, c.guardBin, restartEnv(c.box, bin, c.fleetLabel));
+  };
+  return { ...c, pluginHead, consumerHead, restart };
+};
+
+test("--restart reports the plugin checkout's commit, not the consumer's", () => {
+  const { pluginHead, consumerHead, restart } = restartConsumer('restart-plugin-git', { pluginGit: true });
+  assert.notEqual(pluginHead, consumerHead);
+  const r = restart(['--restart', '--wait', '10']);
+  assert.equal(r.status, 0, r.out);
+  assert.ok(r.out.includes(`bundle commit: ${pluginHead}\n`), r.out);
+  assert.equal(r.out.includes(consumerHead), false, r.out);
+  const d = restart(['--restart', '--dry-run']);
+  assert.equal(d.status, 0, d.out);
+  assert.ok(d.out.includes(`bundle commit:  ${pluginHead}\n`), d.out);
+  assert.equal(d.out.includes(consumerHead), false, d.out);
+});
+
+test('--restart reports an unknown commit for a plugin with no .git, even inside a git parent', () => {
+  for (const parentGit of [false, true]) {
+    const { consumerHead, restart } = restartConsumer(`restart-plugin-nogit-${parentGit}`, { parentGit });
+    const r = restart(['--restart', '--wait', '10']);
+    assert.equal(r.status, 0, r.out);
+    assert.ok(r.out.includes('bundle commit: unknown\n'), r.out);
+    assert.equal(r.out.includes(consumerHead), false, r.out);
+    const d = restart(['--restart', '--dry-run']);
+    assert.equal(d.status, 0, d.out);
+    assert.ok(d.out.includes('bundle commit:  unknown\n'), d.out);
+  }
+});
+
+const aheadWorktree = (label) => {
+  const s = sandbox(label);
+  git(s.root, 'commit', '-q', '--allow-empty', '-m', 'seed');
+  const mainHead = git(s.root, 'rev-parse', '--short', 'HEAD').trim();
+  const wt = path.join(s.box, 'ahead');
+  git(s.root, 'worktree', 'add', '-q', '-b', 'feature/ahead', wt);
+  git(wt, 'commit', '-q', '--allow-empty', '-m', 'ahead of main');
+  const wtHead = git(wt, 'rev-parse', '--short', 'HEAD').trim();
+  const { bin, calls } = stubRestartLaunchctl(s.box, s.root, s.fleetLabel);
+  return { ...s, wt, mainHead, wtHead, bin, calls };
+};
+
+test("--restart from a worktree ahead of main restarts the main checkout's supervisor and reports its commit", () => {
+  const { box, ctl, fleetLabel, guardBin, wt, mainHead, wtHead, bin } = aheadWorktree('restart-worktree');
+  assert.notEqual(mainHead, wtHead);
+  const r = run(ctl, ['--restart', '--wait', '10'], wt, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 0, r.out);
+  assert.doesNotMatch(r.out, /serves ANOTHER checkout/);
+  assert.match(r.out, /old pid: 4242/);
+  assert.match(r.out, /new pid: 5555/);
+  assert.ok(r.out.includes(`bundle commit: ${mainHead}\n`), r.out);
+  assert.equal(r.out.includes(wtHead), false, r.out);
+});
+
+test('--start from a worktree refuses a loaded unit as serving THIS repository', () => {
+  const { box, ctl, fleetLabel, guardBin, wt, bin, calls } = aheadWorktree('start-worktree');
+  const r = run(ctl, ['--start'], wt, guardBin, restartEnv(box, bin, fleetLabel));
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /is already loaded, serving THIS repository/);
+  assert.equal(calls().some((l) => l.startsWith('bootstrap') || l.startsWith('kickstart')), false);
 });
 
 test('--stop --dry-run, --once --dry-run and --status --dry-run still refuse', () => {
