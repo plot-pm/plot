@@ -27,6 +27,10 @@ describe('mainCheckoutOf', () => {
     expect(mainCheckoutOf('.git', null)).toEqual({ unread: true });
   });
 
+  it('answers unread for the filesystem root with no core.worktree', () => {
+    expect(mainCheckoutOf('/', null)).toEqual({ unread: true });
+  });
+
   it('does not climb above the filesystem root', () => {
     expect(mainCheckoutOf('/a/b', '../../../..')).toEqual({ checkout: '/' });
   });
