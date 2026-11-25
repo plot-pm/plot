@@ -2869,20 +2869,18 @@ read_env_var() { # $1=name $2=file → the value, or nothing
 # skipped in favour of the next one rather than returned anyway.
 #
 # NO UPWARD WALK past either location — the fallback is exactly one more
-# place to look, not a search. `--git-common-dir`'s parent is the main
-# checkout root only for a standard `git worktree add` checkout; where the
-# command fails, prints nothing, or its parent directory does not exist, this
-# falls through to "no main checkout .env" rather than inventing a path.
+# place to look, not a search. The main checkout is `plot_repo_root`'s answer,
+# which reads `core.worktree` in a submodule (#3043); where it cannot read a
+# common dir it answers the first location again, which already failed.
 #
-# An exported answer for this checkout replaces both git questions
+# An exported answer for this checkout replaces the git questions
 # (`plot_given_common_dir`); another repository's asks git.
 plot_env_file() {
-  local root env_file common
+  local root env_file
   . "$here/plot-desk-root.sh"
   root="$(plot_given_common_dir "$PWD" top || git rev-parse --show-toplevel 2>/dev/null)" || root="."; env_file="$root/.env"
   plot_env_file_qualifies "$env_file" "$1" "$2" && { printf '%s|' "$env_file"; return 0; }
-  common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] || return 0
-  env_file="$(dirname "$common")/.env"
+  env_file="$(plot_repo_root)/.env"
   plot_env_file_qualifies "$env_file" "$1" "$2" && printf "%s|the main checkout's " "$env_file"
 }
 

@@ -270,8 +270,8 @@ mtime() {
 # It resolves against the MAIN CHECKOUT, never `--show-toplevel`. A dispatch
 # desk is a worktree, so `--show-toplevel` there is the DESK, and a relative
 # value resolved against it would give every desk its own copy — the exact
-# disagreement this key exists to end. The parent of `--git-common-dir` is the
-# main checkout from inside a desk and from the checkout itself alike.
+# disagreement this key exists to end. `plot_repo_root` answers the main
+# checkout from inside a desk and from the checkout itself alike.
 # `board/plot-pr-index-lookup.mjs` made the same choice for the same reason.
 #
 # An absolute value is taken as given, the way `Worktree root` and
@@ -287,13 +287,9 @@ if [ -n "$_declared" ]; then
   case "$_declared" in
     /*) _declared_path="$_declared" ;;
     *)
-      _common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "")
-      if [ -n "$_common" ]; then
-        _main_root=$(cd "$_common/.." 2>/dev/null && pwd -P)
-      else
-        _main_root="$git_root"
-      fi
-      _declared_path="$_main_root/$_declared"
+      # shellcheck source=plot-desk-root.sh
+      . "$here/plot-desk-root.sh"
+      _declared_path="$(plot_repo_root)/$_declared"
       ;;
   esac
   # Declared is declared: present or absent, the search stops here.

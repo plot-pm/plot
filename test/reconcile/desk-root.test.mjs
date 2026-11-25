@@ -174,3 +174,63 @@ test('reaper: run from inside a desk with no key, it reads the MAIN checkout\'s 
   assert.match(out, /unknown\s+feature\/stray/, out);
   assert.match(out, /under \.worktrees\/, no worker pid and no recognised name/, out);
 });
+
+/**
+ * A workspace that holds the repository `makeRepo('sub')` cut as the submodule
+ * `app/web`, added the way `git submodule add` does. Returns both PHYSICAL paths.
+ */
+const makeSubmodule = (label) => {
+  const { tmp: subTmp } = makeRepo(`${label}-sub`);
+  const { tmp, repo: ws } = makeRepo(`${label}-ws`);
+  git(ws, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', path.join(subTmp, 'origin.git'), 'app/web');
+  return { tmp, ws, sub: path.join(ws, 'app', 'web') };
+};
+
+test('submodule: the root is the submodule\'s working tree and the desk root lies under it (#3043)', () => {
+  const { ws, sub } = makeSubmodule('subroot');
+  assert.equal(
+    git(sub, 'rev-parse', '--path-format=absolute', '--git-common-dir').trim(),
+    path.join(ws, '.git', 'modules', 'app', 'web'),
+    'the premise: the common dir is not a .git directory',
+  );
+  const r = ask(sub, 'plot_repo_root; plot_desk_root "$(plot_repo_root)"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split('\n'), [sub, path.join(sub, '.worktrees')]);
+});
+
+test('submodule: a desk cut from the submodule answers the submodule\'s checkout, not the desk', () => {
+  // `core.worktree` read from the desk's own gitdir, or `--show-toplevel`,
+  // would answer the desk.
+  const { sub } = makeSubmodule('subdesk');
+  const desk = path.join(sub, '.worktrees', 'feature-z');
+  git(sub, 'worktree', 'add', '-q', '-b', 'feature/z', desk, 'origin/main');
+  const r = ask(desk, 'plot_repo_root; plot_desk_root "$(plot_repo_root)"');
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split('\n'), [sub, path.join(sub, '.worktrees')]);
+});
+
+test('submodule: a .git common dir keeps its parent even where core.worktree names another directory', () => {
+  const { tmp, repo } = makeRepo('setsworktree');
+  const elsewhere = path.join(tmp, 'elsewhere');
+  fs.mkdirSync(elsewhere);
+  git(repo, 'config', 'core.worktree', elsewhere);
+  const r = ask(repo, 'plot_repo_root');
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), repo);
+});
+
+test('submodule: a common dir that is not .git and carries no core.worktree answers its parent', () => {
+  const { tmp } = makeRepo('bare');
+  const r = ask(tmp, `plot_checkout_of_common "${path.join(tmp, 'origin.git')}"`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), tmp);
+});
+
+test('submodule: an absolute core.worktree is taken as given', () => {
+  const { tmp } = makeRepo('abswt');
+  const bare = path.join(tmp, 'origin.git');
+  git(tmp, '--git-dir', bare, 'config', 'core.worktree', path.join(tmp, 'repo'));
+  const r = ask(tmp, `plot_checkout_of_common "${bare}"`);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), path.join(tmp, 'repo'));
+});

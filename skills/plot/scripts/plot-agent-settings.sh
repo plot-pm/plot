@@ -58,16 +58,14 @@ declared="$(bash "$here/plot-config.sh" get "Agent settings" "" 2>/dev/null || e
 # output: a project that configures nothing starts its agents exactly as before.
 [ -z "$declared" ] && exit 0
 
-# A RELATIVE VALUE RESOLVES AGAINST THE MAIN CHECKOUT, the parent of
-# `--git-common-dir`, the rule `Board artifact` already follows
+# A RELATIVE VALUE RESOLVES AGAINST THE MAIN CHECKOUT, `plot_repo_root`'s
+# answer, the rule `Board artifact` already follows
 # (plot-board-probe.sh:262). `--show-toplevel` names the DESK, and a desk cut
 # from an older main may not hold the file — so resolving there would give every
 # desk its own answer, or no answer at all. An absolute value is taken as given,
 # the way `Worktree root` and `Agent registry` treat theirs.
 #
-# An exported common dir is taken when it is this checkout's
-# (`plot_given_common_dir`), and git is asked otherwise. Outside a repository
-# the working directory is the root.
+# Outside a repository the working directory is the root.
 #
 # The KEY itself is still read from the asking tree's CLAUDE.md, so an old desk
 # whose CLAUDE.md carries no key starts as today.
@@ -75,8 +73,7 @@ case "$declared" in
   /*) path="$declared" ;;
   *)
     . "$here/plot-desk-root.sh"
-    common="$(plot_given_common_dir "$PWD" || git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && main_root="$(cd "$common/.." 2>/dev/null && pwd -P)" || main_root="$(pwd -P)"
-    path="$main_root/$declared"
+    path="$(plot_repo_root)/$declared"
     ;;
 esac
 
