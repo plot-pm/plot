@@ -17,7 +17,7 @@ import { compareField, describingAs, type Disagreement } from './compare.js';
  * answer is `bbThrottleCause(stderr) !== 'host'` under exit 75. The shell's side
  * is the row count a stub `bb` call leaves, read through `plot-host.sh pr-state`.
  *
- * The texts are every stderr `record-bb-ledger.mjs` recorded from `bb` 1.15.0
+ * The texts are every stderr `record-bb-ledger.mjs` recorded from `bb` 1.15.2
  * under exit 75, plus variants that change one word of a phrase.
  */
 
@@ -78,8 +78,8 @@ const shellSpend = (status: number, stderr: string, at: number): number => {
 const ruleSpend = (status: number, stderr: string): number => (status === 75 && bbThrottleCause(stderr) !== 'host' ? 0 : 1);
 
 describe("bb_sent agrees with bbThrottleCause on a refused bb call's spend", () => {
-  it('reads recordings of bb 1.15.0 that hold a ceiling, a pause and a sent 429, so this is not vacuous', () => {
-    expect(outputs.bb.startsWith('bb 1.15.0 ')).toBe(true);
+  it('reads recordings of bb 1.15.2 that hold a ceiling, a pause and a sent 429, so this is not vacuous', () => {
+    expect(outputs.bb.startsWith('bb 1.15.2 ')).toBe(true);
     const causes = recorded.map((one) => bbThrottleCause(one.stderr));
     expect(causes).toEqual(expect.arrayContaining(['ceiling', 'paused', 'host']));
   });
