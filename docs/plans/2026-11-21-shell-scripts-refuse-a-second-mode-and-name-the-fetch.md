@@ -14,6 +14,7 @@
 - **Approved:** 2026-11-21, Jan Wloka, plan-PR #3612 merged
 - **Started:** 2026-11-21, Jan Wloka, `bug/boardctl-and-dispatch-refuse-a-second-mode`
 - **Started:** 2026-11-21, Jan Wloka, `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts`
+- **Started:** 2026-11-25, Jan Wloka, `bug/check-scripts-name-the-default-branch-fetch`
 
 ## Changelog
 
