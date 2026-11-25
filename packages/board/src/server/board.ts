@@ -28,6 +28,7 @@ import { cachedPlanMetas, cachedRefs, freshWalkCache, readRefSnapshot, snapshotO
 import type { RefState } from '@plot-pm/domain/ports/refs';
 import { listRecordBlobs, readRecordFindings, resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { licensedSpike, spikeOf } from '@plot-pm/domain/rules/spike';
+import { newestChecklist } from '@plot-pm/domain/rules/release-checklist';
 import { branchPlanSet, type BranchPlanTree } from '@plot-pm/domain/rules/branch-plans';
 import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
 import { sprintRecordOf, UNADMITTED_STATE as DOMAIN_UNADMITTED_STATE } from '@plot-pm/domain/rules/sprint-record';
@@ -787,8 +788,7 @@ export function countChecklist(text: string): { done: number; total: number } | 
 function readChecklist(repoRoot: string, releaseDir: string): { done: number; total: number } | null {
   try {
     const dir = path.join(repoRoot, releaseDir);
-    const files = fs.readdirSync(dir).filter((f) => /-checklist\.md$/.test(f)).sort();
-    const newest = files.at(-1);
+    const newest = newestChecklist(fs.readdirSync(dir));
     if (!newest) return null;
     return countChecklist(fs.readFileSync(path.join(dir, newest), 'utf8'));
   } catch {
