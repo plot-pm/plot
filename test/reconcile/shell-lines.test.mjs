@@ -84,7 +84,7 @@ test('pr: a growth refusal tells the reader to fetch the default branch and re-r
   commit(work, 'grow');
   const r = run(work, ['pr']);
   assert.notEqual(r.status, 0);
-  assert.match(r.out, /git fetch --no-tags origin main/);
+  assert.match(r.out, /git fetch --no-tags origin main:refs\/remotes\/origin\/main/);
   assert.match(r.out, /merge base [0-9a-f]+/);
   assert.ok(r.out.indexOf('re-run this gate') > -1, r.out);
   assert.ok(r.out.indexOf('re-run this gate') < r.out.indexOf('remove at least'), r.out);
@@ -164,6 +164,7 @@ test('push: a growing range fails and names the start', withFixture(({ work, sta
   const r = run(work, ['push', start]);
   assert.notEqual(r.status, 0);
   assert.match(r.out, /6 lines over push start/);
+  assert.doesNotMatch(r.out, /git fetch/);
 }));
 
 test('push fetches a before SHA absent locally but present on origin', withFixture(({ work, root }) => {
@@ -352,7 +353,7 @@ test('pr <base>: the slice\'s own growth over its base is counted and refused', 
   const r = run(work, ['pr', 'origin/sprint']);
   assert.notEqual(r.status, 0);
   assert.match(r.out, /3 lines over/);
-  assert.match(r.out, /git fetch --no-tags origin sprint'/);
+  assert.match(r.out, /git fetch --no-tags origin sprint:refs\/remotes\/origin\/sprint'/);
 }));
 
 test('pr: with no base argument the same branch is compared with the default branch', withFixture(({ work }) => {
@@ -360,4 +361,31 @@ test('pr: with no base argument the same branch is compared with the default bra
   const r = run(work, ['pr']);
   assert.notEqual(r.status, 0);
   assert.match(r.out, /20 lines over/);
+}));
+
+test('pr: an absent sprint base names its own explicit-refspec fetch', withFixture(({ work }) => {
+  const r = run(work, ['pr', 'origin/sprint/x']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /origin\/sprint\/x is absent/);
+  assert.match(r.out, /git fetch --no-tags origin sprint\/x:refs\/remotes\/origin\/sprint\/x/);
+}));
+
+test('pr: growth against a SHA base prints no fetch', withFixture(({ work, start }) => {
+  git(work, 'checkout', '-q', '-b', 'feature');
+  write(work, A, 13);
+  commit(work, 'grow');
+  const r = run(work, ['pr', start]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /3 lines over/);
+  assert.doesNotMatch(r.out, /git fetch/);
+}));
+
+test('pr: growth against a local branch base prints no fetch', withFixture(({ work }) => {
+  git(work, 'checkout', '-q', '-b', 'feature');
+  write(work, A, 13);
+  commit(work, 'grow');
+  const r = run(work, ['pr', 'main']);
+  assert.notEqual(r.status, 0);
+  assert.match(r.out, /3 lines over/);
+  assert.doesNotMatch(r.out, /git fetch/);
 }));
