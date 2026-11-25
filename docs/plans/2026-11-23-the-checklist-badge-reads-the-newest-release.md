@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #1839
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-checklist-badge-orders-by-version`
+- **Delivered:** 2026-11-25
 
 ## Changelog
 

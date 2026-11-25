@@ -52,7 +52,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [plot-init-checks-for-the-bb-cli] /plot-init checks for the bb CLI (#2533, plan PR #3699) <!-- pr: #3699, branch: bug/plot-init-proposes-the-bb-install -->
 - [x] [a-refused-bb-call-writes-no-budget-row] A refused bb call writes no budget row (#3690, plan PR #3699) <!-- pr: #3699, branch: bug/a-refused-bb-call-writes-no-budget-row -->
 - [x] [a-held-board-shows-the-indexed-tickets] A held board shows the indexed tickets (#3551, plan PR #3699) <!-- pr: #3699, branch: bug/a-held-board-shows-tickets-after-its-first-render -->
-- [ ] [the-checklist-badge-reads-the-newest-release] The checklist badge reads the newest release (#1839, plan PR #3699) <!-- pr: #3699, branch: bug/the-checklist-badge-orders-by-version -->
+- [x] [the-checklist-badge-reads-the-newest-release] The checklist badge reads the newest release (#1839, plan PR #3699) <!-- pr: #3699, branch: bug/the-checklist-badge-orders-by-version -->
 
 ### Deferred
 - [ ] [the-bitbucket-client-sends-an-access-token] The Bitbucket client sends an access token (#3689, plan PR #3699) <!-- pr: #3699, branch: bug/the-bitbucket-client-sends-an-access-token -->
