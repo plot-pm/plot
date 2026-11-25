@@ -48,7 +48,7 @@
 
 ### Port
 
-- `bug/the-bb-pause-rule-follows-bb-1-15-2` — `bbRetryAfter` clamps at `BB_RETRY_AFTER_MAX_S` 86400, the recorder lifts `BB_RETRY_AFTER_MAX` and refuses an undefined lifted constant, its version gate names 1.15.2, and the corpus is re-recorded with `bb` 1.15.2 and asserts the UTF-8 key whole <!-- builds: BB_RETRY_AFTER_MAX_S and the recorder's constant check --> <!-- tests: bb-ledger.corpus.test.ts passes 18 of 18 over fixtures whose bb field starts with "bb 1.15.2 "; the null|1234567890 case reads file "1788086523 86400\n"; at least one pauseAfter429 tail carries "asked to wait"; a bb-ledger unit test gives bbRetryAfter("86401") = 86400 and bbRetryAfter("00429") = 429 -->
+- `bug/the-bb-pause-rule-follows-bb-1-15-2` — `bbRetryAfter` clamps at `BB_RETRY_AFTER_MAX_S` 86400, the recorder lifts `BB_RETRY_AFTER_MAX` and refuses an undefined lifted constant, its version gate names 1.15.2, and the corpus is re-recorded with `bb` 1.15.2 and asserts the UTF-8 key whole <!-- builds: BB_RETRY_AFTER_MAX_S and the recorder's constant check --> <!-- tests: bb-ledger.corpus.test.ts passes 18 of 18 over fixtures whose bb field starts with "bb 1.15.2 "; the null|1234567890 case reads file "1788086523 86400\n"; at least one pauseAfter429 tail carries "asked to wait"; a bb-ledger unit test gives bbRetryAfter("86401") = 86400 and bbRetryAfter("00429") = 429 --> → #3722
 
 ## Notes
 
