@@ -10,6 +10,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-25, jwloka, plan-PR #3716 merged
+- **Started:** 2026-11-25, Jan Wloka, `bug/the-bb-pause-rule-follows-bb-1-15-2`
 
 ## Changelog
 
