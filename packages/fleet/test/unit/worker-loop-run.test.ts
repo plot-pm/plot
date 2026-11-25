@@ -35,6 +35,7 @@ import {
   defaultBase,
   failureLines,
   dollarsOrUnset,
+  tokensOrUnset,
   integer,
   liveHolders,
   positive,
@@ -1957,6 +1958,7 @@ describe('main — configuration', () => {
     expect(asked).toEqual([
       'Agent max spend',
       'Slice max spend',
+      'Slice max tokens',
       'Worker bound',
       'Agent runner',
       'Worker command',
@@ -2129,6 +2131,10 @@ describe('workerLoopPorts and main', () => {
     expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBeNull();
     expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', result)).toBeNull();
     expect(await ports.sliceCostUsd(r.wt, BRANCH)).toBe(1.5);
+    expect(await ports.sliceTokens(r.wt, BRANCH)).toEqual({
+      kind: 'read',
+      tokens: { inputTokens: 1, outputTokens: 2, cacheCreationTokens: 3, cacheReadTokens: 4 },
+    });
     expect(await ports.recordRun(r.wt, BRANCH, 'worker', '2026-10-06T00:00:00Z', { ...result, costUsd: null })).toBe('no-cost');
     expect(await ports.recordLimits(result, 0)).toBe(0);
   });
@@ -2475,5 +2481,98 @@ describe('promptRootOf', () => {
     expect(logs).toEqual([
       `plot-worker-loop: the main checkout of ${desk} cannot be read; the prompt and the charters resolve from the desk's own copy`,
     ]);
+  });
+});
+
+describe('Slice max tokens', () => {
+  const tokens = (input: number, output: number, cacheCreation: number, cacheRead: number) => ({
+    inputTokens: input,
+    outputTokens: output,
+    cacheCreationTokens: cacheCreation,
+    cacheReadTokens: cacheRead,
+  });
+
+  it('reads a positive whole number, blanks allowed', () => {
+    expect(tokensOrUnset('2000000')).toEqual({ kind: 'value', tokens: 2_000_000 });
+    expect(tokensOrUnset(' 5 ')).toEqual({ kind: 'value', tokens: 5 });
+  });
+
+  it('reads an absent or blank key as unset, never as a limit of 0', () => {
+    for (const raw of [undefined, '', '  ']) expect(tokensOrUnset(raw)).toEqual({ kind: 'unset' });
+  });
+
+  it('reads 0, a negative number, a fraction and text as unreadable — not unset', () => {
+    for (const raw of ['0', '-5', '1.5', 'lots', '$20', '1e6']) expect(tokensOrUnset(raw)).toEqual({ kind: 'unreadable' });
+  });
+
+  it('refuses to start on an unreadable Slice max tokens, naming the key, before any take-up or runner start', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    for (const raw of ['0', '-5', '1.5', 'lots']) {
+      const r = rig({ ...ASSIGNED, branch: '' }, []);
+      const config = (_root: string, k: string) => (k === 'Slice max tokens' ? raw : undefined);
+      const code = await main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile }, r.dir, config, noStop);
+      expect(code).not.toBe(0);
+      expect(stderr).toHaveBeenCalledWith(`plot-worker-loop: unreadable Slice max tokens "${raw}" — refusing to start\n`);
+      expect(r.read()).toEqual({ ...ASSIGNED, branch: '', worktree: r.wt });
+      expect(r.runs).toEqual([]);
+      stderr.mockClear();
+    }
+    stderr.mockRestore();
+  });
+
+  it('starts normally when Slice max tokens reads a positive whole number', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] });
+    vi.setSystemTime(ZURICH_NOON);
+    const r = rig({ ...ASSIGNED, branch: '' }, []);
+    const config = (_root: string, k: string) => (k === 'Slice max tokens' ? '2000000' : undefined);
+    expect(await driven(main({ PLOT_WORKTREE: r.wt, PLOT_MANIFEST_FILE: r.manifestFile, PLOT_WORKER_BOUND: '1' }, r.dir, config, noStop))).toBe(124);
+  });
+
+  it('with the key absent, reads no transcript for the cap and starts the run', async () => {
+    let asked = 0;
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], {}, {
+      sliceTokens: async () => {
+        asked += 1;
+        return { kind: 'read', tokens: tokens(10 ** 9, 0, 0, 0) };
+      },
+    });
+    await runWorkerLoop(r.deps);
+    expect(asked).toBe(0);
+    expect(r.runs).toHaveLength(1);
+  });
+
+  it('a command slice at the cap starts no run and ends spend-limit', async () => {
+    const r = rig(ASSIGNED, [], { config: { ...rigConfig(), sliceMaxTokens: 1000 } }, {
+      sliceTokens: async () => ({ kind: 'read', tokens: tokens(600, 300, 100, 0) }),
+    });
+    await runWorkerLoop(r.deps);
+    expect(r.runs).toEqual([]);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).toBe('spend-limit');
+  });
+
+  it('a cache-read-heavy slice under the cap on the counted kinds starts the run', async () => {
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { config: { ...rigConfig(), sliceMaxTokens: 1000 } }, {
+      sliceTokens: async () => ({ kind: 'read', tokens: tokens(10, 10, 10, 50_000_000) }),
+    });
+    await runWorkerLoop(r.deps);
+    expect(r.runs).toHaveLength(1);
+    expect(r.deskCalls.endings.at(-1)?.record.reason).not.toBe('spend-limit');
+  });
+
+  it('an unread reading starts the run and the log names the reason', async () => {
+    const r = rig(ASSIGNED, [
+      { during: () => fs.writeFileSync(path.join(r.wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: which one?\n') },
+    ], { config: { ...rigConfig(), sliceMaxTokens: 1000 } }, {
+      sliceTokens: async () => ({ kind: 'unread', reason: "the desk's session transcripts could not be read" }),
+    });
+    await runWorkerLoop(r.deps);
+    expect(r.runs).toHaveLength(1);
+    expect(r.logs).toContain(
+      `plot-worker-loop: Slice max tokens unread for ${BRANCH} — the desk's session transcripts could not be read; the run starts`,
+    );
   });
 });
