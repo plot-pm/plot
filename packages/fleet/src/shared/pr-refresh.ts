@@ -34,6 +34,7 @@ import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { mapsOfRows, prOutranks, type PrMaps, type PrRecord } from '@plot-pm/domain/rules/pr-maps';
+import { answerMovesPrAt } from '@plot-pm/domain/rules/pr-answered-at';
 import { PR_REFRESH_MS } from './fleet-scan.js';
 import type { SpendReader } from './spend-reader.js';
 import { failedOf, readOf, type RecordReading } from './snapshot-fill.js';
@@ -1798,7 +1799,9 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // to ask about what CHANGED — handing it every open PR in the store would
       // undo the saving on the connector this slice never set out to narrow.
       await world.afterAnswer?.(map);
-      entry.prAt = clock();
+      // A DELTA WITH NO FOLD RECORDED NO READING: the snapshot keeps older rows,
+      // and `prAt` keeps naming them.
+      if (answerMovesPrAt(kind, folded !== null)) entry.prAt = clock();
       // A THROTTLED STATE BEHIND A PARTIAL FULL READ GETS THE SAME TREATMENT
       // A THROWN REFUSAL WOULD: the concurrency bound falls, and the next
       // refresh waits the time the host named rather than rejoining the

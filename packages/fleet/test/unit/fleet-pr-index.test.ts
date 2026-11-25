@@ -199,4 +199,37 @@ describe('the PR pass elects a reader', () => {
     expect(after.ok && after.value?.prAt).toBe(lastAnswer);
     expect(after.ok && after.value?.prError).not.toBeNull();
   });
+
+  it('keeps the published answer time where a delta changed rows its fold could not write', async () => {
+    const lock = readerLockFixture();
+    const holder = createSnapshotHolder();
+    const state = freshPrState();
+    const real = prIndexFile({ cwd: home });
+    let writable = true;
+    const store = { ...real, write: async (...args: Parameters<typeof real.write>) => {
+      if (!writable) throw new Error('EROFS');
+      return real.write(...args);
+    } };
+    let at = Date.parse('2026-11-25T10:00:00Z');
+    let row = ROW;
+    const w: PrWorld = { ...world([], () => ({ answer: 'answered', stdout: JSON.stringify(row) })), store, now: () => at, record: holder.record };
+    const pass = async (): Promise<void> => {
+      state.prNextAt = 0;
+      state.prNextIsBackoff = false;
+      await fleetPrs(w, state, { lock }, () => undefined)();
+    };
+    await pass();
+    const first = at;
+    writable = false;
+    at = Date.parse('2026-11-25T13:57:30Z');
+    row = { ...ROW, checks: 'fail', updatedAt: '2026-11-25T13:50:00Z' };
+    await pass();
+    // The delta's fold is absent, so the snapshot keeps the first pass's rows.
+    const prs = holder.current().readings.prs;
+    expect(prs.state === 'read' && prs.readAt).toBe(first);
+    expect(prs.state === 'read' && prs.value.map((r) => r.checks)).toEqual(['pass']);
+    // The answer time the board counts the age from names those rows, not the delta.
+    const published = await lock.readerState('github');
+    expect(published.ok && published.value?.prAt).toBe(first);
+  });
 });
