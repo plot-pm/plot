@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-repo-root-reads-core-worktree`
+- **Started:** 2026-11-25, Jan Wloka, `bug/the-state-home-reads-core-worktree`
 
 ## Changelog
 
