@@ -152,7 +152,7 @@ export interface DefaultBranchWorld {
   refs: Pick<Refs, 'remoteSha' | 'firstParentLine' | 'firstParentCommits'>;
   /** The CI connector: `system` and `runsForSha`. */
   build: Pick<BuildPort, 'system' | 'runsForSha'>;
-  /** The reading's file. Fleetd is its only writer. */
+  /** The reading's file. One process writes it: fleetd while its heartbeat reads `live`, else the board's elected PR reader. */
   store: DefaultBranchStore;
   /**
    * The repair record's file, written at the change from green to red. A
