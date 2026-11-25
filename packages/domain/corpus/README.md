@@ -30,6 +30,9 @@ the rule re-scores the same readings; the two verdicts are compared.
 `sample.corpus.test.ts` is another — `idleNow` against
 `plot-worker-state.sh`'s `plot_worker_idle_now`, over all 864 combinations of
 the six readings, including both window boundaries and the `''` activity word.
+`main-checkout.corpus.test.ts` is another — `mainCheckoutOf` against
+`plot-desk-root.sh`'s `plot_checkout_of_common` and `plot_repo_root`, over a
+normal checkout, a linked desk and a submodule built in a temp root.
 `pr-merged.corpus.test.ts` compares two LOOKUPS rather than a rule and its
 copy — `pr_merged` against the host adapter's `prMerged`, both reaching the one
 `rules/landed.ts` — so what it holds is how each side asks the host.
