@@ -46,7 +46,7 @@ A home-automation repository is often a submodule of a workspace repository. A s
 
 ### Shell root
 
-- `bug/the-repo-root-reads-core-worktree` — `plot_repo_root` answers the path `core.worktree` names when the common dir is not a `.git` directory, and `plot-fleetctl.sh --status` in a submodule's working tree no longer exits 3 <!-- builds: the core.worktree arm of plot_repo_root --> <!-- tests: desk-root.test.mjs — in a submodule fixture plot_repo_root prints the submodule's working tree and plot_desk_root a path under it; fleetctl.test.mjs — --status in the fixture does not print "not part of the estate"; a normal checkout and a linked desk answer as before -->
+- `bug/the-repo-root-reads-core-worktree` — `plot_repo_root` answers the path `core.worktree` names when the common dir is not a `.git` directory, and `plot-fleetctl.sh --status` in a submodule's working tree no longer exits 3 <!-- builds: the core.worktree arm of plot_repo_root --> <!-- tests: desk-root.test.mjs — in a submodule fixture plot_repo_root prints the submodule's working tree and plot_desk_root a path under it; fleetctl.test.mjs — --status in the fixture does not print "not part of the estate"; a normal checkout and a linked desk answer as before --> → #3720
 
 ### Domain state home
 
