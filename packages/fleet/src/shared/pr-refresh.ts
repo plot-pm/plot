@@ -1798,7 +1798,7 @@ export const refreshPrs = async (world: PrWorld, entry: PrState): Promise<void> 
       // to ask about what CHANGED — handing it every open PR in the store would
       // undo the saving on the connector this slice never set out to narrow.
       await world.afterAnswer?.(map);
-      entry.prAt = Date.now();
+      entry.prAt = clock();
       // A THROTTLED STATE BEHIND A PARTIAL FULL READ GETS THE SAME TREATMENT
       // A THROWN REFUSAL WOULD: the concurrency bound falls, and the next
       // refresh waits the time the host named rather than rejoining the

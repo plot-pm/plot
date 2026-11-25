@@ -548,6 +548,55 @@ describe('the PR schedule on snapshot', () => {
     expect(entry.prNextScheduled).toBe(false);
     expect(fleet.prOverdueSecondsFor(entry, Date.now())).toBeNull();
   });
+
+  // MEASURED 2026-11-25: the snapshot's PR reading kept a `readAt` of 10:00
+  // because no row changed after it, while fleetd's reader answered at 13:57;
+  // the board showed "PR data 239 min old".
+  const withPrs = (prs: RepoSnapshot['readings']['prs']): HeldSnapshot => {
+    const snapshot = snapshotTitled('X', 1);
+    return { epoch: 'e1', snapshot: { ...snapshot, readings: { ...snapshot.readings, prs } } };
+  };
+  const ROWS = [{ number: 7, head: 'feature/x', state: 'OPEN' as const, draft: false, checks: 'green', review: '', url: 'u7' }];
+
+  it('counts the PR age from the reader\'s last answer where the rows did not change', async () => {
+    const { dir, opts } = await fixture();
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
+    const now = Date.now();
+    const rowsChanged = now - 4 * 3_600_000;
+    const lastAnswer = now - 180_000;
+    const held = withPrs({ state: 'read', readAt: rowsChanged, value: ROWS });
+    const served = { ...opts, channelSnapshot: () => current(held) };
+    const lock = adapters.readerLockFile({ cwd: dir });
+    expect((await lock.writeReaderState('github', { ...state(now + 300_000), prAt: lastAnswer })).ok).toBe(true);
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    fleet.installSnapshotView(entry, held, now);
+    expect(entry.prAt).toBe(rowsChanged);
+    await fleet.maybeRefreshPrs(served, entry);
+    expect(entry.prAt).toBe(lastAnswer);
+    // A later install of the same snapshot keeps the age of the last answer.
+    fleet.installSnapshotView(entry, held, now);
+    expect(entry.prAt).toBe(lastAnswer);
+  });
+
+  it('keeps the age growing while the snapshot\'s PR reading is failed', async () => {
+    const { dir, opts } = await fixture();
+    vi.stubEnv('PLOT_PR_INDEX_HOME', path.join(dir, 'pr-index'));
+    const now = Date.now();
+    const lastAnswer = now - 3_600_000;
+    const lock = adapters.readerLockFile({ cwd: dir });
+    expect((await lock.writeReaderState('github', { ...state(now + 300_000), prError: 'HTTP 502', prAt: lastAnswer })).ok).toBe(true);
+    const entry = fleet.freshCacheEntry();
+    entry.clients = 1;
+    entry.backend = 'github';
+    fleet.installSnapshotView(entry, withPrs({ state: 'read', readAt: lastAnswer, value: ROWS }), now);
+    const failed = withPrs({ state: 'failed', readAt: now - 60_000, reason: 'HTTP 502' });
+    await fleet.maybeRefreshPrs({ ...opts, channelSnapshot: () => current(failed) }, entry);
+    fleet.installSnapshotView(entry, failed, now);
+    expect(entry.prAt).toBe(lastAnswer);
+    expect(entry.prError).toBe('HTTP 502');
+  });
 });
 
 describe('no tab, no pulse, with a snapshot held', () => {

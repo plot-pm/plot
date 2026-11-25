@@ -46,6 +46,7 @@ import type { RefState, Refs } from '@plot-pm/domain/ports/refs';
 import type { BuildPort, ReaderState } from '@plot-pm/domain';
 import type { DetachedProcess } from '@plot-pm/domain/ports/detached';
 import { electReader, HEARTBEAT_STALE_MS, type ReaderClaim, type ReaderVerdict } from '@plot-pm/domain/rules/reader-election';
+import { prAnsweredAt } from '@plot-pm/domain/rules/pr-answered-at';
 import { PR_READ_BEAT_MS } from '@plot-pm/domain/rules/pr-status';
 import { isReviewIssueTitle } from '@plot-pm/domain/rules/review-issue';
 import { isRefutedIssueTitle } from '@plot-pm/domain/rules/verification';
@@ -675,6 +676,11 @@ export interface CacheEntry {
   /** Who read PRs on the last tick — `fleet`, `reader <pid>`, or `this board`; see {@link whoReadsPrs}. */
   prReader: string;
   prAt: number | null;
+  /**
+   * The reader state's `prAt` as the last snapshot-mode tick read it: when the
+   * reader's last PR read answered, or null where it published none.
+   */
+  prAnsweredAt: number | null;
   prError: string | null;
   /**
    * The bridge `at` the last OWNED refresh applied, or null after a fleet-less
@@ -3171,6 +3177,11 @@ export async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry
       if (key !== '') {
         const published = await readerLockFor(opts).readerState(key);
         adoptPublishedSchedule(entry, published.ok ? published.value : null, Date.now());
+        // THE AGE COUNTS FROM THE LAST ANSWER: the snapshot's `prs` reading
+        // keeps its `readAt` while the rows are unchanged.
+        entry.prAnsweredAt = published.ok ? (published.value?.prAt ?? null) : null;
+        const prs = held.snapshot.readings.prs;
+        if (prs.state === 'read' && entry.prAt !== null) entry.prAt = prAnsweredAt(prs.readAt, entry.prAnsweredAt);
       }
     } finally {
       entry.prRunning = false;
@@ -3371,7 +3382,7 @@ export const installSnapshotView = (entry: CacheEntry, held: HeldSnapshot, now: 
   if (view.prs !== null && view.prsByNumber !== null && view.prsByHead !== null) {
     applyPrMaps(entry, { prs: view.prs, byNumber: view.prsByNumber, byHead: view.prsByHead });
     const prs = held.snapshot.readings.prs;
-    if (prs.state === 'read') entry.prAt = prs.readAt;
+    if (prs.state === 'read') entry.prAt = prAnsweredAt(prs.readAt, entry.prAnsweredAt);
     entry.prError = null;
   }
   if (view.backend !== null) entry.backend = view.backend;
@@ -3895,7 +3906,7 @@ export function freshCacheEntry(): CacheEntry {
     viewSource: null,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
-    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prReader: 'this board', prAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
+    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prReader: 'this board', prAt: null, prAnsweredAt: null, prError: null, appliedBridgeAt: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
     prLimit: null, prFullReadFailedAt: null, prPendingReaskStreak: new Map(), prReaskAt: new Map(),
     prLimitBasis: 'unknown',
