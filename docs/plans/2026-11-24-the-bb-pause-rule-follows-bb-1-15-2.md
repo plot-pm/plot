@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:**
+- **Sprint:** plot-describes-itself
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-25, jwloka, plan-PR #3716 merged

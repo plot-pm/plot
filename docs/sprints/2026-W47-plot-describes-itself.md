@@ -40,6 +40,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [x] [the-default-runner-has-a-spend-cap] The default runner has a spend cap (plan PR #3698) <!-- pr: #3698, branch: feature/the-default-runner-has-a-spend-cap -->
 - [x] [delivery-is-measured-from-the-plan-files] Delivery is measured from the plan files (plan PR #3698) <!-- pr: #3698, branch: feature/delivery-is-measured-from-the-plan-files -->
 - [x] [the-board-refuses-unauthenticated-remote-writes] The board refuses unauthenticated remote writes (#3311, plan PR #3699) <!-- pr: #3699, branch: bug/the-board-refuses-the-remote-write-opt-in -->
+- [ ] [the-bb-pause-rule-follows-bb-1-15-2] The bb pause rule follows bb 1.15.2 <!-- pr: #3716, branch: bug/the-bb-pause-rule-follows-bb-1-15-2 -->
 
 ### Could Have
 - [ ] [fleet-state-is-read-whole-and-from-one-home] Fleet state is read whole and from one home (#3207) <!-- pr: #3609, branch: bug/a-new-failure-on-main-starts-a-repair -->
@@ -72,6 +73,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 
 ### Scope Changes
 - 2026-11-24: Deferred [the-bitbucket-client-sends-an-access-token] from Could — its bb change in quatico-solutions/agent-skills, a quatico-bb release and an upgrade on every machine come first; no plan builds that bb change yet
+- 2026-11-25: Added [the-bb-pause-rule-follows-bb-1-15-2] to Should — bb 1.15.2 caps Retry-After at one day; fleetd and bb share one ledger, so Plot's pause rule must follow
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
