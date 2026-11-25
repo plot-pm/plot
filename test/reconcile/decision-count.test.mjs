@@ -524,3 +524,28 @@ test('pr: with no base argument the same branch is compared with the default bra
   assert.notEqual(r.status, 0);
   assert.match(r.out, /4 scripts are not launchers now, 3 at merge base/);
 }));
+
+test('pr: an absent sprint base names its own explicit-refspec fetch', withFixture(({ work }) => {
+  const r = run(work, ['pr', 'origin/sprint/x']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /origin\/sprint\/x is absent/);
+  assert.match(r.out, /git fetch --no-tags origin sprint\/x:refs\/remotes\/origin\/sprint\/x/);
+}));
+
+test('pr: an absent origin/main names the explicit-refspec fetch', withFixture(({ work }) => {
+  git(work, 'update-ref', '-d', 'refs/remotes/origin/main');
+  git(work, 'update-ref', '-d', 'refs/remotes/origin/HEAD');
+  const r = run(work, ['pr']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /refs\/remotes\/origin\/main is absent/);
+  assert.match(r.out, /git fetch --no-tags origin main:refs\/remotes\/origin\/main/);
+}));
+
+test('pr: an absent SHA base prints no fetch and names what to pass', withFixture(({ work }) => {
+  const sha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  const r = run(work, ['pr', sha]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`${sha} is absent`));
+  assert.doesNotMatch(r.out, /git fetch/);
+  assert.match(r.out, /Pass a remote-tracking ref/);
+}));

@@ -42,6 +42,7 @@ const fixture = () => {
   mkdirSync(path.join(dir, 'docs', 'plans'), { recursive: true });
   mkdirSync(path.join(dir, 'docs', 'sprints'), { recursive: true });
   copyFileSync(launcher, path.join(dir, 'scripts', 'check-sprint-members.sh'));
+  copyFileSync(path.join(root, 'scripts', 'lib-default-ref.sh'), path.join(dir, 'scripts', 'lib-default-ref.sh'));
   copyFileSync(bundle, path.join(dir, 'skills', 'plot', 'scripts', 'board', 'plot-sprint-member.mjs'));
   git(dir, 'init', '-q', '-b', 'main');
   git(dir, 'config', 'user.email', 't@t');
@@ -97,4 +98,49 @@ test('with no argument the script compares with merge-base origin/main HEAD as b
   const r = run(dir, []);
   assert.equal(r.status, 1, r.out);
   assert.match(r.out, /plot-sprint-member\.mjs add demo a --tier should/);
+}));
+
+test('with origin/main absent the gate names the ref and the explicit-refspec fetch', withFixture((dir) => {
+  git(dir, 'update-ref', '-d', 'refs/remotes/origin/main');
+  const r = run(dir, []);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /::error::check-sprint-members: refs\/remotes\/origin\/main is absent/);
+  assert.match(r.out, /Run: git fetch --no-tags origin main:refs\/remotes\/origin\/main/);
+}));
+
+test('with no argument the gate compares with the branch origin/HEAD names', withFixture((dir) => {
+  git(dir, 'update-ref', 'refs/remotes/origin/trunk', 'sprint');
+  git(dir, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+  const r = run(dir, []);
+  assert.equal(r.status, 0, r.out);
+  const explicit = run(dir, ['origin/main']);
+  assert.equal(explicit.status, 1, explicit.out);
+  assert.match(explicit.out, /plot-sprint-member\.mjs add demo a --tier should/);
+}));
+
+test('an unrelated history names no merge base', withFixture((dir) => {
+  git(dir, 'checkout', '-q', '--orphan', 'lonely');
+  git(dir, 'commit', '-q', '--allow-empty', '-m', 'unrelated');
+  git(dir, 'update-ref', 'refs/remotes/origin/lonely', 'lonely');
+  git(dir, 'checkout', '-q', 'slice');
+  const r = run(dir, ['origin/lonely']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /::error::check-sprint-members: no merge base between HEAD and origin\/lonely/);
+}));
+
+test('an absent SHA argument is named with no fetch to run', withFixture((dir) => {
+  const sha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  const r = run(dir, [sha]);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, new RegExp(`${sha} is absent`));
+  assert.doesNotMatch(r.out, /git fetch/);
+  assert.match(r.out, /Pass a remote-tracking ref/);
+}));
+
+test('an absent local branch argument is named with no fetch to run', withFixture((dir) => {
+  const r = run(dir, ['nosuch']);
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /nosuch is absent/);
+  assert.doesNotMatch(r.out, /git fetch/);
+  assert.match(r.out, /Pass a remote-tracking ref/);
 }));
