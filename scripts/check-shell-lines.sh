@@ -43,6 +43,9 @@
 # and would refuse everything; a count compared with nothing is not a pass.
 set -euo pipefail
 
+# shellcheck source=scripts/lib-default-ref.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/lib-default-ref.sh"
+
 # The one definition of the unit: reads shell on stdin, prints its command count.
 read -r -d '' COUNT_AWK <<'AWK' || true
 function flush() {
@@ -84,12 +87,6 @@ count_rev() {
 
 fail() { echo "check-shell-lines: $*" >&2; exit 1; }
 
-default_ref() {
-  local ref
-  ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
-  echo "${ref:-refs/remotes/origin/main}"
-}
-
 # Prints the abbreviated sha of a default-branch commit the range from $1 to HEAD
 # exactly reverses, or nothing.
 reverted_commit() {
@@ -108,14 +105,16 @@ reverted_commit() {
 }
 
 report() { # <label> <before-rev> <before-desc> <named-in-failure>
-  local before after
+  local before after hint
   before=$(count_rev "$2")
   after=$(count_rev HEAD)
   echo "check-shell-lines: $1: $after lines now, $before at $3"
   if [ "$after" -gt "$before" ]; then
     echo "check-shell-lines: $((after - before)) lines over $3 ($4)." >&2
     echo "  A line counts once per command. Joining statements with ';' or '&&', or folding 'fi' or 'done' onto the line before, is not a payment." >&2
-    [ "$1" = pr ] && echo "  If $4 is stale, the $3 is older than the real fork point and this count can include growth that landed on the default branch. Run 'git fetch --no-tags origin $(b=${4#refs/remotes/}; echo "${b#origin/}")' and re-run this gate before you remove any shell." >&2
+    if [ "$1" = pr ] && hint=$(fetch_hint "$4") && [ -n "$hint" ]; then
+      echo "  If $4 is stale, the $3 is older than the real fork point and this count can include growth that landed on the default branch. Run '$hint' and re-run this gate before you remove any shell." >&2
+    fi
     echo "  The shell under skills/ may shrink and may not grow. Pay for the growth in one of two ways:" >&2
     echo "    - remove at least $((after - before)) lines of shell elsewhere in this same change, or" >&2
     echo "    - write the rule in packages/domain and ask it through a bundle (docs/shell-and-domain.md)." >&2
@@ -137,7 +136,7 @@ case "$mode" in
     # An optional second argument names the branch the pull request targets;
     # with none, the default branch, as before.
     ref=${2:-$(default_ref)}
-    git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$ref is absent, so there is no base to compare with. Run: git fetch --no-tags origin main:refs/remotes/origin/main"
+    git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$(absent_ref_reason "$ref")"
     base=$(git merge-base HEAD "$ref") || fail "no merge base between HEAD and $ref"
     [ -n "$base" ] || fail "no merge base between HEAD and $ref"
     if rev=$(reverted_commit "$base") && [ -n "$rev" ]; then

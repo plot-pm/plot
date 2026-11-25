@@ -64,16 +64,12 @@ set -euo pipefail
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib-declared-bundles.sh
 source "$here/lib-declared-bundles.sh"
+# shellcheck source=scripts/lib-default-ref.sh
+source "$here/lib-default-ref.sh"
 
 README=skills/plot/scripts/README.md
 
 fail() { echo "check-decision-count: $*" >&2; exit 1; }
-
-default_ref() {
-  local ref
-  ref=$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null || true)
-  echo "${ref:-refs/remotes/origin/main}"
-}
 
 # The Kind column's complete vocabulary (skills/plot/scripts/README.md's
 # Kind paragraph). Case-folded once here, at the read boundary, in rows().
@@ -208,7 +204,7 @@ case "$mode" in
     # An optional second argument names the branch the pull request targets;
     # with none, the default branch, as before.
     ref=${2:-$(default_ref)}
-    git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$ref is absent, so there is no base to compare with. Run: git fetch --no-tags origin main:refs/remotes/origin/main"
+    git rev-parse -q --verify "$ref^{commit}" >/dev/null || fail "$(absent_ref_reason "$ref")"
     base=$(git merge-base HEAD "$ref") || fail "no merge base between HEAD and $ref"
     [ -n "$base" ] || fail "no merge base between HEAD and $ref"
     report pr "$base" "merge base $(git rev-parse --short "$base")" "$ref"
