@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** plot-describes-itself
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3698 merged
 - **Started:** 2026-11-24, Jan Wloka, `feature/the-default-runner-has-a-spend-cap`
+- **Delivered:** 2026-11-25
 
 ## Changelog
 
