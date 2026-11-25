@@ -4852,9 +4852,9 @@ describe('the all-unknown PR trigger raises the outage banner', () => {
   it('does not update prAt on the outage path, so the age stays honest (Done-when 10)', () => {
     // The retained map is kept but NOT re-dated: `prAgeSeconds` must report the
     // last successful fetch, not the failed one, or the banner would name a
-    // freshness the data does not have. `prAt = Date.now()` belongs to the happy
+    // freshness the data does not have. `prAt = clock()` belongs to the happy
     // path only — it appears once, inside the `else`.
-    const prAtWrites = source.split('\n').filter((l) => /entry\.prAt = Date\.now\(\)/.test(l));
+    const prAtWrites = source.split('\n').filter((l) => /entry\.prAt = (Date\.now|clock)\(\)/.test(l));
     expect(prAtWrites, `expected exactly one prAt write (the happy path), saw:\n${prAtWrites.join('\n')}`)
       .toHaveLength(1);
   });

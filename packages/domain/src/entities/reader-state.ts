@@ -15,7 +15,9 @@ export const READER_STATE_VERSION = 1;
  * A follower reads this to render an honest board without asking the host
  * itself: `prError`, `prNextAt` and `prNextIsBackoff` are the reader's own
  * cadence and last failure, and `prFullReadFailedAt` is whether its last full
- * read landed.
+ * read landed. `prAt` is when its last read answered, which the snapshot's
+ * `prs` reading cannot say: that reading keeps its `readAt` while the rows are
+ * unchanged.
  */
 export const ReaderStateSchema = z
   .object({
@@ -29,6 +31,8 @@ export const ReaderStateSchema = z
     prNextIsBackoff: z.boolean(),
     /** Epoch ms the reader's last full read failed, or null where its last full read landed. */
     prFullReadFailedAt: z.number().nullable(),
+    /** Epoch ms the reader's last PR read answered, whether or not a row changed; null before its first, absent from a reader that publishes none. */
+    prAt: z.number().nullable().optional(),
     /** When this machine wrote the file, epoch milliseconds. */
     at: z.number(),
   })

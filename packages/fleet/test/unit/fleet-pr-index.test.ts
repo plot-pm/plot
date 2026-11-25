@@ -9,6 +9,7 @@ import type { Host } from '@plot-pm/domain/ports/host';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import { fleetPrs, type PrLock } from '../../src/shared/fleet-clock.js';
+import { createSnapshotHolder } from '../../src/shared/snapshot-fill.js';
 import { freshPrState, memoryOverlay, type PrWorld } from '../../src/shared/pr-refresh.js';
 import { removeTree as rmTree } from '../rm-tree.mjs';
 import { withSaidListing } from './listing-over-said.js';
@@ -165,5 +166,37 @@ describe('the PR pass elects a reader', () => {
     expect(published.ok && published.value?.prError).toBeNull();
     const beats = await lock.heartbeats('github');
     expect(beats.ok && beats.value.map((b) => b.name)).toContain('fleetd');
+  });
+
+  it('publishes when the last read answered, also where no row changed, and keeps it through a failed read', async () => {
+    const lock = readerLockFixture();
+    const holder = createSnapshotHolder();
+    const state = freshPrState();
+    let at = Date.parse('2026-11-25T10:00:00Z');
+    let answer = (): { answer: string; stdout: string; said?: string } => ({ answer: 'answered', stdout: JSON.stringify(ROW) });
+    const w: PrWorld = { ...world([], () => answer()), now: () => at, record: holder.record };
+    const pass = async (): Promise<void> => {
+      state.prNextAt = 0;
+      state.prNextIsBackoff = false;
+      await fleetPrs(w, state, { lock }, () => undefined)();
+    };
+    await pass();
+    const first = at;
+    at = Date.parse('2026-11-25T13:57:30Z');
+    await pass();
+    const prs = holder.current().readings.prs;
+    // The snapshot moves only on content: an unchanged answer keeps the first reading and its time.
+    expect(prs.state === 'read' && prs.readAt).toBe(first);
+    const answered = await lock.readerState('github');
+    expect(answered.ok && answered.value?.prAt).toBe(at);
+    const lastAnswer = at;
+    at = Date.parse('2026-11-25T14:05:00Z');
+    answer = () => ({ answer: 'failed', stdout: '', said: 'HTTP 502' });
+    await pass();
+    const failed = holder.current().readings.prs;
+    expect(failed.state === 'failed' && failed.readAt).toBe(at);
+    const after = await lock.readerState('github');
+    expect(after.ok && after.value?.prAt).toBe(lastAnswer);
+    expect(after.ok && after.value?.prError).not.toBeNull();
   });
 });

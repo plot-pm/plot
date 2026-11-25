@@ -321,6 +321,7 @@ export const fleetPrs = (
       prNextAt: state.prNextAt,
       prNextIsBackoff: state.prNextIsBackoff,
       prFullReadFailedAt: state.prFullReadFailedAt,
+      prAt: state.prAt,
       at: now(),
     });
   };
