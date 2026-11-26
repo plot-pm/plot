@@ -1,3 +1,5 @@
+import { MAIN_HOLD_STATUS_CONTEXT } from './main-hold-status.js';
+
 /**
  * One item of a pull request's check rollup, as `gh pr list --json
  * statusCheckRollup` exports it: a check run carries `name`, `status` and
@@ -71,22 +73,38 @@ export const colourOf = (items: readonly RollupItem[]): ChecksColour => {
 };
 
 /**
- * The colour of a pull request's whole rollup: jq's `checks_of`.
+ * Whether a rollup item is the `plot/main` hold, by its `context`, or else its `name`.
+ *
+ * @param item - one rollup item.
+ * @returns true for the `plot/main` item.
+ */
+export const isMainHoldItem = (item: RollupItem): boolean => jqOr(item.context, jqOr(item.name, '')) === MAIN_HOLD_STATUS_CONTEXT;
+
+/**
+ * The colour of a pull request's rollup without its `plot/main` item: jq's `checks_of`.
+ * `plot/main` is the default branch's hold, not a check of the PR's own head.
  *
  * @param rollup - the exported `statusCheckRollup`; null where `gh` exported none.
  * @returns the colour; `none` for a null rollup.
  */
-export const checksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour => colourOf(rollup ?? []);
+export const checksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour =>
+  colourOf((rollup ?? []).filter((item) => !isMainHoldItem(item)));
 
 /** The status context `plot-host.sh` reads as the review verdict. */
 export const PLOT_REVIEW_CONTEXT = 'plot/review';
 
 /**
- * The colour of a rollup without its `plot/review` item: jq's `ci_checks_of`.
- * An item is left out where its `context`, or else its `name`, is `plot/review`.
+ * The status contexts fleetd writes about a pull request rather than about its code:
+ * the review verdict and the default-branch hold. Neither is the PR's own CI.
+ */
+export const PLOT_STATUS_CONTEXTS: readonly string[] = [PLOT_REVIEW_CONTEXT, MAIN_HOLD_STATUS_CONTEXT];
+
+/**
+ * The colour of a rollup without its `plot/review` and `plot/main` items: jq's `ci_checks_of`.
+ * An item is left out where its `context`, or else its `name`, is one of `PLOT_STATUS_CONTEXTS`.
  *
  * @param rollup - the exported `statusCheckRollup`; null where `gh` exported none.
  * @returns the colour of the other items.
  */
 export const ciChecksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour =>
-  colourOf((rollup ?? []).filter((item) => jqOr(item.context, jqOr(item.name, '')) !== PLOT_REVIEW_CONTEXT));
+  colourOf((rollup ?? []).filter((item) => !PLOT_STATUS_CONTEXTS.some((context) => context === jqOr(item.context, jqOr(item.name, '')))));

@@ -6,6 +6,7 @@ import { type ConversationHolds, runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
 import { runAutoReviewPass } from './auto-review.js';
 import { runAutoTicketPass } from './auto-ticket.js';
+import { mainStatusState, runAutoMainStatusPass } from './auto-main-status.js';
 import { runAutoDeliverPass } from './auto-deliver.js';
 import { runAutoVerifyPass, verifyingCount } from './auto-verify.js';
 import { runAutoDesignPass } from './auto-design.js';
@@ -71,6 +72,9 @@ export const fleetAutoWrites = (
   const reviewLogged = new Set<string>();
   // THE TICKET REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const ticketLogged = new Set<string>();
+  // THE plot/main STATUS LAST WRITTEN PER PR, kept in .plot/state/main-status.json
+  // so a restart writes only what changed; the reads it needs are kept for the daemon's life.
+  const mainStatus = mainStatusState(opts);
   // THE MERGER-APP HOLDS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const mergeLogged = new Set<string>();
   // THE MERGER APP CHECK, held for the daemon's life: read again only after
@@ -113,6 +117,10 @@ export const fleetAutoWrites = (
       if (!stopped()) await runAutoReviewPass(opts, reviewLogged);
       // A TICKET STARTS NO AGENT: it is a tracker write and a status, so a stop does not skip it.
       await runAutoTicketPass(opts, ticketLogged);
+      // THE plot/main STATUS STARTS NO AGENT either: a stop does not skip it.
+      await runAutoMainStatusPass(opts, mainStatus).catch((e: unknown) =>
+        warn(`plot-fleetd: plot/main status pass failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
       // ONE MERGE PER PASS, after delivery has read the merges already landed.
       // Under `--once` the scan clock does not run, so this never does either.
       await runAutoMergePass(opts, mergeRefused, undefined, undefined, mergeLogged, mergerApp, conversationHolds);

@@ -13,7 +13,7 @@ export const APPROVE_REGISTER_FIRST = 'Register a passkey in Settings first';
 export interface ReleasePrReading extends ReviewReading {
   /** Whether the PR is open. */
   open: boolean;
-  /** The rollup's colour without `plot/review`, bound to `checksSha`; absent where the host did not report it. */
+  /** The rollup's colour without `plot/review` and `plot/main`, bound to `checksSha`; absent where the host did not report it. */
   ciChecks?: Checks;
   /** The commit `ciChecks` was computed for. */
   checksSha?: string;

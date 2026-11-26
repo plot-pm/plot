@@ -34,7 +34,7 @@ const program = (name: string): string => {
 const STATUSES = ['', 'COMPLETED', 'QUEUED', 'IN_PROGRESS', 'WAITING', 'REQUESTED', 'PENDING'];
 const CONCLUSIONS = ['', 'SUCCESS', 'NEUTRAL', 'SKIPPED', 'FAILURE', 'ACTION_REQUIRED', 'CANCELLED', 'TIMED_OUT', 'STALE', 'STARTUP_FAILURE'];
 const STATES = ['SUCCESS', 'PENDING', 'EXPECTED', 'FAILURE', 'ERROR'];
-const NAMES = ['build', 'plot/review'];
+const NAMES = ['build', 'plot/review', 'plot/main'];
 
 const singles: RollupItem[] = [
   ...STATUSES.flatMap((status) => CONCLUSIONS.flatMap((conclusion) => NAMES.map((name) => ({ __typename: 'CheckRun', name, status, conclusion })))),

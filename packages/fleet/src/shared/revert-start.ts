@@ -315,7 +315,8 @@ const judgeRevertPr = async (
     return exhaust(world, record, `the default branch still reads red after revert PR #${revertPr} merged`);
   }
   if (pr.state === 'CLOSED') return exhaust(world, record, `revert PR #${revertPr} was closed without merging`);
-  if (pr.checks === 'failing') return exhaust(world, record, `revert PR #${revertPr} reads red`);
+  // `ciChecks` leaves out `plot/main`, which reads `failure` on a revert PR whenever its repair reading fails an ask.
+  if ((pr.ciChecks ?? pr.checks) === 'failing') return exhaust(world, record, `revert PR #${revertPr} reads red`);
   if (await world.reviewFailed(revertPr)) return exhaust(world, record, `the review of revert PR #${revertPr} found a HIGH`);
   const head = pr.headSha;
   if (pr.state === 'OPEN' && head !== undefined && !(await world.reviewStarted(revertPr, head))) {

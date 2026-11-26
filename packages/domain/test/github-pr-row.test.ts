@@ -45,6 +45,12 @@ describe('colourOf, checksOf and ciChecksOf', () => {
     expect(ciChecksOf([{ context: 'plot/review', state: 'FAILURE' }, { state: 'SUCCESS', context: 'ci' }])).toBe('green');
     expect(ciChecksOf([{ name: 'plot/review', status: 'COMPLETED', conclusion: 'FAILURE' }])).toBe('none');
     expect(ciChecksOf(null)).toBe('none');
+    expect(ciChecksOf([{ context: 'plot/main', state: 'FAILURE' }, { state: 'SUCCESS', context: 'ci' }])).toBe('green');
+    expect(ciChecksOf([{ context: 'plot/main', state: 'FAILURE' }])).toBe('none');
+    expect(checksOf([{ context: 'plot/main', state: 'FAILURE' }])).toBe('none');
+    expect(checksOf([{ context: 'plot/main', state: 'FAILURE' }, { state: 'SUCCESS', context: 'ci' }])).toBe('green');
+    expect(checksOf([{ name: 'plot/main', status: 'COMPLETED', conclusion: 'FAILURE' }, { state: 'FAILURE', context: 'ci' }])).toBe('failing');
+    expect(checksOf([{ context: 'plot/review', state: 'FAILURE' }])).toBe('failing');
   });
 });
 
@@ -105,6 +111,17 @@ describe('githubRichRow', () => {
       checks: 'failing', ciChecks: 'failing', mergeable: 'mergeable', review: 'APPROVED', checksSha: 'abc',
       failing_checks: ['test', 'deploy'], plotReview: 'success', plotReviewSha: 'abc', plotReviewAt: '2026-11-02T00:00:00Z',
     });
+  });
+
+  it('reads a red main as no failing check of an open PR', () => {
+    const row = githubRichRow({
+      ...PR,
+      statusCheckRollup: [
+        { name: 'validate', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { context: 'plot/main', state: 'FAILURE' },
+      ],
+    });
+    expect(row).toMatchObject({ checks: 'green', ciChecks: 'green', failing_checks: [] });
   });
 
   it('answers plotReview absent where no item names plot/review, and empty words where the item carries none', () => {
