@@ -40,6 +40,7 @@ and changes nothing.
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment. The thresholds and the default-branch comparison are `proposeStack`'s, and reading its answers is transcription |
 | 3. Write config and skeleton | Small | Two script calls: `plot-write-config.sh` owns the config section and the `.gitignore` line, `plot-install-prompt.sh` owns the worker prompt. Composing the answers file from step 2 is transcription; every decision inside the write is `composeAdoption`'s |
 | 3b. Provide role files | Small | One script call: `plot-adopt.mjs roles` writes the absent role definitions and reports a differing copy `stale`. Every decision is `composeRoleFiles`'s; no question is asked |
+| 2. The bb CLI | Small | Reading `bbCli` from the `plot-propose-stack.mjs` answer is transcription; the state is `proposeBbCli`'s. The install runs only on a yes, and `shadowed` runs nothing |
 | 2b. State branch | Mid | One script call, JSON out. Wording the proposal and the delete offer is judgment; every decision — restricted, unverified, non-branch warning — is `proposeStateBranch`'s, and an unverified answer is never read as unrestricted |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
@@ -339,6 +340,39 @@ repository outright.
 > default branch is a fact about a shared repository, and a `Main branch` key
 > written with nobody present changes where every later command looks for plans:
 > `PLOT-UNASKED: Which branch is the default — the host says develop, this clone says main? — refused — no Main branch key written; run 'git remote set-head origin -a' to refresh the clone, or add the key`
+
+#### The bb CLI
+
+**Show the `bbCli` reading from the `plot-propose-stack.mjs` answer, and act on its `state`.** On Bitbucket, `plot-host.sh` reaches the host through Quatico's `bb`, and a wrong or missing `bb` otherwise fails only at the first host call of a later command. `proposeBbCli` (`packages/domain/src/rules/stack.ts`) decides the state. Read `state` and branch on it; never judge the version line in this skill, because a prose test would be a third copy of `bbLineIsOther` and `bb_identity_check`.
+
+**`bbCli` is `null` off Bitbucket.** Then the proposal block carries no `bb` line and this subsection asks nothing.
+
+- `quatico` — print one line with `version` in the proposal block, and ask nothing:
+
+  > `bb` 1.12.0 (Quatico's) answers on PATH.
+
+- `absent` with `brew: true` — say that no `bb` answered, and ask before you install:
+
+  > No `bb` answered on PATH, and `plot-host.sh` needs Quatico's `bb`. Run `brew install quatico-solutions/tap/quatico-bb`?
+
+  On a yes, run `install` exactly as the proposal carries it, and read its exit code. On a no, or a non-zero exit, name the command and continue: the gap line that `composeAdoption` writes already names it.
+
+- `other` with `brew: true` — print `line`, say that it is not Quatico's `bb`, and ask the same question. On a yes, run `install` exactly as the proposal carries it, and read its exit code.
+
+- `absent` or `other` with `brew: false` — no Homebrew answered, so name the formula `quatico-bb` and the tap `quatico-solutions/tap`, and run nothing:
+
+  > No `brew` on PATH. Install Homebrew, then install the formula `quatico-bb` from the tap `quatico-solutions/tap`.
+
+- `shadowed` — name `first` and `others`, and run nothing. An install does not fix a shadow, because the Homebrew `bb` is already installed. The operator reorders `PATH` or removes the file at `first`:
+
+  > `bb` at `~/.local/bin/bb` shadows the Homebrew `bb` at `/opt/homebrew/bin/bb` on PATH. Remove it, or put `$(brew --prefix)/bin` first.
+
+**Never run `install` without a yes.** An install changes the operator's machine, which is theirs to decide.
+
+**No version is too old.** Report the version and refuse nothing: `plot-host.sh` keeps no floor, and a floor here would refuse a `bb` that every later host call accepts.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** ask nothing and install nothing. Print the reading in the proposal block, and print this line for an `absent` or `other` state with `brew: true`:
+> `PLOT-UNASKED: Install Quatico's bb with brew install quatico-solutions/tap/quatico-bb? — refused — an install changes the operator's machine; nothing installed, run the command to add it`
 
 #### The state branch
 
@@ -854,6 +888,12 @@ Fill `<prerequisite>` from `artifact_source`: on `none`, *needs
 `@plot-pm/board` — `pnpm build:board` in a checkout, or install the package*;
 otherwise *ready, from the <source> artifact*. Both commands read the same
 package, so both lines carry the same answer.
+
+**On Bitbucket, report `bb.auth` from the same probe run.** Read it from the answer that gave `artifact_source`; make no second `bb` call. On `failed`, name the login and do not run it:
+
+> `bb` is not signed in. Run `bb auth login` before the first host call.
+
+**Never run `bb auth login`.** A login opens a browser tab for the operator, and `/plot-init` has no reason to spend one. On `unknown`, say that the sign-in could not be read; never report it as signed in. On `ok`, print nothing. Off Bitbucket, print no `bb` line.
 
 **Name both commands whether or not the artifact is present.** `/plot-init`
 runs in repositories that have neither, and offering only what works there says
