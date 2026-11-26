@@ -18,6 +18,9 @@ import {
   type Signal,
   type StackReadings,
   proposeDefaultBranch,
+  BB_INSTALL,
+  bbLineIsOther,
+  proposeBbCli,
 } from '../src/rules/stack.js';
 
 const counts = (over: Partial<CommitStyleCounts> = {}): CommitStyleCounts => ({
@@ -529,5 +532,69 @@ describe('proposeStack', () => {
     }));
     expect(p.commitStyle.matched).toBe(9);
     expect(p.ticket.matched).toBe(4);
+  });
+});
+
+describe('proposeBbCli — which bb answers', () => {
+  const brew = '/opt/homebrew';
+  const asked = (bbVersionLine: string, bbPaths: string[] = [], brewPrefix = brew) =>
+    proposeBbCli({ bbVersionLine, bbPaths, brewPrefix });
+
+  it('answers quatico for the 1.13.0+ line, which names quatico-bb in parentheses', () => {
+    expect(asked('bb 1.15.1 (quatico-bb — brew install quatico-solutions/tap/quatico-bb)')).toEqual({
+      state: 'quatico',
+      version: '1.15.1',
+    });
+  });
+
+  it('answers quatico for the 1.12.x line, which carries no quatico-bb word', () => {
+    expect(asked('bb 1.12.0')).toEqual({ state: 'quatico', version: '1.12.0' });
+  });
+
+  it('answers quatico with an empty version for a line that names none', () => {
+    expect(asked('bb')).toEqual({ state: 'quatico', version: '' });
+  });
+
+  it('answers other for craftamap/bb, whose line names a git sha', () => {
+    expect(asked('bb version 0.6.0 (abc1234)')).toEqual({
+      state: 'other',
+      line: 'bb version 0.6.0 (abc1234)',
+      install: BB_INSTALL,
+      brew: true,
+    });
+  });
+
+  it('answers absent for an empty line', () => {
+    expect(asked('')).toEqual({ state: 'absent', install: BB_INSTALL, brew: true });
+  });
+
+  it('names the formula and the tap, and says no brew answered, where brew is absent', () => {
+    expect(asked('', [], '')).toEqual({ state: 'absent', install: BB_INSTALL, brew: false });
+    expect(BB_INSTALL).toBe('brew install quatico-solutions/tap/quatico-bb');
+  });
+
+  it('answers shadowed where a non-Homebrew bb comes before the Homebrew one', () => {
+    expect(asked('bb 1.0.0', ['/Users/x/.local/bin/bb', '/opt/homebrew/bin/bb'])).toEqual({
+      state: 'shadowed',
+      first: '/Users/x/.local/bin/bb',
+      others: ['/opt/homebrew/bin/bb'],
+    });
+  });
+
+  it('answers by the line where the Homebrew bb comes first', () => {
+    expect(asked('bb 1.15.1', ['/opt/homebrew/bin/bb', '/Users/x/.local/bin/bb'])?.state).toBe('quatico');
+  });
+
+  it('cannot tell shadowed without a brew prefix, and answers by the line', () => {
+    expect(asked('bb 1.0.0', ['/Users/x/.local/bin/bb', '/opt/homebrew/bin/bb'], '')?.state).toBe('quatico');
+  });
+
+  it('answers null where the collector did not ask, which is not absent', () => {
+    expect(proposeBbCli({ bbVersionLine: null })).toBeNull();
+    expect(proposeBbCli({})).toBeNull();
+  });
+
+  it('reads no other bb in an empty line', () => {
+    expect(bbLineIsOther('')).toBe(false);
   });
 });

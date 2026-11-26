@@ -132,12 +132,24 @@ host_def_branch=""
 host_def_status="unknown"
 if [ -n "$host" ]; then
   _host_sh="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-host.sh"
-  if [ -f "$_host_sh" ]; then
-    if _hb=$(bash "$_host_sh" default-branch 2>/dev/null) && [ -n "$_hb" ]; then
-      host_def_branch="$_hb"
-      host_def_status="ok"
-    fi
+  # A missing adapter fails `bash` and leaves the status `unknown`.
+  if _hb=$(bash "$_host_sh" default-branch 2>/dev/null) && [ -n "$_hb" ]; then
+    host_def_branch="$_hb"
+    host_def_status="ok"
   fi
+fi
+
+# --- which bb answers ---------------------------------------------------
+# Read on a Bitbucket repository only, where `plot-host.sh` needs Quatico's
+# `bb`. `bb_version_line` is the first line of `command bb --version`, ANSI
+# stripped as `bb_strip_ansi` does, and empty where no `bb` answers; a version
+# call sends no request. `bb_paths` is every `bb` on PATH in order, and
+# `bb_brew_prefix` is `brew --prefix`, empty where no `brew` answers. Which
+# `bb` that is, and whether one shadows Homebrew's, is `proposeBbCli`'s answer.
+if [ "$host" = bitbucket ]; then
+  bb_version_line=$(command bb --version 2>/dev/null | LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g' | head -1)
+  bb_paths=$(type -ap bb 2>/dev/null | sed 's/\\/\\\\/g; s/"/\\"/g; s/.*/"&"/' | paste -sd, -)
+  bb_brew_prefix=$(brew --prefix 2>/dev/null)
 fi
 
 # --- Definition-of-Done candidates --------------------------------------
@@ -243,17 +255,14 @@ has_settings=false
 # BOUNDED BY GIT, never a tree walk, for the reason the Jenkinsfile search is:
 # `git ls-files` sees only tracked files, so a hostname inside `node_modules`
 # or an unstaged fixture cannot answer for the repository.
-jenkins_host=""
-if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
-  # Every occurrence, most frequent first: a doc naming two hosts is reporting
-  # the one it repeats. `-o` so a line carrying two counts twice.
-  jenkins_host=$(git ls-files -z -- \
-      'README*' 'CLAUDE.md' 'AGENTS.md' 'Jenkinsfile*' 2>/dev/null \
-    | xargs -0 grep -hoiE '\b[a-z0-9._-]*jenkins[a-z0-9._-]*\.[a-z0-9-]+\.[a-z]{2,}\b' 2>/dev/null \
-    | tr '[:upper:]' '[:lower:]' \
-    | sort | uniq -c | sort -rn | head -1 \
-    | awk '{print $2}')
-fi
+# Every occurrence, most frequent first: a doc naming two hosts is reporting
+# the one it repeats. `-o` so a line carrying two counts twice.
+jenkins_host=$(git ls-files -z -- \
+    'README*' 'CLAUDE.md' 'AGENTS.md' 'Jenkinsfile*' 2>/dev/null \
+  | xargs -0 grep -hoiE '\b[a-z0-9._-]*jenkins[a-z0-9._-]*\.[a-z0-9-]+\.[a-z]{2,}\b' 2>/dev/null \
+  | tr '[:upper:]' '[:lower:]' \
+  | sort | uniq -c | sort -rn | head -1 \
+  | awk '{print $2}')
 
 # --- the CI signals the tree carries ------------------------------------
 # WHICH CI systems left evidence, and NOTHING about what that implies. The
@@ -278,14 +287,12 @@ fi
 # repository as having no CI at all.
 jenkinsfile=false
 gh_workflows=false
-if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
-  git ls-files -z -- '*Jenkinsfile' '*Jenkinsfile.*' 'Jenkinsfile*' 2>/dev/null \
-    | grep -qz . && jenkinsfile=true
-  # A directory with no workflow file in it is not a signal: `.github/workflows`
-  # survives in repositories whose workflows were deleted.
-  git ls-files -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null \
-    | grep -qz . && gh_workflows=true
-fi
+git ls-files -z -- '*Jenkinsfile' '*Jenkinsfile.*' 'Jenkinsfile*' 2>/dev/null \
+  | grep -qz . && jenkinsfile=true
+# A directory with no workflow file in it is not a signal: `.github/workflows`
+# survives in repositories whose workflows were deleted.
+git ls-files -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml' 2>/dev/null \
+  | grep -qz . && gh_workflows=true
 
 # --- language sample ----------------------------------------------------
 # How many German words the hub docs carry, and nothing about what that means.
@@ -319,6 +326,9 @@ cat <<JSON
   "has_settings": $has_settings,
   "jenkins_host": "$(j "$jenkins_host")",
   "ci_signals": {"jenkinsfile": $jenkinsfile, "gh_workflows": $gh_workflows},
-  "german_words": ${de:-0}
+  "german_words": ${de:-0},
+  "bb_version_line": "$(j "${bb_version_line:-}")",
+  "bb_paths": [${bb_paths:-}],
+  "bb_brew_prefix": "$(j "${bb_brew_prefix:-}")"
 }
 JSON

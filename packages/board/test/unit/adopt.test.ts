@@ -194,6 +194,24 @@ describe('run', () => {
     expect(refused.detail).toContain('CLAUDE.md');
   });
 
+  it('names the brew install for a Bitbucket repository where no bb answers', () => {
+    let out = '';
+    const report = { ...REPORT, git_host: 'bitbucket', bb_version_line: '', bb_paths: [], bb_brew_prefix: '' };
+    expect(run(request({ report }), (s) => (out += s))).toBe(0);
+    const gaps: string[] = JSON.parse(out).gaps;
+    expect(gaps.filter((g) => g.includes('brew install quatico-solutions/tap/quatico-bb'))).toHaveLength(1);
+  });
+
+  it('prints a GitHub adoption byte-identical to a probe that reports no bb fields', () => {
+    let before = '';
+    let after = '';
+    run(request(), (s) => (before += s));
+    const report = { ...REPORT, bb_version_line: '', bb_paths: [], bb_brew_prefix: '' };
+    run(request({ report }), (s) => (after += s));
+    expect(after).toBe(before);
+    expect(after).not.toMatch(/\bbb\b/);
+  });
+
   it('exits 2 on input no operator can act on, and writes nothing', () => {
     let out = '';
     expect(run('not json', (s) => (out += s))).toBe(2);

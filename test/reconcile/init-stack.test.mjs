@@ -292,3 +292,66 @@ test('init: a nested Jenkinsfile is a signal', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Which bb answers: read on Bitbucket, not asked elsewhere ─────────────────
+//
+// THE PROBE COLLECTS AND THE DOMAIN DECIDES. These run the script against a
+// stub `bb` and a stub `brew` on PATH and assert the three readings
+// `proposeBbCli` takes; which state they make is asserted in `stack.test.ts`.
+const bbProbe = (remote, setup) => {
+  const probe = path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-detect-repo.sh');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-bb-probe-'));
+  try {
+    const repo = path.join(dir, 'repo');
+    fs.mkdirSync(repo);
+    execFileSync('git', ['init', '-q'], { cwd: repo });
+    execFileSync('git', ['remote', 'add', 'origin', remote], { cwd: repo });
+    const stub = (where, name, body) => {
+      fs.mkdirSync(where, { recursive: true });
+      fs.writeFileSync(path.join(where, name), `#!/bin/sh\n${body}\n`);
+      fs.chmodSync(path.join(where, name), 0o755);
+    };
+    // A `gh` that answers nothing, so the probe's `default-branch` question
+    // never reaches a real host from a test.
+    stub(path.join(dir, 'nohost'), 'gh', 'exit 1');
+    const pathDirs = setup(dir, stub);
+    const env = { ...process.env, PATH: [path.join(dir, 'nohost'), ...pathDirs, '/usr/bin', '/bin'].join(':') };
+    return { dir, report: JSON.parse(execFileSync('bash', [probe], { cwd: repo, encoding: 'utf8', env, timeout: 120000 })) };
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+test('init: on Bitbucket the probe reports the bb line, every bb path and the brew prefix', () => {
+  let local, brewBin, prefix;
+  const { report } = bbProbe('git@bitbucket.org:acme/web.git', (dir, stub) => {
+    local = path.join(dir, 'local');
+    prefix = path.join(dir, 'brew');
+    brewBin = path.join(prefix, 'bin');
+    stub(local, 'bb', "printf '\\033[1mbb version 0.6.0 (abc1234)\\033[0m\\nsecond line\\n'");
+    stub(local, 'brew', `echo '${prefix}'`);
+    stub(brewBin, 'bb', "echo 'bb 1.15.1'");
+    return [local, brewBin];
+  });
+  assert.equal(report.bb_version_line, 'bb version 0.6.0 (abc1234)',
+    'the first line of the first bb, with ANSI stripped');
+  assert.deepEqual(report.bb_paths, [path.join(local, 'bb'), path.join(brewBin, 'bb')],
+    'every bb on PATH, in PATH order');
+  assert.equal(report.bb_brew_prefix, prefix);
+});
+
+test('init: on Bitbucket with no bb and no brew every reading is empty', () => {
+  const { report } = bbProbe('git@bitbucket.org:acme/web.git', () => []);
+  assert.equal(report.bb_version_line, '');
+  assert.deepEqual(report.bb_paths, []);
+  assert.equal(report.bb_brew_prefix, '');
+});
+
+test('init: on GitHub the probe does not ask bb', () => {
+  const { report } = bbProbe('git@github.com:acme/web.git', (dir, stub) => {
+    stub(path.join(dir, 'local'), 'bb', "echo 'bb 1.15.1'");
+    return [path.join(dir, 'local')];
+  });
+  assert.equal(report.bb_version_line, '', 'an unasked line, which the adapter reads as not asked');
+  assert.deepEqual(report.bb_paths, []);
+});
