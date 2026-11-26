@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** plot-describes-itself
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-23, jwloka, plan-PR #3691 merged
 - **Started:** 2026-11-23, Jan Wloka, `feature/the-main-reading-becomes-a-pr-status`
 - **Started:** 2026-11-26, Jan Wloka, `docs/the-repository-requires-plot-main`
+- **Delivered:** 2026-11-26
 
 ## Changelog
 

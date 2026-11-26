@@ -46,7 +46,7 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - [ ] [fleet-state-is-read-whole-and-from-one-home] Fleet state is read whole and from one home (#3207) <!-- pr: #3609, branch: bug/a-new-failure-on-main-starts-a-repair -->
 - [x] [reports-name-their-cause-and-ci-selects-their-tests] Reports name their cause and CI selects their tests (#3160) <!-- pr: #3611, branch: bug/a-failed-sibling-tag-read-is-cannot-tell --> <!-- reconciled: released -->
 - [x] [shell-scripts-refuse-a-second-mode-and-name-the-fetch] Shell scripts refuse a second mode and name the fetch (#3138) <!-- pr: #3612, branch: bug/boardctl-and-dispatch-refuse-a-second-mode -->
-- [ ] [github-refuses-a-merge-into-a-red-main] GitHub refuses a merge into a red main <!-- pr: #3691, branch: docs/the-repository-requires-plot-main -->
+- [x] [github-refuses-a-merge-into-a-red-main] GitHub refuses a merge into a red main <!-- pr: #3691, branch: docs/the-repository-requires-plot-main -->
 
 <!-- add items here -->
 - [x] [fleetctl-runs-in-a-submodule-checkout] fleetctl runs in a submodule checkout (#3043, plan PR #3699) <!-- pr: #3699, branch: bug/the-repo-root-reads-core-worktree -->
