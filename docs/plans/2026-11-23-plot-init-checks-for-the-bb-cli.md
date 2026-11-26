@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/plot-init-reads-which-bb-answers`
+- **Started:** 2026-11-26, Jan Wloka, `bug/plot-init-proposes-the-bb-install`
 
 ## Changelog
 
