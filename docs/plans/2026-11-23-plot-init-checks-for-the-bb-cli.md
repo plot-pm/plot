@@ -51,7 +51,7 @@ Issue #2533 reports that `/plot-init` records `Git host: bitbucket` and adds a "
 
 ### Skill
 
-- `bug/plot-init-proposes-the-bb-install` <!-- waits: bug/plot-init-reads-which-bb-answers --> — `/plot-init` shows the `bb` reading, runs the install on confirmation, reports `bb.auth`, and installs nothing unattended <!-- builds: the bb step of plot-init's SKILL.md --> <!-- tests: pnpm test parses the skill; a changeset bumps plot-init -->
+- `bug/plot-init-proposes-the-bb-install` <!-- waits: bug/plot-init-reads-which-bb-answers --> — `/plot-init` shows the `bb` reading, runs the install on confirmation, reports `bb.auth`, and installs nothing unattended <!-- builds: the bb step of plot-init's SKILL.md --> <!-- tests: pnpm test parses the skill; a changeset bumps plot-init --> → #3737
 
 ## Notes
 
