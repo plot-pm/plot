@@ -11,7 +11,7 @@
 <!-- Optional. The version this sprint is working toward, named before it is
      cut. With it, /plot-release refuses to cut past an unfinished Must Have
      and asks about unfinished Should Haves. Without it, nothing changes. -->
-- **Release:** 2.37.0
+- **Release:** 2.38.0
 
 ## Sprint Goal
 
@@ -77,5 +77,6 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
+- 2026-11-26: Moved the release target from 2.37.0 to 2.38.0, so 2.37.0 ships the work already merged while the Must Haves are still open
 
 <!-- Session log, decisions, links -->
