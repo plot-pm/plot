@@ -51,7 +51,7 @@ The reading becomes a status on each PR head, and GitHub enforces the status.
 
 ### Rollout
 
-- `docs/the-repository-requires-plot-main` <!-- waits: feature/the-main-reading-becomes-a-pr-status --> — the rollout document names how to add `plot/main` to the required checks of ruleset `main` (`24412719`) and remove it again, what its bypass list means for the hold, and what a failing `plot/main` asks of the reader <!-- builds: the plot/main section of docs/review-status-rollout.md -->
+- `docs/the-repository-requires-plot-main` <!-- waits: feature/the-main-reading-becomes-a-pr-status --> — the rollout document names how to add `plot/main` to the required checks of ruleset `main` (`24412719`) and remove it again, what its bypass list means for the hold, and what a failing `plot/main` asks of the reader <!-- builds: the plot/main section of docs/review-status-rollout.md --> → #3738
 
 ## Notes
 
