@@ -4,7 +4,7 @@ A PR merges only when a passing `plot/review` commit status sits on its
 current head. `docs/plans/2026-10-14-a-pr-cannot-merge-until-its.md` designs
 the gate; this page is the one-time human setup — creating the App, storing
 its key, and switching the branch rule on — for a repository adopting it and
-for this repository's own rollout.
+for this repository's own rollout. The section [The `plot/main` check](#the-plotmain-check) covers the `plot/main` status, which holds merges into a red default branch once the ruleset requires it.
 
 ## What writes the status today
 
@@ -227,3 +227,70 @@ A declared key follows the same refusal discipline as `Review app`: a key that c
 Bitbucket is untouched by either App: `pr-merge` there keeps its own `bb`
 path and its existing exit-4 refusal on an unpinned merge, and a `Merger app`
 or `Writer app` key is a GitHub-only concern.
+
+## The `plot/main` check
+
+On 2026-11-23 a person merged #3682 on GitHub while `main` read settled red on `17a7fc438`, because the ruleset required no check that carried that reading. fleetd now writes the reading as a `plot/main` commit status on every open PR into the default branch. The status holds nothing until the ruleset requires it, and only a person with admin rights can make that setting.
+
+### What writes it
+
+fleetd's `plot/main` pass (`packages/fleet/src/shared/auto-main-status.ts`, run from `auto-writes.ts` on every fleetd pass) writes one commit status per open PR into the default branch, through `Host.commitStatus`. On GitHub it writes as the `Review app` identity, so the status is authored by `<app-slug>[bot]`. The domain rule `mainHoldStatus` (`packages/domain/src/rules/main-hold-status.ts`) decides each status:
+
+| Reading | State | Description |
+|---|---|---|
+| The default branch is not red | `success` | `<branch> is not red` |
+| The default branch is red, and the PR is the repair PR the record admits | `success` | `repair PR for <9 hex>` |
+| The default branch is red, every other PR | `failure` | `<branch> is red on <9 hex>; merge the repair PR first` |
+
+`<branch>` is the default branch's name, `main` in this repository. `<9 hex>` is the first 9 hex characters of the settled red commit. A PR into another base, such as `sprint/*`, gets no `plot/main` status.
+
+**Absent is not red.** A missing, unparseable or other-version `.plot/state/default-branch.json` reads `success`, so a fleetd with no reading writes no `failure`. A reading older than `Checks wait` also reads `success`. The writer re-asks the head at least once per half `Checks wait`, so a red main that stays red keeps its reading fresh. A `success` on a red main can therefore mean "no fresh reading".
+
+**The status is a mirror, and the reading is the answer.** Plot's own merge paths, `plot-ask.mjs merge` and fleetd's merge arm, read `.plot/state/default-branch.json` and never read `plot/main`. The required check holds the merges that go past Plot, such as a merge button on GitHub. `A Decision Reads The Index` in `CLAUDE.md` describes the reading.
+
+### When it writes
+
+The pass writes on change only: a new head, a changed wanted status, or a new repair PR. It keeps the last status it wrote per PR in `.plot/state/main-status.json`, so a restarted fleetd writes only what changed. A failed write is written again one hour later (`MAIN_STATUS_RETRY_MS`), or on the next pass where the head or the wanted status changed. When main settles green, fleetd writes `success` on every open PR in one pass.
+
+The pass costs one host request per open PR per change. PRs that share a head and a wanted status cost one write per pass, because a commit status belongs to the commit. No rate for the `Review app` installation is measured here.
+
+### Rollout order
+
+1. **Prove the writer.** Run fleetd with the `plot/main` pass, open a scratch PR into main, and confirm a `plot/main` status on its head authored by `<app-slug>[bot]`.
+
+2. **Confirm every open PR into main carries one.** A PR that has no `plot/main` status yet cannot merge once the check is required.
+
+3. **Only then, add the required check.** A required check with no writer blocks every merge of that PR kind until a person removes the rule again, as step 5 above says for `plot/review`. Flip this setting last.
+
+### The ruleset setting
+
+Add `plot/main` to the required status checks of ruleset `main` (id `24412719`), beside `validate` and `plot/review`. Pin it to the `Review app`'s integration id, as `plot/review` is pinned, so a status that another identity writes does not satisfy it. In this repository that id is `5317669`. On 2026-11-26 the live ruleset (`gh api repos/plot-pm/plot/rulesets/24412719`) required `validate` (integration `15368`) and `plot/review` (integration `5317669`), with `strict_required_status_checks_policy: false`.
+
+For another repository, read the Review app's id from the `Review app` key in its `## Plot Config`, or from the App's settings page on GitHub. That App id is the integration id the ruleset pins.
+
+A PR opened or pushed while main is red shows no `plot/main` until the next fleetd pass, and GitHub refuses its merge until the status appears. This repository observes that behaviour for the absent `plot/review` status under the same ruleset. Nobody has observed it for `plot/main` yet.
+
+### The bypass list
+
+The ruleset's bypass list holds the admin role (`actor_id` 5, `RepositoryRole`), integration `5173644` and the `Writer app` (`5656981`), each with `bypass_mode: always`. An administrator's merge on GitHub still lands while main is red, and GitHub asks the administrator to confirm the bypass. The `Merger app` is not on the list, so the hold binds it. The hold binds every actor outside the list, and it shows on the merge button for the actors on it. Whether to remove the admin bypass is a decision for the repository, and this page does not make it.
+
+### A failing `plot/main`
+
+The description names the red commit. Merge the repair PR that `.plot/state/repair-record.json` names, or wait until main settles green. The repair PR's head branch has the shape `bug/main-repair-<12 hex of lastGreenSha>`, and a revert PR has the shape `bug/revert-<reverted PR number>`. The admitted repair PR carries `success` with the description `repair PR for <9 hex>`.
+
+A failing `plot/main` is not a CI failure on the PR. Plot leaves `plot/main` out of a PR's `checks` and `failing_checks`, so a red main makes no open PR read `failing`, and a fix agent has nothing to fix there.
+
+### A stopped fleetd
+
+A commit status does not expire. If fleetd stops while main is red, every open PR keeps its failing `plot/main`, and GitHub refuses every merge outside the bypass list. This is the known cost of the hold. There are two ways out:
+
+- Start fleetd again with `/plot-fleet --start` (`skills/plot/scripts/plot-fleetctl.sh --start`), or reload a running one with `/plot-fleet --restart`. Its next pass writes the current reading.
+- A person on the bypass list reads the description and merges past the hold.
+
+### Removing the check
+
+Delete `plot/main` from the required status checks of ruleset `main`. The statuses stay on the heads and gate nothing. The code has no config key that turns the `plot/main` pass off, so removing the required check is the whole undo.
+
+### Bitbucket
+
+The same pass writes on Bitbucket: `plot-host.sh commit-status` sends a non-GitHub write to `plot-bitbucket-commit-status.mjs`, which writes a build status keyed `plot/main` as the account that `BITBUCKET_REVIEW_USER` and `BITBUCKET_REVIEW_APP_PASSWORD` name, not as the `Review app`. To hold merges there, a Bitbucket merge check such as "minimum successful builds" would need to require that build status; this setting is untested, and nobody has proved it on a Bitbucket repository.
