@@ -1,4 +1,4 @@
-import { checkWord, checksOf, ciChecksOf, jqOr, PLOT_REVIEW_CONTEXT, type RollupItem } from './checks-of.js';
+import { checkWord, checksOf, ciChecksOf, isMainHoldItem, jqOr, PLOT_REVIEW_CONTEXT, type RollupItem } from './checks-of.js';
 import { mergeableOf } from './mergeable-of.js';
 
 /**
@@ -88,7 +88,7 @@ export const githubRichRow = (pr: GhPullRequest): GithubPrRow => ({
   review: jqOr(pr.reviewDecision, ''),
   checksSha: jqOr(pr.headRefOid, ''),
   failing_checks: (pr.statusCheckRollup ?? [])
-    .filter((item) => checkWord(item) === 'bad')
+    .filter((item) => checkWord(item) === 'bad' && !isMainHoldItem(item))
     .map((item) => jqOr(item.name, jqOr(item.context, '')))
     .filter((name) => name !== ''),
   ciChecks: ciChecksOf(pr.statusCheckRollup),

@@ -1105,22 +1105,22 @@ describe('prState reads mergeability through the real script', () => {
     const HEAD = 'a'.repeat(40);
     const LAST_GREEN = '6a321aee0df2'.padEnd(40, '0');
     const RED = 'f'.repeat(40);
-    const readPr = async (headRefName: string) => {
+    const readPr = async (headRefName: string, statusCheckRollup: readonly object[] = [{ conclusion: 'SUCCESS' }]) => {
       const answer = await hostShell(
         githubWhoseGhSays({
           number: 3057, state: 'OPEN', isDraft: false, url: 'u', headRefName, headRefOid: HEAD,
-          statusCheckRollup: [{ conclusion: 'SUCCESS' }], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+          statusCheckRollup, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
         }),
       ).prState(3057);
       if (!answer.ok || answer.value === null) throw new Error('the stubbed host answered no PR');
       return answer.value;
     };
-    const mergeOnRed = async (headRefName: string) => {
+    const mergeOnRed = async (headRefName: string, statusCheckRollup?: readonly object[]) => {
       const out = merge(
         {
           caller: 'person',
           conversation: { prAuthor: 'author', rows: [] },
-          pr: await readPr(headRefName),
+          pr: await readPr(headRefName, statusCheckRollup),
           defaultBranch: {
             v: 1, branch: 'main', headSha: RED, head: 'red', headSince: '2026-11-03T00:00:00Z',
             settled: { sha: RED, state: 'red' }, failingRuns: [], askedAt: '2026-11-03T00:00:00Z', at: '2026-11-03T00:00:00Z',
@@ -1143,6 +1143,12 @@ describe('prState reads mergeability through the real script', () => {
 
     it('admits the repair PR from the episode branch on a red default branch', async () => {
       expect(await mergeOnRed('bug/main-repair-6a321aee0df2')).toBe('decided');
+    });
+
+    it('reads a failing plot/main as no check of the PR, so the repair PR still merges', async () => {
+      const rollup = [{ conclusion: 'SUCCESS', name: 'validate' }, { context: 'plot/main', state: 'FAILURE' }];
+      expect(await readPr('bug/main-repair-6a321aee0df2', rollup)).toMatchObject({ checks: 'green', ciChecks: 'green', failingChecks: [] });
+      expect(await mergeOnRed('bug/main-repair-6a321aee0df2', rollup)).toBe('decided');
     });
 
     it('refuses a changeset-release head as release-pr', async () => {

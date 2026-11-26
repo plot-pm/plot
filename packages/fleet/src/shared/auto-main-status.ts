@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { checkNamesOf, checksWaitMsOf, defaultBranchRed, type DefaultBranchReading } from '@plot-pm/domain';
+import type { SettledReading } from '@plot-pm/domain/entities/default-branch';
 import { MAIN_HOLD_STATUS_CONTEXT, mainHoldStatus, type MainHoldStatus } from '@plot-pm/domain/rules/main-hold-status';
 import { repairRoleOf, type RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair } from '@plot-pm/domain/workflows/merge';
@@ -54,8 +55,11 @@ export interface MainStatusResult {
   readonly pr: number;
   readonly head: string;
   readonly wanted: MainHoldStatus;
-  /** `written` and `failed` made a host call; `unchanged`, `held` and `none` made none. */
-  readonly outcome: 'written' | 'unchanged' | 'failed' | 'held' | 'none';
+  /**
+   * `written` and `failed` made a host call; `unchanged`, `held`, `shared` and `none` made none.
+   * `shared` takes the answer of an earlier write in the same pass of the same status on the same head.
+   */
+  readonly outcome: 'written' | 'unchanged' | 'failed' | 'held' | 'shared' | 'none';
 }
 
 /**
@@ -86,15 +90,32 @@ export const mainStatusCache = (opts: ActOptions): MainStatusCache => ({ prIndex
 /**
  * Whether a repair reading holds no failed ask, so a later tick may reuse it.
  *
- * A reading with an `unaskable` record, episode or red-commit runs is asked
- * again on the next tick: kept, it would hold the named PR at `failure` until
- * the default branch or the record changes.
+ * A reading whose record or episode is `unaskable`, or whose red-commit runs
+ * are `unaskable` on an open episode, is asked again on the next tick: kept,
+ * it would hold the named PR at `failure` until the default branch or the
+ * record changes. The runs of a closed episode are never asked, so their
+ * `unaskable` is no failed ask.
  *
  * @param reading - the repair exception's reading.
- * @returns false where any part of the reading is `unaskable`.
+ * @returns false where an ask the reading made failed.
  */
 export const repairReadingAnswered = (reading: RepairMergeReading): boolean =>
-  reading.record !== 'unaskable' && reading.episode !== 'unaskable' && reading.redRuns !== 'unaskable';
+  reading.record !== 'unaskable' && reading.episode !== 'unaskable' && !(reading.episode === 'open' && reading.redRuns === 'unaskable');
+
+/** Reads the repair exception for one PR on a red reading; {@link readMainStatusPass} builds the ports by default. */
+export type MainStatusRepairAsk = (opts: ActOptions, branch: string, settled: SettledReading, pr: number) => Promise<RepairMergeReading>;
+
+const askRepair: MainStatusRepairAsk = async (opts, branch, settled, pr) => {
+  const home = stateHomeOfOpts(opts);
+  const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
+  const ports = {
+    ...(home === null ? {} : { repair: repairRecordFile(home) }),
+    build: await buildShell(context, apiForReads(context)),
+    checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
+    refs: refsOf(opts),
+  };
+  return readRepair(ports, branch, settled, pr);
+};
 
 /** `Checks wait`'s default, in milliseconds, for a tick that never reads it. */
 const CHECKS_WAIT_DEFAULT_MS = 3_600_000;
@@ -113,12 +134,14 @@ const CHECKS_WAIT_DEFAULT_MS = 3_600_000;
  * @param opts - where the fleet acts.
  * @param now - epoch milliseconds.
  * @param cache - what earlier ticks read; {@link mainStatusCache}.
+ * @param ask - reads the repair exception; the shell's build and git by default.
  * @returns the reading, or `null` where the backend, the PR index or the state home cannot be read, or no row is open.
  */
 export const readMainStatusPass = async (
   opts: ActOptions,
   now: number,
   cache: MainStatusCache = mainStatusCache(opts),
+  ask: MainStatusRepairAsk = askRepair,
 ): Promise<MainStatusPassReading | null> => {
   const context = { repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir };
   if (cache.backend === undefined) {
@@ -155,13 +178,7 @@ export const readMainStatusPass = async (
     if (named !== undefined) {
       const key = JSON.stringify([settled, defaultBranch.head, defaultBranch.headSha, held, named.number, named.head]);
       if (cache.repair?.key !== key) {
-        const ports = {
-          repair: records,
-          build: await buildShell(context, apiForReads(context)),
-          checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
-          refs,
-        };
-        const value = await readRepair(ports, defaultBranch.branch, settled, named.number);
+        const value = await ask(opts, defaultBranch.branch, settled, named.number);
         if (repairReadingAnswered(value)) cache.repair = { key, value };
         else delete cache.repair;
         repair = value;
@@ -183,8 +200,10 @@ export const readMainStatusPass = async (
  * write answers `ok`. A failed write leaves the memory, is told through
  * `notify` once per PR, head and state, and is held: the same status on the
  * same head is written again only {@link MAIN_STATUS_RETRY_MS} after the
- * failure, while another head or status is written on the next pass. Entries
- * for PRs no longer open are dropped.
+ * failure, while another head or status is written on the next pass. A commit
+ * status belongs to the commit, so rows that share a head and a wanted status
+ * cost one write per pass: later rows take its answer as `shared`. Entries
+ * for PRs no longer open are dropped, from the memory, the failures and `logged`.
  *
  * @param reading - the pass's reading.
  * @param now - epoch milliseconds.
@@ -207,7 +226,9 @@ export const mainStatusTick = async (
   const open = new Set(reading.rows.map((row) => row.number));
   for (const pr of [...memory.keys()]) if (!open.has(pr)) memory.delete(pr);
   for (const pr of [...failures.keys()]) if (!open.has(pr)) failures.delete(pr);
+  for (const told of [...logged]) if (!open.has(Number(told.split(':')[0]))) logged.delete(told);
   const results: MainStatusResult[] = [];
+  const asked = new Map<string, boolean>();
   for (const row of reading.rows) {
     const head = row.headSha ?? '';
     if (head === '') continue;
@@ -234,6 +255,17 @@ export const mainStatusTick = async (
       results.push({ pr: row.number, head, wanted, outcome: 'held' });
       continue;
     }
+    const answered = asked.get(key);
+    if (answered !== undefined) {
+      if (answered) {
+        failures.delete(row.number);
+        memory.set(row.number, { head, state: wanted.state, description: wanted.description });
+      } else {
+        failures.set(row.number, { key, at: now });
+      }
+      results.push({ pr: row.number, head, wanted, outcome: 'shared' });
+      continue;
+    }
     const written = await world.host(opts).commitStatus({
       sha: head,
       state: wanted.state,
@@ -241,6 +273,7 @@ export const mainStatusTick = async (
       description: wanted.description,
       targetUrl: row.url,
     });
+    asked.set(key, written.ok);
     if (written.ok) {
       failures.delete(row.number);
       memory.set(row.number, { head, state: wanted.state, description: wanted.description });

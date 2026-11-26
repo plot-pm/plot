@@ -9,7 +9,8 @@ import type { CommitStatusWrite } from '@plot-pm/domain/ports/host';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
-import { defaultBranchFile, hostFixture, refsFixture } from '@plot-pm/domain/adapters';
+import { defaultBranchFile, hostFixture, refsFixture, repairRecordFile } from '@plot-pm/domain/adapters';
+import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import {
   MAIN_STATUS_RETRY_MS,
   mainStatusPath,
@@ -23,6 +24,7 @@ import {
   type MainStatusFailures,
   type MainStatusMemory,
   type MainStatusPassReading,
+  type MainStatusRepairAsk,
   type MainStatusWorld,
 } from '../../src/shared/auto-main-status.js';
 
@@ -189,6 +191,36 @@ describe('mainStatusTick', () => {
     expect(r.writes.map((w) => w.state)).toEqual(['failure', 'success']);
   });
 
+  it('writes one status for PRs that share a head, and the next tick writes nothing', async () => {
+    const r = rig();
+    const rows = [row(1, HEAD1), row(2, HEAD1), row(3, HEAD1)];
+    const first = await mainStatusTick(reading({ rows, defaultBranch: green }), NOW, opts, r.world, r.memory, r.logged);
+    expect(first.map((x) => x.outcome)).toEqual(['written', 'shared', 'shared']);
+    expect(r.writes.map((w) => [w.sha, w.state])).toEqual([[HEAD1, 'success']]);
+    const again = await mainStatusTick(reading({ rows, defaultBranch: green }), NOW, opts, r.world, r.memory, r.logged);
+    expect(again.map((x) => x.outcome)).toEqual(['unchanged', 'unchanged', 'unchanged']);
+    expect(r.writes).toHaveLength(1);
+  });
+
+  it('holds every PR on a shared head after the one write failed', async () => {
+    const failing = rig(true);
+    const failures: MainStatusFailures = new Map();
+    const rows = [row(1, HEAD1), row(2, HEAD1)];
+    const tick = (at: number) => mainStatusTick(reading({ rows, defaultBranch: green }), at, opts, failing.world, failing.memory, failing.logged, failures);
+    expect((await tick(NOW)).map((x) => x.outcome)).toEqual(['failed', 'shared']);
+    expect((await tick(NOW + 1)).map((x) => x.outcome)).toEqual(['held', 'held']);
+    expect(failing.writes).toHaveLength(1);
+    expect(failing.memory.size).toBe(0);
+  });
+
+  it('forgets the told failures of a closed PR', async () => {
+    const failing = rig(true);
+    await mainStatusTick(reading({ rows: [row(1, HEAD1)] }), NOW, opts, failing.world, failing.memory, failing.logged, new Map());
+    expect(failing.logged.size).toBe(1);
+    await mainStatusTick(reading({ rows: [row(2, HEAD2)] }), NOW, opts, failing.world, failing.memory, failing.logged, new Map());
+    expect([...failing.logged].map((t) => t.split(':')[0])).toEqual(['2']);
+  });
+
   it('writes nothing for a PR into a sprint base', async () => {
     const r = rig();
     const results = await mainStatusTick(reading({ rows: [row(3, HEAD1, { base: 'sprint/2026-w48' })] }), NOW, opts, r.world, r.memory, r.logged);
@@ -321,6 +353,44 @@ describe('readMainStatusPass', () => {
     expect(calls.defaultBranch).toBe(0);
   });
 
+  describe('the repair reading', () => {
+    const repairRow = row(9, HEAD1, { head: `bug/main-repair-${GREEN.slice(0, 12)}` });
+    const fresh = { ...red, askedAt: new Date(NOW).toISOString() };
+    const rigged = async (answers: RepairMergeReading[]) => {
+      const h = home();
+      await defaultBranchFile(h).write(fresh);
+      await repairRecordFile(h).write(record);
+      const { at, cache } = counted(h, [repairRow]);
+      cache.checksWaitMs = WAIT;
+      const asked: number[] = [];
+      const ask: MainStatusRepairAsk = async (_opts, _branch, _settled, pr) => {
+        asked.push(pr);
+        return answers[Math.min(asked.length - 1, answers.length - 1)] as RepairMergeReading;
+      };
+      return { tick: () => readMainStatusPass(at, NOW, cache, ask), asked };
+    };
+
+    it('asks again on the next tick after an unaskable episode or red-commit runs, and keeps the answer that follows', async () => {
+      const { tick, asked } = await rigged([
+        { record, episode: 'unaskable', redRuns: 'unaskable' },
+        { record, episode: 'open', redRuns: 'unaskable' },
+        { record, episode: 'open', redRuns: 'red' },
+      ]);
+      expect((await tick())?.repair).toMatchObject({ episode: 'unaskable' });
+      expect((await tick())?.repair).toMatchObject({ redRuns: 'unaskable' });
+      expect((await tick())?.repair).toMatchObject({ episode: 'open', redRuns: 'red' });
+      expect((await tick())?.repair).toMatchObject({ episode: 'open', redRuns: 'red' });
+      expect(asked).toEqual([9, 9, 9]);
+    });
+
+    it('keeps a closed episode, whose red-commit runs were never asked', async () => {
+      const { tick, asked } = await rigged([{ record, episode: 'closed', redRuns: 'unaskable' }]);
+      await tick();
+      await tick();
+      expect(asked).toEqual([9]);
+    });
+  });
+
   it('answers null where no row is open or the index holds none', async () => {
     const { at } = counted(home(), [row(1, HEAD1, { state: 'MERGED' })]);
     const none = { read: async () => answered(null) } as unknown as PrIndexStore;
@@ -341,5 +411,6 @@ describe('repairReadingAnswered', () => {
     expect(repairReadingAnswered({ ...answeredReading, record: 'unaskable' })).toBe(false);
     expect(repairReadingAnswered({ ...answeredReading, episode: 'unaskable' })).toBe(false);
     expect(repairReadingAnswered({ ...answeredReading, redRuns: 'unaskable' })).toBe(false);
+    expect(repairReadingAnswered({ ...answeredReading, episode: 'closed', redRuns: 'unaskable' })).toBe(true);
   });
 });

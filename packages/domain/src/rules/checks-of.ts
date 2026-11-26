@@ -73,12 +73,22 @@ export const colourOf = (items: readonly RollupItem[]): ChecksColour => {
 };
 
 /**
- * The colour of a pull request's whole rollup: jq's `checks_of`.
+ * Whether a rollup item is the `plot/main` hold, by its `context`, or else its `name`.
+ *
+ * @param item - one rollup item.
+ * @returns true for the `plot/main` item.
+ */
+export const isMainHoldItem = (item: RollupItem): boolean => jqOr(item.context, jqOr(item.name, '')) === MAIN_HOLD_STATUS_CONTEXT;
+
+/**
+ * The colour of a pull request's rollup without its `plot/main` item: jq's `checks_of`.
+ * `plot/main` is the default branch's hold, not a check of the PR's own head.
  *
  * @param rollup - the exported `statusCheckRollup`; null where `gh` exported none.
  * @returns the colour; `none` for a null rollup.
  */
-export const checksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour => colourOf(rollup ?? []);
+export const checksOf = (rollup: readonly RollupItem[] | null | undefined): ChecksColour =>
+  colourOf((rollup ?? []).filter((item) => !isMainHoldItem(item)));
 
 /** The status context `plot-host.sh` reads as the review verdict. */
 export const PLOT_REVIEW_CONTEXT = 'plot/review';
