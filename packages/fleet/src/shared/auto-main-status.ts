@@ -65,7 +65,7 @@ export interface MainStatusResult {
  * default branch's name and `Checks wait` are read once, on the first tick
  * that needs them, and kept for the daemon's life. The repair exception's
  * reading is kept with the inputs it was read from and read again only when
- * one of them changes.
+ * one of them changes; a reading with a failed ask is not kept.
  */
 export interface MainStatusCache {
   readonly prIndex: PrIndexStore;
@@ -82,6 +82,19 @@ export interface MainStatusCache {
  * @returns a cache with nothing read yet.
  */
 export const mainStatusCache = (opts: ActOptions): MainStatusCache => ({ prIndex: prIndexFile({ cwd: opts.repoRoot }) });
+
+/**
+ * Whether a repair reading holds no failed ask, so a later tick may reuse it.
+ *
+ * A reading with an `unaskable` record, episode or red-commit runs is asked
+ * again on the next tick: kept, it would hold the named PR at `failure` until
+ * the default branch or the record changes.
+ *
+ * @param reading - the repair exception's reading.
+ * @returns false where any part of the reading is `unaskable`.
+ */
+export const repairReadingAnswered = (reading: RepairMergeReading): boolean =>
+  reading.record !== 'unaskable' && reading.episode !== 'unaskable' && reading.redRuns !== 'unaskable';
 
 /** `Checks wait`'s default, in milliseconds, for a tick that never reads it. */
 const CHECKS_WAIT_DEFAULT_MS = 3_600_000;
@@ -148,9 +161,13 @@ export const readMainStatusPass = async (
           checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
           refs,
         };
-        cache.repair = { key, value: await readRepair(ports, defaultBranch.branch, settled, named.number) };
+        const value = await readRepair(ports, defaultBranch.branch, settled, named.number);
+        if (repairReadingAnswered(value)) cache.repair = { key, value };
+        else delete cache.repair;
+        repair = value;
+      } else {
+        repair = cache.repair.value;
       }
-      repair = cache.repair.value;
     }
   }
   return { rows, defaultBranch, repair, defaultName, checksWaitMs };

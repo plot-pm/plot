@@ -17,6 +17,7 @@ import {
   mainStatusTick,
   readMainStatusMemory,
   readMainStatusPass,
+  repairReadingAnswered,
   runAutoMainStatusPass,
   type MainStatusCache,
   type MainStatusFailures,
@@ -326,5 +327,19 @@ describe('readMainStatusPass', () => {
     expect(await readMainStatusPass(at, NOW, { prIndex: none })).toBeNull();
     const merged = counted(home(), [row(1, HEAD1, { state: 'MERGED' })]);
     expect(await readMainStatusPass(merged.at, NOW, merged.cache)).toBeNull();
+  });
+});
+
+describe('repairReadingAnswered', () => {
+  const answeredReading = { record: null, episode: 'open', redRuns: 'red' } as const;
+
+  it('keeps a reading whose every ask answered', () => {
+    expect(repairReadingAnswered(answeredReading)).toBe(true);
+  });
+
+  it('keeps no reading with an unaskable record, episode or red-commit runs', () => {
+    expect(repairReadingAnswered({ ...answeredReading, record: 'unaskable' })).toBe(false);
+    expect(repairReadingAnswered({ ...answeredReading, episode: 'unaskable' })).toBe(false);
+    expect(repairReadingAnswered({ ...answeredReading, redRuns: 'unaskable' })).toBe(false);
   });
 });

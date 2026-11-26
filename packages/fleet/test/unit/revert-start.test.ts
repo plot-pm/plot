@@ -444,6 +444,14 @@ describe('repairRevertTick — the revert PR', () => {
     expect(await repairRevertTick(r.world)).toBe('exhausted');
   });
 
+  it('reads the revert PR red from its CI checks, so plot/main alone does not exhaust', async () => {
+    const r = rig(record({ state: 'reverting', preRevertRerun: 'asked', revertPr: 9 }));
+    r.state.prs.set(9, pr({ checks: 'failing', ciChecks: 'green' }));
+    expect(await repairRevertTick(r.world)).not.toBe('exhausted');
+    r.state.prs.set(9, pr({ checks: 'failing', ciChecks: 'failing' }));
+    expect(await repairRevertTick(r.world)).toBe('exhausted');
+  });
+
   it('creates the revert PR inside a host slot', async () => {
     const r = rig(record({ state: 'reverting', preRevertRerun: 'asked' }));
     r.state.runs.set(GREEN, [run(GREEN, 'success', new Date(T0 + 2 * HOUR).toISOString())]);
