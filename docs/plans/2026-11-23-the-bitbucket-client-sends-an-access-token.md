@@ -51,7 +51,7 @@ For the sprint goal, a second operator who runs Plot unattended against Bitbucke
 
 ### bb
 
-- `feature/bb-sends-an-access-token` — quatico-solutions/agent-skills: `cli/bb` sends `Authorization: Bearer` from the access-token variable at all five request sites, keys `bb_request_guard` and the pause by the token's key, and names the credential in `bb rate-limit --json` and `bb auth status`. Impl: the change is in `cli/bb`, which this repository does not hold, and it ships in a `quatico-bb` release before any Plot machine has it <!-- builds: bb's access-token credential and its ledger key -->
+- `feature/bb-sends-an-access-token` <!-- deferred: 2026-11-26 this slice lives in quatico-solutions/agent-skills; the fleet claimed it in plot-pm/plot (#issue to follow), so it stays deferred until that is fixed --> — quatico-solutions/agent-skills: `cli/bb` sends `Authorization: Bearer` from the access-token variable at all five request sites, keys `bb_request_guard` and the pause by the token's key, and names the credential in `bb rate-limit --json` and `bb auth status`. Impl: the change is in `cli/bb`, which this repository does not hold, and it ships in a `quatico-bb` release before any Plot machine has it <!-- builds: bb's access-token credential and its ledger key -->
 
 ### Client
 
