@@ -46,7 +46,7 @@ The same desk then read `failed`. `.plot/state/endings.jsonl` holds `{"reason":"
 
 ### Claim Guard
 
-- `bug/a-foreign-slice-is-never-claimed-here` — `sliceForeignRepo`, the `foreign` branch state, the pulse placement, the `branch-foreign` dispatch refusal and the waiter's foreign PR reading <!-- builds: sliceForeignRepo, the foreign-slice rule --> <!-- tests: a slice line `quatico-solutions/agent-skills: …` in plot-pm/plot reads foreign over a claim commit and an open ref; a line whose arrow names a PR in other/repo reads foreign; a line naming this repository reads its own state; dispatch --branch refuses branch-foreign; auto-dispatch offers no foreign branch -->
+- `bug/a-foreign-slice-is-never-claimed-here` — `sliceForeignRepo`, the `foreign` branch state, the pulse placement, the `branch-foreign` dispatch refusal and the waiter's foreign PR reading <!-- builds: sliceForeignRepo, the foreign-slice rule --> <!-- tests: a slice line `quatico-solutions/agent-skills: …` in plot-pm/plot reads foreign over a claim commit and an open ref; a line whose arrow names a PR in other/repo reads foreign; a line naming this repository reads its own state; dispatch --branch refuses branch-foreign; auto-dispatch offers no foreign branch --> → #3743
 
 ### Free Wait Ending
 
