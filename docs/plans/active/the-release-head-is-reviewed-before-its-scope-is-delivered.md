@@ -1,0 +1,1 @@
+../2026-11-27-the-release-head-is-reviewed-before-its-scope-is-delivered.md
