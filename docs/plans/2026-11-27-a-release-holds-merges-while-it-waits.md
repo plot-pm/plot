@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** bug
-- **Sprint:**
+- **Sprint:** fleet-runs-safely-alone
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
