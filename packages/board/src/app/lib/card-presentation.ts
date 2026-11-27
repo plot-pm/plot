@@ -651,7 +651,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
       : piece(plural(design.rounds, 'round'), { detail: `Interrogated: ${plural(design.rounds, 'round')} recorded in the plan`, data: { rounds: 'recorded' } })));
   }
   if (successor !== null) {
-    const { name, unverified } = successor;
+    const { id: name, unverified } = successor;
     signals.push(one(piece(unverified ? `superseded by ${name} · unverified` : `superseded by ${name}`, {
       tone: 'muted',
       detail: unverified

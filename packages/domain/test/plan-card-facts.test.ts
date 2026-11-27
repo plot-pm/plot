@@ -204,11 +204,11 @@ describe('planCardFacts: the successor', () => {
 
   it('names a successor in another repository, unverified', () => {
     expect(superseded('2026-11-27, by `owner/repo:new-plan` (unverified)').progress.successor)
-      .toEqual({ name: 'owner/repo:new-plan', unverified: true });
+      .toEqual({ id: 'owner/repo:new-plan', unverified: true });
   });
 
   it('names a successor in this repository with no unverified word', () => {
-    expect(superseded('2026-11-27, by `new-plan`').progress.successor).toEqual({ name: 'new-plan', unverified: false });
+    expect(superseded('2026-11-27, by `new-plan`').progress.successor).toEqual({ id: 'new-plan', unverified: false });
   });
 
   it('is null for a plan with no Superseded: record', () => {
@@ -218,7 +218,7 @@ describe('planCardFacts: the successor', () => {
 
   it('shows a record whose name does not parse verbatim', () => {
     expect(superseded('2026-11-27, see the new plan').progress.successor)
-      .toEqual({ name: '2026-11-27, see the new plan', unverified: false });
+      .toEqual({ id: '2026-11-27, see the new plan', unverified: false });
   });
 
   it('dates the card from the Superseded: record', () => {

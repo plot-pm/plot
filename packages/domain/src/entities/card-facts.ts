@@ -166,10 +166,10 @@ export type VerificationReading = z.infer<typeof VerificationReadingSchema>;
 
 /**
  * The plan that replaces a Superseded plan, as its `Superseded:` record names
- * it: `name` is a slug, or `owner/repo:slug` for a plan in another repository,
+ * it: `id` is a slug, or `owner/repo:slug` for a plan in another repository,
  * and `unverified` holds where the record says no plan file was read for it.
  */
-export const SuccessorFactSchema = z.object({ name: z.string(), unverified: z.boolean() });
+export const SuccessorFactSchema = z.object({ id: z.string(), unverified: z.boolean() });
 export type SuccessorFact = z.infer<typeof SuccessorFactSchema>;
 
 /**

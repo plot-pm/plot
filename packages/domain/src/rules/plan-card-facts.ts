@@ -157,7 +157,7 @@ const successorOf = (supersededRaw: string): SuccessorFact | null => {
   const named = SUPERSEDED_BY.exec(record);
   const reference = named === null ? 'unparsed' : successorReference(named[1] as string);
   return {
-    name: reference === 'unparsed' ? record : successorName(reference),
+    id: reference === 'unparsed' ? record : successorName(reference),
     unverified: /\(unverified\)/.test(record.slice(named === null ? 0 : named.index + named[0].length)),
   };
 };
