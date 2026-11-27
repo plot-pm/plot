@@ -35,7 +35,7 @@ const bareSummary = {
 };
 
 describe('the scan vocabularies are closed sets', () => {
-  it('names the eight branch states and refuses a ninth', () => {
+  it('names the nine branch states and refuses a tenth', () => {
     expect(BranchStateSchema.options).toEqual([
       'open',
       'wip',
@@ -48,6 +48,8 @@ describe('the scan vocabularies are closed sets', () => {
       // state its work earned.
       'waiting',
       'blocked',
+      // Read from the slice line: the branch lives in another repository.
+      'foreign',
     ]);
     expect(BranchStateSchema.safeParse('abandoned').success).toBe(false);
   });
