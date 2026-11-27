@@ -25,6 +25,11 @@ describe('sliceForeignRepo — where a slice line places its branch', () => {
     expect(sliceForeignReference('- `feature/x` — ship it', HERE)).toBeNull();
   });
 
+  it('reads a heading claim by its arrow only, never by a prefix', () => {
+    expect(sliceForeignRepo('### Port the reader (Branch: feature/x) → other/repo#12', HERE)).toBe('other/repo');
+    expect(sliceForeignRepo('### other/repo: port the reader (Branch: feature/x)', HERE)).toBeNull();
+  });
+
   it('reads a line naming this repository, by prefix or by arrow, as claimed here', () => {
     expect(sliceForeignRepo('- `feature/x` — plot-pm/plot: ship it', HERE)).toBeNull();
     expect(sliceForeignRepo('- `feature/x` — Plot-PM/Plot: ship it', HERE)).toBeNull();
