@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { PrIndexRow } from '../src/entities/pr-index.js';
-import type { ReleaseHoldRecord } from '../src/entities/release-hold.js';
+import { decodeReleaseHold, type ReleaseHoldRecord } from '../src/entities/release-hold.js';
 import { releaseHoldAt } from '../src/adapters/release-hold/release-hold-file.js';
 import { releaseHold } from '../src/rules/release-hold.js';
 
@@ -110,8 +110,19 @@ describe('releaseHold', () => {
     expect(ask(release(), record({ head: OLD, liftedBy: 'jwloka' }))).toMatchObject({ verdict: 'holds', head: HEAD });
   });
 
+  it('holds nothing on a row with no head commit', () => {
+    expect(ask(release({ headSha: undefined }), record())).toEqual({ verdict: 'none', reason: 'no-head' });
+  });
+
   it('holds nothing on a since that does not parse', () => {
     expect(ask(release(), record({ since: 'garbled' }))).toEqual({ verdict: 'none', reason: 'since-unparseable' });
+  });
+});
+
+describe('decodeReleaseHold', () => {
+  it('reads empty or blank text as null', () => {
+    expect(decodeReleaseHold('')).toBeNull();
+    expect(decodeReleaseHold('  \n')).toBeNull();
   });
 });
 
