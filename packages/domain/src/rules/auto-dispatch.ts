@@ -746,7 +746,7 @@ export const dispatchReadingFor = (
   const found = slice?.branches.find((b) => b.branch === branch);
   if (slice === undefined || found === undefined) return refuse('branch-not-in-plan', `${branch} is not a branch of plan ${slug}`);
   if (found.state === 'foreign') {
-    return refuse('branch-foreign', `${branch} is not startable here: it lives in ${found.foreign_repo ?? 'another repository'}`);
+    return refuse('branch-foreign', `${branch} is not startable here: ${branchHold(found)}`);
   }
   const why = slice.verdict === 'eligible' ? branchHold(found) : `its slice "${slice.name}" is ${slice.verdict}`;
   if (why !== null) return refuse('branch-not-startable', `${branch} is not startable: ${why}`);

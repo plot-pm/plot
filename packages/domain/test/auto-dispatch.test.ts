@@ -1898,6 +1898,23 @@ describe('dispatchReadingFor — a dispatch that names its branch', () => {
     expect(startableBranches(r, 'p', new Set())).toEqual(['feature/here']);
     expect(dispatchReadingFor(r, 'p')).toEqual({ kind: 'branch', branch: 'feature/here' });
   });
+
+  it('names another repository where the foreign row carries none, and a foreign prerequisite by its repository', () => {
+    const r = FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: '2026-11-02-p.md', phase: 'approved', slices: [{ name: 'w', verdict: 'eligible', branches: [
+        { branch: 'feature/skill', state: 'foreign', waits_on: [], held: false, deferred: false, claimed: '', ref_held: false },
+        { branch: 'feature/next', state: 'waiting', waits_on: ['feature/skill', 'feature/here'], waits_foreign: { 'feature/skill': 'other/repo' }, held: false, deferred: false, claimed: '', ref_held: false },
+      ] }] }],
+      summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+    expect(dispatchReadingFor(r, 'p', 'feature/skill')).toEqual(
+      refusal('branch-foreign', 'feature/skill', 'feature/skill is not startable here: it lives in another repository'),
+    );
+    expect(dispatchReadingFor(r, 'p', 'feature/next')).toEqual(
+      refusal('branch-not-startable', 'feature/next', 'feature/next is not startable: it is held on feature/skill in other/repo and feature/here'),
+    );
+  });
 });
 
 describe('dispatchReadingForPulses — the start reading over a partial pulse', () => {
