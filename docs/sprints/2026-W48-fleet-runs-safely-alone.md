@@ -40,6 +40,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [a-stale-pending-review-is-asked-again] A stale pending review is asked again <!-- pr: #3740, branch: bug/a-held-stale-review-names-its-reason -->
 
 <!-- add items here -->
+- [ ] [#3745](https://github.com/plot-pm/plot/issues/3745) fleetctl --status reads quiet from the live signals of a desk
 
 ### Could Have
 
@@ -60,6 +61,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 
 - 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
+- 2026-11-27: added issue #3745 as a Should Have: the status read three working agents as quiet for 2 h.
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 <!-- Session log, decisions, links -->
