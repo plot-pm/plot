@@ -30,6 +30,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
 - [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
 - [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
+- [ ] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
 
 ### Should Have
 
