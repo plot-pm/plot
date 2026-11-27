@@ -34,7 +34,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
 - [ ] [a-release-holds-merges-while-it-waits] A release holds merges while it waits <!-- pr: #3740, branch: bug/a-waiting-release-holds-merges -->
 - [ ] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
-- [ ] [#3752](https://github.com/plot-pm/plot/issues/3752) The release tick reviews the release head while its sprint has an undelivered plan
+- [ ] [the-release-head-is-reviewed-before-its-scope-is-delivered] The release head is reviewed before its scope is delivered (#3752) <!-- pr: #3753, branch: bug/the-release-head-is-reviewed-while-its-scope-waits -->
 
 ### Should Have
 - [ ] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
