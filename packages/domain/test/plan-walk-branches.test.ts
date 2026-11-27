@@ -14,6 +14,7 @@ import { readCarriedPrStates } from '../src/rules/scan-listing.js';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import { assemblePlanWalk, fleetReading } from '../src/workflows/plan-walk-assembly.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
+import { planReport } from '../src/workflows/plan-walk-report.js';
 
 const INPUT: BranchStageInput = { mainBranch: 'main', planDir: 'docs/plans/' };
 const PLAN = 'docs/plans/2026-10-01-a-plan.md';
@@ -906,5 +907,108 @@ describe('readBranchReadings — the stage reports its PR listing', () => {
   it('reports nothing where no listing arrived', async () => {
     expect(await listingOf({ ...hostFixture({ backend: 'github' }), prList: async () => failed() })).toBeUndefined();
     expect(await listingOf(hostFixture({ backend: 'github' }), { kind: 'unread' })).toBeUndefined();
+  });
+});
+
+describe('readBranchReadings — a slice placed in another repository reads foreign (#3735)', () => {
+  const FOREIGN = 'feature/foreign';
+  const prefixed = `- \`${FOREIGN}\` — quatico-solutions/agent-skills: ship the skill`;
+  const arrowed = `- \`${FOREIGN}\` — ship the skill → other/repo#12`;
+  const twoSlices = (first: PlanRecordBranch, second: PlanRecordBranch): Estate => ({
+    mainSha: 'm1',
+    plans: [
+      {
+        blob: { source: 'main', path: PLAN, sha: 'p1' } as Estate['plans'][number]['blob'],
+        record: planRecord({
+          file: PLAN,
+          phase: 'approved',
+          slices: [
+            { name: 'wave 1', branches: [first] },
+            { name: 'wave 2', branches: [second] },
+          ],
+        }),
+      },
+    ],
+    indexes: [],
+    dangling: [],
+  });
+  const asking = (merged: string[] = []) => {
+    const asked: Array<{ branch: string; repo: string | undefined }> = [];
+    const inner = hostFixture({ backend: 'github', merged });
+    const host: Host = {
+      ...inner,
+      prMerged: async (branch, opts) => (asked.push({ branch, repo: opts?.repo }), inner.prMerged(branch, opts)),
+    };
+    return { host, asked };
+  };
+  const walk = async (refs: Refs, host: Host, estate: Estate) => {
+    const answer = await readBranchReadings(refs, host, estate, { ...INPUT, askAbsent: true });
+    if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+    const assembled = assemblePlanWalk(
+      { estate: answered(estate), branches: answered(answer.value), desks: answered({ mainSha: 'm1', desks: [] }) },
+      { slug: '', offer: false },
+    );
+    if (!assembled.ok) throw new Error('assemblePlanWalk should answer');
+    const header = { main: 'main', readRef: 'm1', localHead: 'm1', fetchFailed: false, fetchError: '', planDir: 'docs/plans/', host: 'ok', mergeDetect: 'unaskable', nowSeconds: 1000 };
+    return { stage: answer.value, assembled: assembled.value, pulse: FleetReadingSchema.parse(fleetReading(assembled.value, header as never)) };
+  };
+
+  it('reads a prefixed line foreign over a claim commit on its ref', async () => {
+    const refs = world({
+      tips: { [FOREIGN]: 't1' },
+      commitSubjects: { 'm1..t1': [{ at: 1, subject: `plot: claim ${FOREIGN}`, tree: 'a', parentTree: 'a' }] },
+    });
+    const { stage, pulse } = await walk(refs, asking().host, twoSlices(line(FOREIGN, { line: prefixed }), line('feature/next')));
+    expect(stage.branches[0]!.readings.foreignRepo).toBe('quatico-solutions/agent-skills');
+    expect(branchState(stage.branches[0]!.readings)).toBe('foreign');
+    expect(pulse.plans[0]!.slices[0]!.branches[0]).toMatchObject({ state: 'foreign', foreign_repo: 'quatico-solutions/agent-skills' });
+  });
+
+  it('reads an arrowed line foreign over an open ref, and never asks this host for its PR', async () => {
+    const { host, asked } = asking();
+    const refs = world({
+      tips: { [FOREIGN]: 't1' },
+      commitSubjects: { 'm1..t1': [{ at: 1, subject: 'real work', tree: 'b', parentTree: 'a' }] },
+    });
+    const { stage } = await walk(refs, host, twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next')));
+    expect(stage.branches[0]!.readings.foreignRepo).toBe('other/repo');
+    expect(branchState(stage.branches[0]!.readings)).toBe('foreign');
+    expect(asked).toEqual([{ branch: FOREIGN, repo: 'other/repo' }]);
+  });
+
+  it('reads a line that names this repository as its own state', async () => {
+    const own = `- \`${FOREIGN}\` — acme/repo: ship the skill → acme/repo#12`;
+    const { stage } = await walk(world(), asking().host, twoSlices(line(FOREIGN, { line: own }), line('feature/next')));
+    expect(stage.branches[0]!.readings.foreignRepo).toBeNull();
+    expect(branchState(stage.branches[0]!.readings)).not.toBe('foreign');
+  });
+
+  it('opens the next wave where the foreign PR merged, and holds it where it did not', async () => {
+    const estate = () => twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next', { waitsOn: [FOREIGN] }));
+    const done = await walk(world({ merges: [] }), asking([FOREIGN]).host, estate());
+    expect(done.pulse.plans[0]!.slices.map((s) => s.verdict)).toEqual(['complete', 'eligible']);
+    expect(done.pulse.plans[0]!.slices[1]!.branches[0]!.state).toBe('open');
+    const open = await walk(world({ merges: [] }), asking().host, estate());
+    expect(open.pulse.plans[0]!.slices[1]!.verdict).not.toBe('eligible');
+    expect(open.pulse.plans[0]!.slices[1]!.branches[0]!.state).toBe('waiting');
+  });
+
+  it('keeps a waiter on a foreign branch with no arrow waiting, and names the repository', async () => {
+    const { host, asked } = asking([FOREIGN]);
+    const { stage, assembled, pulse } = await walk(
+      world({ merges: [] }),
+      host,
+      twoSlices(line(FOREIGN, { line: prefixed }), line('feature/next', { waitsOn: [FOREIGN] })),
+    );
+    expect(asked).toEqual([]);
+    expect(stage.branches[1]!.readings.waits).toEqual([
+      { branch: FOREIGN, pr: 'unreadable', namedSlice: true, foreignRepo: 'quatico-solutions/agent-skills' },
+    ]);
+    const waiter = pulse.plans[0]!.slices[1]!.branches[0]!;
+    expect(waiter).toMatchObject({ state: 'waiting', waits_foreign: { [FOREIGN]: 'quatico-solutions/agent-skills' } });
+    const header = { planDir: 'docs/plans/', host: 'ok' } as never;
+    expect(planReport(assembled.plans[0]!, header, false)).toContain(
+      `feature/next — waiting on ${FOREIGN} (in quatico-solutions/agent-skills)`,
+    );
   });
 });

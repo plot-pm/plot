@@ -1882,6 +1882,22 @@ describe('dispatchReadingFor — a dispatch that names its branch', () => {
       expect(named).toBe(startableBranches(wave4, 'p', new Set()).includes(b));
     }
   });
+
+  it('refuses a foreign branch as branch-foreign and names its repository', () => {
+    const r = FleetReadingSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: '2026-11-02-p.md', phase: 'approved', slices: [{ name: 'w', verdict: 'eligible', branches: [
+        { branch: 'feature/skill', state: 'foreign', foreign_repo: 'quatico-solutions/agent-skills', waits_on: [], held: false, deferred: false, claimed: '', ref_held: true },
+        { branch: 'feature/here', state: 'open', waits_on: [], held: false, deferred: false, claimed: '', ref_held: false },
+      ] }] }],
+      summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    });
+    expect(dispatchReadingFor(r, 'p', 'feature/skill')).toEqual(
+      refusal('branch-foreign', 'feature/skill', 'feature/skill is not startable here: it lives in quatico-solutions/agent-skills'),
+    );
+    expect(startableBranches(r, 'p', new Set())).toEqual(['feature/here']);
+    expect(dispatchReadingFor(r, 'p')).toEqual({ kind: 'branch', branch: 'feature/here' });
+  });
 });
 
 describe('dispatchReadingForPulses — the start reading over a partial pulse', () => {

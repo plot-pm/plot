@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { branchClaims, crossRepoReferences, parseBranchPrefixes } from '../src/rules/cross-repo-reference.js';
+import { branchClaims, crossRepoReferences, parseBranchPrefixes, withClaimLines } from '../src/rules/cross-repo-reference.js';
 
 const plan = (...body: string[]): string =>
   ['# A plan', '', '## Status', '', '- **State:** Approved', '', ...body].join('\n');
@@ -149,5 +149,17 @@ describe('branchClaims prefixes', () => {
 describe('parseBranchPrefixes', () => {
   it('trims entries, drops the trailing slash and empty entries', () => {
     expect(parseBranchPrefixes(' idea/, feature/ ,,bug')).toEqual(['idea', 'feature', 'bug']);
+  });
+});
+
+describe('withClaimLines', () => {
+  it('sets each branch its first claim line, verbatim, and leaves a branch no line names without one', () => {
+    const text = plan('## Slices', '', '- `feature/x` — other/repo: the work', '- `feature/x` — again', '', '### One (Branch: feature/y) → acme/widget#7');
+    const record = { slices: [{ branches: [{ branch: 'feature/x' }, { branch: 'feature/y' }, { branch: 'feature/z' }] }] };
+    expect(withClaimLines(record, text).slices[0]!.branches).toEqual([
+      { branch: 'feature/x', line: '- `feature/x` — other/repo: the work' },
+      { branch: 'feature/y', line: '### One (Branch: feature/y) → acme/widget#7' },
+      { branch: 'feature/z' },
+    ]);
   });
 });

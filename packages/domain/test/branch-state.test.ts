@@ -128,6 +128,34 @@ describe("a plan's deferred: beats a merged ref", () => {
   });
 });
 
+
+describe('a slice placed in another repository reads foreign (#3735)', () => {
+  const foreign = { foreignRepo: 'quatico-solutions/agent-skills' };
+
+  it('answers foreign over a claim commit', () => {
+    expect(branchState(reading({ ...foreign, refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('foreign');
+  });
+
+  it('answers foreign over an open ref with an open PR', () => {
+    expect(branchState(reading({ ...foreign, refTip: 'bbb', commitsAhead: 2, realCommitsAhead: 2, pr: 'OPEN' }))).toBe('foreign');
+  });
+
+  it('answers foreign over an unmerged prerequisite, and deferred over foreign', () => {
+    const waits = [{ branch: 'feature/first', pr: 'OPEN' as const, namedSlice: true }];
+    expect(branchState(reading({ ...foreign, waits }))).toBe('foreign');
+    expect(branchState(reading({ ...foreign, deferredByPlan: true }))).toBe('deferred');
+  });
+
+  it('keeps its own state for a line that names this repository', () => {
+    expect(branchState(reading({ foreignRepo: null, refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
+    expect(branchState(reading({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
+  });
+
+  it('keeps a waiter on an unanswered foreign prerequisite waiting', () => {
+    const waits = [{ branch: 'feature/foreign', pr: 'unreadable' as const, namedSlice: true, ...foreign }];
+    expect(branchState(reading({ waits }))).toBe('waiting');
+  });
+});
 describe("a prerequisite's state beats open and unknown, and nothing else", () => {
   it('replaces open', () => {
     expect(branchState(reading({ waits: [{ branch: 'feature/first', pr: 'OPEN', namedSlice: false }] }))).toBe('waiting');
