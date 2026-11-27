@@ -18,7 +18,7 @@ const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadin
   assignee: 'jwloka',
   state: 'approved',
   issues: [],
-  records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '' },
+  records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw: '' },
   status: 'approved',
   controls: cardControls({ state: 'approved', status: 'approved', started: false }),
   deliverable: false,
@@ -524,5 +524,27 @@ describe('createPlanRefusal: the menu follows the ticket\'s facts', () => {
 
   it('words the facts\' own refusal', () => {
     expect(createPlanRefusal(ticket({ stories: { unknown: 'failed' } }))).toBe('stories unread — unreadable');
+  });
+});
+
+describe('presentCard: the successor', () => {
+  const superseded = (supersededRaw: string): CardSections => sections({
+    state: 'superseded',
+    status: 'withdrawn',
+    records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw },
+  });
+
+  it('shows a foreign successor by name with the word unverified', () => {
+    expect(allWords(superseded('2026-11-27, by `owner/repo:new` (unverified)'))).toContain('superseded by owner/repo:new · unverified');
+  });
+
+  it('shows a local successor by name, without unverified', () => {
+    const shown = allWords(superseded('2026-11-27, by `new`'));
+    expect(shown).toContain('superseded by new');
+    expect(shown.join(' ')).not.toContain('unverified');
+  });
+
+  it('shows nothing for a plan with no Superseded: record', () => {
+    expect(allWords(sections()).join(' ')).not.toContain('superseded by');
   });
 });

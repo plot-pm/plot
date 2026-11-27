@@ -113,6 +113,7 @@ import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseComplete
 import { extractTopics, type StoryDocument } from './topics.js';
 import { defaultBranchIn, stateHomeFor } from './state-home.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
+import { statusField } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -2393,6 +2394,8 @@ interface EstateReads {
   delivered: Map<string, { text: string; deliveryCommit: string | null }>;
   /** Each Draft or Design plan's open questions, by repository-relative path; `null` where the plan has neither heading. */
   openQuestions: Map<string, OpenQuestions | null>;
+  /** Each Superseded plan's `Superseded:` record, verbatim, by repository-relative path. */
+  superseded: Map<string, string>;
   planAuthors: ReadonlyMap<string, string>;
   /** The sprint files the default branch carries, before the working tree adds to them. */
   refSprints: SprintCard[];
@@ -2527,6 +2530,7 @@ const readOwnEstate = async (
   const deliveredReadings = new Map<string, { text: string; deliveryCommit: string | null }>();
   // A Draft or Design plan's open questions, read while the staged copies exist; keyed by the plan's canonical path.
   const openQuestionsByPlan = new Map<string, OpenQuestions | null>();
+  const supersededByPlan = new Map<string, string>();
   let metas: PlanMeta[];
   try {
     metas = await readPlanMeta(opts, [...files, ...staged]);
@@ -2535,11 +2539,16 @@ const readOwnEstate = async (
     // delivery commit cannot be read gets no verification: an error is not a
     // reading that agrees with the record.
     for (const meta of metas) {
-      if (meta.phase !== 'delivered' && meta.phase.toLowerCase() !== 'draft' && meta.phase.toLowerCase() !== 'design') continue;
+      const superseded = meta.phase.toLowerCase() === 'superseded';
+      if (meta.phase !== 'delivered' && meta.phase.toLowerCase() !== 'draft' && meta.phase.toLowerCase() !== 'design' && !superseded) continue;
       const text = (() => { try { return fs.readFileSync(meta.file, 'utf8'); } catch { return null; } })();
       if (text === null) continue;
       const canonical = canonicalPath.get(meta.file);
       const rel = canonical ?? path.relative(repoRoot, meta.file);
+      if (superseded) {
+        supersededByPlan.set(rel, statusField(text, 'Superseded'));
+        continue;
+      }
       if (meta.phase !== 'delivered') {
         openQuestionsByPlan.set(rel, planOpenQuestions(text));
         continue;
@@ -2615,6 +2624,7 @@ const readOwnEstate = async (
     metas: metas.map((meta) => ({ ...meta, file: canonicalPath.get(meta.file) ?? path.relative(repoRoot, meta.file) })),
     delivered: deliveredReadings,
     openQuestions: openQuestionsByPlan,
+    superseded: supersededByPlan,
     planAuthors,
     refSprints,
     refStories: storyFiles === null ? null : { live: refStoriesIn(storyFiles, false), archived: refStoriesIn(storyFiles, true) },
@@ -2790,7 +2800,13 @@ const readServedEstate = async (
   const metas = [...served.plans.map((plan) => planMetaOf(plan)), ...localMetas, ...branchMetas];
   const delivered = new Map<string, { text: string; deliveryCommit: string | null }>();
   const openQuestions = new Map<string, OpenQuestions | null>();
+  const superseded = new Map<string, string>();
   for (const meta of metas) {
+    if (meta.phase.toLowerCase() === 'superseded') {
+      const planText = (() => { try { return fs.readFileSync(path.join(repoRoot, meta.file), 'utf8'); } catch { return null; } })();
+      if (planText !== null) superseded.set(meta.file, statusField(planText, 'Superseded'));
+      continue;
+    }
     if (meta.phase.toLowerCase() === 'draft' || meta.phase.toLowerCase() === 'design') {
       const planText = (() => { try { return fs.readFileSync(path.join(repoRoot, meta.file), 'utf8'); } catch { return null; } })();
       if (planText !== null) openQuestions.set(meta.file, planOpenQuestions(planText));
@@ -2822,6 +2838,7 @@ const readServedEstate = async (
     metas,
     delivered,
     openQuestions,
+    superseded,
     planAuthors: new Map(Object.entries(served.authors)),
     refSprints: served.sprints.map(({ sprint }) => ({
       ...sprint,
@@ -3171,6 +3188,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
         startedRaw: meta.started_raw.join('\n'),
         deliveredRaw: meta.delivered_raw,
         releasedRaw: meta.released_raw,
+        supersededRaw: reads.superseded.get(relPath) ?? '',
       },
       slices: slicesFromPulse(meta, pulse, prByHead),
       spike: spikeBranch === undefined ? null : { branch: spikeBranch, pr: prByHead.get(spikeBranch) ?? null },

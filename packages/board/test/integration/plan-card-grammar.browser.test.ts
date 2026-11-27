@@ -47,7 +47,7 @@ const APP_KEYS = card({
   facts: planFactsOf(card(APP_KEYS_INPUT), {
     state: stateFor(APP_KEYS_INPUT),
     records: {
-      designRaw: '', approvedRaw: '', deliveredRaw: '', releasedRaw: '',
+      designRaw: '', approvedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw: '',
       startedRaw: '2026-11-06, Jan Wloka, feature/app-keys-resolve-from-one-folder',
     },
     directory: { 'jan wloka': 'jwloka' },

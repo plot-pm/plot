@@ -165,6 +165,14 @@ export const VerificationReadingSchema = z.object({ state: VerificationSchema, r
 export type VerificationReading = z.infer<typeof VerificationReadingSchema>;
 
 /**
+ * The plan that replaces a Superseded plan, as its `Superseded:` record names
+ * it: `name` is a slug, or `owner/repo:slug` for a plan in another repository,
+ * and `unverified` holds where the record says no plan file was read for it.
+ */
+export const SuccessorFactSchema = z.object({ name: z.string(), unverified: z.boolean() });
+export type SuccessorFact = z.infer<typeof SuccessorFactSchema>;
+
+/**
  * What a plan's slices cost on this machine: the four counters summed over the
  * measured slices (`null` where none was), and how many slices were measured,
  * held nothing, or could not be read.
@@ -236,6 +244,8 @@ export const CardFactsSchema = z.object({
         spikeUnlicensed: SpikeUnlicensedSchema.nullable(),
       }).nullable(),
       verification: VerificationReadingSchema.nullable(),
+      /** The plan that replaces this one; `null` where no `Superseded:` record names one, and on every other kind. */
+      successor: SuccessorFactSchema.nullable(),
       cost: knownSchema(CostReadingSchema),
     }),
   /**

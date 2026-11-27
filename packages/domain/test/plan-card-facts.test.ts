@@ -19,7 +19,7 @@ const reading = (over: Partial<PlanCardFactsReadings> = {}): PlanCardFactsReadin
   assignee: '',
   state: 'approved',
   issues: [],
-  records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '' },
+  records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw: '' },
   status: 'approved',
   controls: controls(),
   deliverable: false,
@@ -191,6 +191,38 @@ describe('planCardFacts: progress', () => {
     const f = facts({ verification: { state: 'refuted', refuted: 2 }, cost: { value: cost } });
     expect(f.progress.verification).toEqual({ state: 'refuted', refuted: 2 });
     expect(f.progress.cost).toEqual({ value: cost });
+  });
+});
+
+describe('planCardFacts: the successor', () => {
+  const superseded = (supersededRaw: string) =>
+    facts({
+      state: 'superseded',
+      status: 'withdrawn',
+      records: { designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw },
+    });
+
+  it('names a successor in another repository, unverified', () => {
+    expect(superseded('2026-11-27, by `owner/repo:new-plan` (unverified)').progress.successor)
+      .toEqual({ name: 'owner/repo:new-plan', unverified: true });
+  });
+
+  it('names a successor in this repository with no unverified word', () => {
+    expect(superseded('2026-11-27, by `new-plan`').progress.successor).toEqual({ name: 'new-plan', unverified: false });
+  });
+
+  it('is null for a plan with no Superseded: record', () => {
+    expect(facts().progress.successor).toBeNull();
+    expect(superseded('  ').progress.successor).toBeNull();
+  });
+
+  it('shows a record whose name does not parse verbatim', () => {
+    expect(superseded('2026-11-27, see the new plan').progress.successor)
+      .toEqual({ name: '2026-11-27, see the new plan', unverified: false });
+  });
+
+  it('dates the card from the Superseded: record', () => {
+    expect(superseded('2026-11-27, by `new-plan`').ownership.since).toEqual({ at: '2026-11-27', event: 'transitioned' });
   });
 });
 
