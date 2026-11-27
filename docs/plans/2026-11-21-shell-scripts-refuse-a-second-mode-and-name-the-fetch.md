@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #3138, #3367, #3143
@@ -16,6 +16,7 @@
 - **Started:** 2026-11-21, Jan Wloka, `bug/fleetctl-restart-reads-the-bundle-and-main-checkouts`
 - **Started:** 2026-11-25, Jan Wloka, `bug/check-scripts-name-the-default-branch-fetch`
 - **Delivered:** 2026-11-25
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
