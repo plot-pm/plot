@@ -7,6 +7,7 @@ import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import type { FixerAttemptsRecord, FixerRerun } from '../src/entities/fixer-attempts.js';
 import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
+import { releaseHold } from '../src/rules/release-hold.js';
 import { ciRedArm, ciRerunArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
@@ -932,6 +933,51 @@ describe('the merge arm', () => {
 
     it('does not lift a pending or unsettled reading', () => {
       expect(onRed({ defaultBranch: reading({ settled: { sha: TIP, state: 'pending' } }) })).toEqual({ step: 'hold', reason: 'default-branch-unsettled' });
+    });
+  });
+
+  describe('the release hold', () => {
+    const RELEASE: PrIndexRow = { ...row({ number: 3719, head: 'changeset-release/main', base: 'main' }), plotReview: 'pending', plotReviewSha: HEAD };
+    const waiting = releaseHold(RELEASE, null, NOW, 3_600_000, 'main');
+
+    it('holds a slice PR into main as release-waiting while a green, reviewed release head waits', () => {
+      expect(merging({ releaseHold: waiting, row: { ...passed, base: 'main' }, defaultBranchName: 'main' })).toEqual({ step: 'hold', reason: 'release-waiting' });
+      expect(merging({ releaseHold: waiting })).toEqual({ step: 'hold', reason: 'release-waiting' });
+    });
+
+    it('does not hold a PR into a sprint base', () => {
+      const red = reading({ settled: { sha: TIP, state: 'red' }, head: 'red' });
+      expect(merging({ releaseHold: waiting, row: { ...passed, base: 'sprint/x' }, defaultBranchName: 'main', defaultBranch: red })).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('does not hold the release PR itself', () => {
+      expect(mergeArm(readings({ releaseHold: waiting, row: { ...passed, number: 3719 }, defaultBranch: reading() }))).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('holds nothing with no reading, and nothing on a none verdict', () => {
+      expect(merging({ releaseHold: undefined })).toEqual({ step: 'merge', head: HEAD });
+      expect(merging({ releaseHold: { verdict: 'none', reason: 'expired' } })).toEqual({ step: 'merge', head: HEAD });
+    });
+
+    it('keeps the default-branch holds ahead of it', () => {
+      expect(merging({ releaseHold: waiting, defaultBranch: null })).toEqual({ step: 'hold', reason: 'default-branch-unread' });
+      expect(merging({ releaseHold: waiting, defaultBranch: reading({ settled: { sha: TIP, state: 'red' }, head: 'red' }) })).toEqual({ step: 'hold', reason: 'default-branch-red' });
+    });
+
+    it('does not hold the PR the repair record names while main is red', () => {
+      const LAST_GREEN = 'e'.repeat(40);
+      const repairMerge: RepairMergeReading = {
+        record: {
+          v: 1, branch: 'main', state: 'repairing', lastGreenSha: LAST_GREEN, firstRedSha: 'f'.repeat(40),
+          redSince: '2026-10-10T00:00:00Z', candidates: [], rerun: 'asked', preRevertRerun: 'none',
+          repairPr: 7, at: '2026-10-10T00:00:00Z',
+        },
+        episode: 'open',
+        redRuns: 'red',
+      };
+      const red = reading({ settled: { sha: TIP, state: 'red' }, head: 'red' });
+      const repair = { ...passed, head: `bug/main-repair-${LAST_GREEN.slice(0, 12)}` };
+      expect(merging({ releaseHold: waiting, defaultBranch: red, repairMerge, row: repair })).toEqual({ step: 'merge', head: HEAD });
     });
   });
 
