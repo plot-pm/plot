@@ -908,6 +908,9 @@ if [ "$mode" = "status" ]; then
   # bundle, so a desk the two readers see differently prints both and
   # `differs`. A missing bundle prints no board state.
   board_states=$(PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" desk-states "$wt_root"/"$wt_prefix"* 2>/dev/null)
+  # HOW LONG QUIET is the domain's newest live signal (`deskQuietSeconds`), the
+  # board's reading. An empty field or a failed call prints no quiet, never 0.
+  desk_quiet=$(PLOT_REPO_ROOT="$repo_root" node "$script_dir/board/plot-ask.mjs" desk-quiet "$wt_root"/"$wt_prefix"* 2>/dev/null) || desk_quiet=""
   for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
     # A DETACHED DESK IS NAMED RATHER THAN BLANK. `--start` cuts a free agent's
@@ -921,19 +924,7 @@ if [ "$mode" = "status" ]; then
     board=$(printf '%s\n' "$board_states" | awk -F '\t' -v w="$wt" -v s="$st" '$1 == w { printf "  board: %s%s", $2, ($2 == s ? "" : " (differs)") }')
     if [ "$st" = "running" ]; then
       n_run=$((n_run + 1))
-      # HOW LONG IDLE reads the log's mtime, not the process's start time. A
-      # worker alive for six hours mid-prompt is not idle; one whose log has
-      # not moved in six hours is exactly what a person wants named.
-      quiet=""
-      if [ -f "$wt/.plot-worker.log" ]; then
-        now=$(date +%s)
-        # GNU FIRST, as at the log reading above: GNU `stat -f` is a
-        # filesystem report that succeeds, so asking BSD's form first hands
-        # its text to the arithmetic below.
-        touched=$(stat -c %Y "$wt/.plot-worker.log" 2>/dev/null || stat -f %m "$wt/.plot-worker.log" 2>/dev/null || echo "$now")
-        case "$touched" in (''|*[!0-9]*) touched=$now ;; esac
-        quiet=" — quiet $((now - touched))s"
-      fi
+      quiet=$(printf '%s\n' "$desk_quiet" | awk -F '\t' -v w="$wt" '$1 == w && $2 ~ /^[0-9]+$/ { printf " — quiet %ss", $2 }')
       # A WAITING AGENT IS NAMED AS WAITING, because `quiet 2400s` on a worker
       # that is doing exactly what it should reads as a worker that stopped.
       # The loop writes `.plot-worker.limited` while it waits out a usage

@@ -441,8 +441,9 @@ test('--status prints the board state beside the shell state of each desk, and d
     assert.match(r.out, /^  desk-agree  none  board: none$/m, r.out);
     assert.match(r.out, /^  desk-differ  none  board: running \(differs\)$/m, r.out);
     const calls = fs.readFileSync(log, 'utf8').trim().split('\n');
-    assert.equal(calls.length, 1, 'the bundle is asked once per command, not once per desk');
+    assert.deepEqual(calls.map((c) => c.split(' ')[0]), ['desk-states', 'desk-quiet'], 'each question is asked once per command, not once per desk');
     assert.match(calls[0], /^desk-states .*desk-agree .*desk-differ$/);
+    assert.match(calls[1], /^desk-quiet .*desk-agree .*desk-differ$/);
   } finally {
     fs.rmSync(agree, { recursive: true, force: true });
     fs.rmSync(differ, { recursive: true, force: true });
@@ -489,6 +490,84 @@ test('--status names a usage-limit wait only for a numeric reset that lies ahead
   } finally {
     for (const sleeper of sleepers) signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
     for (const desk of desks) fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+// ── --status reads each running desk's quiet through the domain ──────────────
+
+/** Copies the built `plot-ask.mjs` into the sandbox, so `--status` asks the real rule. */
+const realAsk = (root) => fs.copyFileSync(path.join(scripts, 'board', 'plot-ask.mjs'), path.join(root, 'skills', 'plot', 'scripts', 'board', 'plot-ask.mjs'));
+
+/** Writes `name` in `dir` with an mtime `seconds` in the past. */
+const aged = (dir, name, seconds) => {
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, 'x\n');
+  const at = new Date(Date.now() - seconds * 1000);
+  fs.utimesSync(file, at, at);
+};
+
+/** A desk under `.worktrees` whose worker is a live sleeper; `worktree: false` makes a plain directory with no HEAD. */
+const runningDesk = (root, name, { worktree = true } = {}) => {
+  const desk = path.join(root, '.worktrees', name);
+  if (worktree) {
+    git(root, 'worktree', 'add', '-q', '-b', name, desk);
+    const old = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'old'], { cwd: desk, env: { ...process.env, GIT_AUTHOR_DATE: old, GIT_COMMITTER_DATE: old } });
+  } else {
+    fs.mkdirSync(desk, { recursive: true });
+  }
+  const sleeper = record(execFileSync('bash', ['-c', 'sleep 30 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' }).trim());
+  fs.writeFileSync(path.join(desk, '.plot-worker.pid'), `${sleeper}\n`);
+  return { desk, sleeper };
+};
+
+const lineOf = (out, name) => out.split('\n').find((l) => l.includes(` ${name}  running`)) ?? '';
+
+test('--status reads quiet from the newest live signal, not from the log alone', () => {
+  const { root, ctl, guardBin } = sandbox('status-quiet');
+  realAsk(root);
+  const { desk, sleeper } = runningDesk(root, 'desk-quiet');
+  try {
+    aged(desk, '.plot-worker.log', 7200);
+    aged(desk, '.plot-worker.pass', 60);
+    const r = run(ctl, ['--status'], root, guardBin);
+    const quiet = Number(/ — quiet (\d+)s/.exec(lineOf(r.out, 'desk-quiet'))?.[1]);
+    assert.ok(quiet >= 60 && quiet < 300, r.out);
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--status names a future usage-limit wait in place of the quiet reading', () => {
+  const { root, ctl, guardBin } = sandbox('status-quiet-limited');
+  realAsk(root);
+  const { desk, sleeper } = runningDesk(root, 'desk-limited');
+  try {
+    aged(desk, '.plot-worker.pass', 60);
+    fs.writeFileSync(path.join(desk, '.plot-worker.limited'), `${Math.floor(Date.now() / 1000) + 3600}\t2099-01-01T00:00:00Z\n`);
+    const line = lineOf(run(ctl, ['--status'], root, guardBin).out, 'desk-limited');
+    assert.match(line, /waiting on a usage limit until 2099-01-01T00:00:00Z/, line);
+    assert.doesNotMatch(line, /quiet/, line);
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
+  }
+});
+
+test('--status prints no quiet for a desk with none of the four signals', () => {
+  const { root, ctl, guardBin } = sandbox('status-quiet-none');
+  realAsk(root);
+  const { desk, sleeper } = runningDesk(root, 'desk-silent', { worktree: false });
+  try {
+    // The ceiling keeps `git -C <desk>` from reading the sandbox's own HEAD.
+    const r = run(ctl, ['--status'], root, guardBin, { GIT_CEILING_DIRECTORIES: path.join(root, '.worktrees') });
+    const line = lineOf(r.out, 'desk-silent');
+    assert.match(line, /running \(pid \d+\)/, r.out);
+    assert.doesNotMatch(line, /quiet/, line);
+  } finally {
+    signalOwn(sleeper, 'SIGTERM', { command: 'lsof -a -p' });
+    fs.rmSync(desk, { recursive: true, force: true });
   }
 });
 
