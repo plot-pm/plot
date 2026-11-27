@@ -34,6 +34,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
 - [ ] [a-release-holds-merges-while-it-waits] A release holds merges while it waits <!-- pr: #3740, branch: bug/a-waiting-release-holds-merges -->
 - [ ] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
+- [ ] [#3752](https://github.com/plot-pm/plot/issues/3752) The release tick reviews the release head while its sprint has an undelivered plan
 
 ### Should Have
 - [ ] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
@@ -61,6 +62,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 
+- 2026-11-27: added issue #3752 as a Must Have: the hold plan reads readiness from the stage this issue changes.
 - 2026-11-27: added issue #3750 as a Should Have, from the panel on a-release-holds-merges-while-it-waits.
 - 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
 - 2026-11-27: added issue #3745 as a Should Have: the status read three working agents as quiet for 2 h.
