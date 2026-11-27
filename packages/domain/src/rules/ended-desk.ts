@@ -51,23 +51,25 @@ const hours = (seconds: number): string => `${Math.round((seconds / 3600) * 10) 
 /**
  * Whether a desk's records show that its free wait ran out.
  *
- * `agentLoop` ROW 2 exits 124 and writes no ending; the wrapper records the
- * exit code in `.plot-worker.exit`; the supervisor's `killedWorkerEnding` then
- * writes `reason: unreadable, actor: supervisor` for the desk. Every other
- * 124 exit of the loop writes its own ending, so the supervisor's record beside
- * an exit of 124 names the free-wait end.
+ * Two records name the free-wait end. `agentLoop` ROW 2 writes
+ * `reason: free-wait-expired, actor: agent` and exits 124. An ending written
+ * before that reason existed reads `reason: unreadable, actor: supervisor`
+ * beside an exit of 124: the loop wrote none, and the supervisor's
+ * `killedWorkerEnding` composed it. Every other 124 exit of the loop writes
+ * its own ending, so that pair also names the free-wait end.
  *
- * An absent ending answers false: the supervisor has not recorded the end yet.
+ * An absent ending answers false: nothing has recorded the end yet.
  *
  * @param ending - the desk's `.plot-worker.ending.json`, read.
  * @param exit - the desk's `.plot-worker.exit` text, verbatim; `null` where absent.
- * @returns true only for the supervisor's `unreadable` record beside an exit of 124.
+ * @returns true for the loop's `free-wait-expired` ending, and for the
+ *   supervisor's `unreadable` record beside an exit of 124.
  */
-export const freeWaitEnded = (ending: EndingReading, exit: string | null): boolean =>
-  ending.read === 'ended' &&
-  ending.ending.reason === 'unreadable' &&
-  ending.ending.actor === 'supervisor' &&
-  exit?.trim() === FREE_WAIT_EXIT;
+export const freeWaitEnded = (ending: EndingReading, exit: string | null): boolean => {
+  if (ending.read !== 'ended') return false;
+  if (ending.ending.reason === 'free-wait-expired') return ending.ending.actor === 'agent';
+  return ending.ending.reason === 'unreadable' && ending.ending.actor === 'supervisor' && exit?.trim() === FREE_WAIT_EXIT;
+};
 
 /** The row text for a desk whose every write the harness refused. */
 const PERMISSION_DENIED_NOTE = 'agent was refused every write — check the worker command\'s permissions';

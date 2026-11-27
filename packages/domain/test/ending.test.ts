@@ -41,7 +41,7 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the seventeen reasons apart', () => {
+  it('reads the eighteen reasons apart', () => {
     expect(EndingReasonSchema.options).toEqual([
       'bound',
       'quiet',
@@ -60,6 +60,7 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
       'nothing-done',
       'permission-denied',
       'stopped',
+      'free-wait-expired',
     ]);
   });
 
