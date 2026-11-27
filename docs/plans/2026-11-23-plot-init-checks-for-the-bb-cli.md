@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #2533
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-24, Jan Wloka, `bug/plot-init-reads-which-bb-answers`
 - **Started:** 2026-11-26, Jan Wloka, `bug/plot-init-proposes-the-bb-install`
 - **Delivered:** 2026-11-26
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
