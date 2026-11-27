@@ -69,6 +69,8 @@ export interface RoleReadings {
   fixers: readonly FixerRead[] | null;
   design: PlanRunsRead | null;
   verify: PlanRunsRead | null;
+  /** The review run's bound in milliseconds, which {@link reviewRunLive} reads. */
+  reviewBoundMs: number;
   /** Epoch milliseconds. */
   now: number;
 }
@@ -93,7 +95,7 @@ const parseTime = (iso: string): number | null => {
 export const roleRuns = (readings: RoleReadings): RoleRun[] => {
   const runs: RoleRun[] = [];
   for (const { entry, pidAlive } of readings.reviews ?? []) {
-    if (!reviewRunLive(entry, pidAlive, readings.now)) continue;
+    if (!reviewRunLive(entry, pidAlive, readings.now, readings.reviewBoundMs)) continue;
     runs.push({ id: `agent:reviewer:${entry.pr}:${entry.head.slice(0, 7)}`, role: 'reviewer', pr: entry.pr, startedAt: entry.startedAt });
   }
   for (const { pr, record } of readings.fixers ?? []) {

@@ -8848,6 +8848,7 @@ export const readRoleRuns = async (repoRoot: string, now: number): Promise<RoleR
     fixers: await listFixerAttempts(repoRoot),
     design: design === null ? null : planRunsRead(design.running, design.rows.map((row) => ({ ...row, plan: row.plan })), designBranch),
     verify: verify === null ? null : planRunsRead(verify.running, verify.rows.map((row) => ({ ...row, plan: row.slug }))),
+    reviewBoundMs: REVIEW_BOUND_MS,
     now,
   });
 };

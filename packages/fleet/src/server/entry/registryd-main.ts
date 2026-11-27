@@ -143,7 +143,7 @@ import type { ConversationHolds } from '../../shared/auto-merge.js';
 import { verifyingCount } from '../../shared/auto-verify.js';
 import { specRunningCount } from '../../shared/auto-design.js';
 import { boundSecondsOf, boundSecondsOfKey, pidAlive } from '../../shared/fleet-run.js';
-import { readAutoReview } from '../../shared/auto-review.js';
+import { readAutoReview, REVIEW_BOUND_MS } from '../../shared/auto-review.js';
 import { releaseLine, releaseTick } from '../../shared/release-tick.js';
 import { repairStartWorldOf } from '../../shared/repair-start-world.js';
 import { repairStartTick } from '../../shared/repair-start.js';
@@ -4091,6 +4091,7 @@ export const run = async (
             detached: detachedNode(),
             pidAlive: (pid) => pidAlive(pid),
             limit: 1,
+            boundMs: REVIEW_BOUND_MS,
           },
           Date.now(),
           reviewOn,

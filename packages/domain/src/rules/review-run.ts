@@ -31,16 +31,21 @@ export const REVIEW_START_BUDGET = 3;
 export const REVIEW_BACKOFF_MS: readonly number[] = [15 * 60_000, 60 * 60_000];
 
 /**
- * Whether a review run is live: its pid answers, or its pid is dead and the
- * run started inside {@link REVIEW_START_GRACE_MS}.
+ * Whether a review run is live: it started inside `boundMs` plus
+ * {@link REVIEW_START_GRACE_MS}, and its pid answers or it started inside
+ * {@link REVIEW_START_GRACE_MS}. Past the bound and the grace the run is dead
+ * whatever its pid answers.
  *
  * @param entry - the in-flight entry.
  * @param pidAlive - whether the entry's pid answers.
  * @param now - epoch milliseconds.
+ * @param boundMs - the review run's bound in milliseconds: `plot-review` stops itself at it.
  * @returns `true` while the run counts as live.
  */
-export const reviewRunLive = (entry: ReviewRunEntry, pidAlive: boolean, now: number): boolean =>
-  pidAlive || now - entry.startedAt < REVIEW_START_GRACE_MS;
+export const reviewRunLive = (entry: ReviewRunEntry, pidAlive: boolean, now: number, boundMs: number): boolean => {
+  const age = now - entry.startedAt;
+  return age < boundMs + REVIEW_START_GRACE_MS && (pidAlive || age < REVIEW_START_GRACE_MS);
+};
 
 /**
  * What the start record allows for one head.

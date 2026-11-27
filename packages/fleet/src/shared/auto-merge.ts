@@ -37,7 +37,7 @@ import type { RunLogLine } from '@plot-pm/domain/ports/run-log';
 import type { RepairMergeReading } from '@plot-pm/domain/rules/repair-pr';
 import { readRepair, mergeAt } from '@plot-pm/domain/workflows/merge';
 import { refsOf, runLogOf, scriptsOf, stateHomeOfOpts, type ActOptions } from './action-log.js';
-import { readAutoReview } from './auto-review.js';
+import { readAutoReview, REVIEW_BOUND_MS } from './auto-review.js';
 import { readConfig } from './config-reader.js';
 import { pidAlive } from './fleet-run.js';
 
@@ -253,7 +253,7 @@ export const mergeTick = async (
   conversationHolds?: ConversationHolds,
 ): Promise<MergeTickResult> => {
   const repairMerge = readings.repairMerge ?? (await repairReading(rows, readings.defaultBranch, ports));
-  const live = liveReviewRuns(repoRoot, pidAlive, readings.now);
+  const live = liveReviewRuns(repoRoot, pidAlive, readings.now, REVIEW_BOUND_MS);
   const { baseReadings, ...shared } = readings;
   const baseRepairMerges = await baseRepairReadings(rows, baseReadings, ports, readings.now);
   const rowSteps = rows.map((row) => {

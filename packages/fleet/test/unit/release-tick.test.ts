@@ -104,6 +104,7 @@ const start = () => ({
   } as Detached,
   pidAlive: () => true,
   limit: 4,
+  boundMs: 3_600_000,
 });
 
 const config = { requiredWorkflow: 'CI', reviewBoundMs: 3_600_000, startBudget: 3 };
