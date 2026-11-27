@@ -1,1 +1,0 @@
-../2026-11-27-pr-ci-runs-the-contracts-on-a-fresh-bundle.md
