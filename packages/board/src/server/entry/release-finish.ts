@@ -15,6 +15,7 @@ import { releaseFinishRecordIn, stateHomeFor } from '../state-home.js';
 
 import { commitAndPush, cutBooking, localDate, recordStateReceipt, Refused, type Printer, type PushLock } from './ladder.js';
 import { tellTrackerAbout } from './release-tracker.js';
+import { readTagSlices, type TagSlicesPlan } from '@plot-pm/fleet/shared/release-tag-slices';
 
 /** The ports and settings the finish reads and writes through. */
 export interface FinishContext {
@@ -373,6 +374,9 @@ const finishTail = async (
     const listed = await ctx.planStore.listDir(path.join(wt, planDir));
     const files = listed.ok ? listed.value : [];
     const plans: ScopePlan[] = [];
+    // The tag arm reads every plan not yet Released, so a candidate that is not Delivered is named.
+    const unreleased: TagSlicesPlan[] = [];
+    let textUnread = false;
     for (const name of files.filter((f) => f.endsWith('.md'))) {
       const slug = planSlug(name);
       const rel = path.join(planDir, name);
@@ -382,10 +386,15 @@ const finishTail = async (
           ? { slug, file: rel, type: read.value.type, phase: String(read.value.phase), releasedRecord: read.value.releasedRaw }
           : { slug, file: '', type: '', phase: 'none', releasedRecord: '' },
       );
+      if (!read.ok || read.value.error !== undefined || String(read.value.phase).toLowerCase() === 'released' || read.value.releasedRaw.trim() !== '') continue;
+      const text = await ctx.planStore.readText(path.join(wt, rel));
+      if (!text.ok || text.value === null) textUnread = true;
+      else unreleased.push({ slug, text: text.value, branches: read.value.slices.flatMap((sl) => sl.branches) });
     }
+    const tagSlices = textUnread ? 'unaskable' : await readTagSlices(ctx.refs, unreleased, `origin/${mainBranch}`);
 
     const out = releaseFinish(
-      { caller: ctx.caller, version: tag, tagExists, tagDate, plans, shipped, sprints },
+      { caller: ctx.caller, version: tag, tagExists, tagDate, plans, shipped, sprints, tagSlices },
       { on },
     );
     if (out.outcome === 'refused') {
