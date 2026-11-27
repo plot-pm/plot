@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-25, jwloka, plan-PR #3716 merged
 - **Started:** 2026-11-25, Jan Wloka, `bug/the-bb-pause-rule-follows-bb-1-15-2`
 - **Delivered:** 2026-11-26
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
