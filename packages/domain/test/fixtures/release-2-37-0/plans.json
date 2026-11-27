@@ -1,0 +1,72 @@
+[
+  {
+    "slug": "a-refused-bb-call-writes-no-budget-row",
+    "file": "docs/plans/2026-11-23-a-refused-bb-call-writes-no-budget-row.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "delivery-is-measured-from-the-plan-files",
+    "file": "docs/plans/2026-11-23-delivery-is-measured-from-the-plan-files.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "shell-scripts-refuse-a-second-mode-and-name-the-fetch",
+    "file": "docs/plans/2026-11-21-shell-scripts-refuse-a-second-mode-and-name-the-fetch.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "plot-init-checks-for-the-bb-cli",
+    "file": "docs/plans/2026-11-23-plot-init-checks-for-the-bb-cli.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-bb-pause-rule-follows-bb-1-15-2",
+    "file": "docs/plans/2026-11-24-the-bb-pause-rule-follows-bb-1-15-2.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-board-refuses-unauthenticated-remote-writes",
+    "file": "docs/plans/2026-11-23-the-board-refuses-unauthenticated-remote-writes.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-checklist-badge-reads-the-newest-release",
+    "file": "docs/plans/2026-11-23-the-checklist-badge-reads-the-newest-release.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "the-default-runner-has-a-spend-cap",
+    "file": "docs/plans/2026-11-23-the-default-runner-has-a-spend-cap.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "github-refuses-a-merge-into-a-red-main",
+    "file": "docs/plans/2026-11-23-github-refuses-a-merge-into-a-red-main.md",
+    "type": "feature",
+    "phase": "delivered",
+    "releasedRecord": ""
+  },
+  {
+    "slug": "fleetctl-runs-in-a-submodule-checkout",
+    "file": "docs/plans/2026-11-23-fleetctl-runs-in-a-submodule-checkout.md",
+    "type": "bug",
+    "phase": "delivered",
+    "releasedRecord": ""
+  }
+]

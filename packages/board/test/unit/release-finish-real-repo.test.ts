@@ -254,7 +254,7 @@ describe('finishRelease against a real remote', () => {
     expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
   });
 
-  it('refuses release-scope-mismatch and writes nothing once a later sprint is active for a different release', async () => {
+  it('answers already-released and writes nothing once a later sprint is active for a different release', async () => {
     const { repo, origin, ctx } = estate({ tagged: true });
     const root = path.dirname(repo);
     expect((await run(ctx)).code).toBe(0);
@@ -262,14 +262,15 @@ describe('finishRelease against a real remote', () => {
     git(repo, 'fetch', '-q', 'origin', 'main');
     const before = originMain(origin);
 
-    const { code, err } = await run(ctx);
+    const { code, out, err } = await run(ctx);
 
-    expect(code).toBe(1);
-    expect(err).toContain('release-scope-mismatch');
-    expect(err).toContain('docs/sprints/active/2026-W46-t.md');
+    expect(code).toBe(0);
+    expect(err).not.toContain('release-scope-mismatch');
+    expect(out).toContain('already-released');
     expect(originMain(origin)).toBe(before);
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(onMain(repo, 'docs/plans/2026-10-20-epsilon.md')).not.toContain('Released:');
+    expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Active');
   });
 
   it('books the next release against the next sprint once the first close removed its active entry', async () => {

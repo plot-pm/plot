@@ -18,18 +18,17 @@ import { type Caller, type Outcome, decide, refuse } from './decision.js';
  * `already-released` is the safe answer to a second run: every scope plan holds
  * its `Released:` record and every sprint of the release is closed.
  * `sprint-ambiguous` names every open sprint of the release when there is more
- * than one. `release-scope-mismatch` catches the sprint that moved on: no
- * sprint names the version this finish is booking, and an open sprint names a
- * different one. `sprint-unclosable` carries the sprint transition's own
- * refusal.
+ * than one. `sprint-unclosable` carries the sprint transition's own refusal.
+ * `shipped-unread` answers a release whose changesets could not be read while
+ * no sprint is in scope, so nothing can say whether a plan is still owed.
  */
 export type ReleaseFinishRefusal =
   | 'unattended'
   | 'tag-absent'
   | 'sprint-ambiguous'
-  | 'release-scope-mismatch'
   | 'plan-unbookable'
   | 'sprint-unclosable'
+  | 'shipped-unread'
   | 'already-released';
 
 /** One plan file, as the finish reads it. */
@@ -95,7 +94,8 @@ export interface ReleaseFinishDetail {
   readonly closeSprint: FinishSprintClose | null;
   /**
    * Lines naming what the finish did not book: Delivered plans outside the sprint that no
-   * shipped changeset names, named plans that are not Delivered, and `shipped-unread`.
+   * shipped changeset names, named plans that are not Delivered, an open sprint that names
+   * another version while no sprint is in scope, and `shipped-unread`.
    */
   readonly notes: readonly string[];
 }
@@ -107,17 +107,18 @@ export interface ReleaseFinishDetail {
  * `Release:` names the version, active or closed, and each plan a shipped
  * changeset names. Refuses `unattended` first, then `tag-absent`, then
  * `sprint-ambiguous` when more than one open sprint is in scope, then
- * `release-scope-mismatch` when no sprint is in scope and an open sprint names
- * another `Release:`, then `plan-unbookable` for a sprint plan whose file is
- * absent or whose phase is neither `delivered` nor `released`. An open sprint
- * naming another version is otherwise ignored, and a closed sprint stays
- * closed. The one open sprint in scope goes through `setSprintState` to
+ * `plan-unbookable` for a sprint plan whose file is absent or whose phase is
+ * neither `delivered` nor `released`. Where no sprint is in scope, the scope is
+ * the plans the shipped changesets name, no sprint closes, and each open sprint
+ * that names another `Release:` is named in `notes` and left open. A closed
+ * sprint stays closed. The one open sprint in scope goes through `setSprintState` to
  * `Closed`, and its refusal stops the finish as `sprint-unclosable`. The plans
  * booked are {@link releaseOwed}'s. A named plan that is not Delivered or has
  * no file, and a Delivered plan nothing in scope names, is named in `notes`;
  * none of them refuses. `shipped` of `'unaskable'` books the sprint scope only
  * and adds a `shipped-unread` note. When nothing remains to book and no sprint
- * closes, refuses `already-released`. Otherwise one commit and one push book
+ * closes, refuses `shipped-unread` where `shipped` is `'unaskable'` and no
+ * sprint is in scope, and `already-released` otherwise. Otherwise one commit and one push book
  * every owed plan, and the commit names the sprint file and its active index
  * entry when the sprint closes in it.
  *
@@ -143,15 +144,6 @@ export const releaseFinish = (
     const named = openInScope.map((s) => s.link || s.file).join(', ');
     return no('sprint-ambiguous', `${openInScope.length} open sprints name ${version}: ${named}. Close all but one with /plot-sprint, then run the finish again. Nothing is written.`);
   }
-  if (scope.sprints.length === 0) {
-    const moved = readings.sprints.find((s) => !sprintClosed(s) && s.release.trim() !== '');
-    if (moved !== undefined) {
-      return no(
-        'release-scope-mismatch',
-        `no sprint names Release: ${version}, and the open sprint ${moved.link || moved.file} names Release: ${moved.release.trim()}. Nothing is written; fix the Release field of ${version}'s own sprint, then run the finish again.`,
-      );
-    }
-  }
   const bySlug = new Map(readings.plans.map((p) => [p.slug, p]));
   const unbookable = scope.sprintSlugs
     .map((slug) => bySlug.get(slug) ?? { slug, file: '', type: '', phase: 'none', releasedRecord: '' })
@@ -163,6 +155,12 @@ export const releaseFinish = (
     return no('plan-unbookable', `${unbookable.length} scope plan(s) cannot be booked as Released: ${named}. Nothing is written.`);
   }
   const notes: string[] = [];
+  if (scope.sprints.length === 0) {
+    for (const s of readings.sprints) {
+      if (sprintClosed(s) || s.release.trim() === '') continue;
+      notes.push(`open sprint ${s.slug} names ${s.release.trim()}; left open`);
+    }
+  }
   if (readings.shipped === 'unaskable') {
     notes.push('shipped-unread: the release merge\'s changesets could not be read, so only the sprint scope is booked.');
   } else {
@@ -207,6 +205,9 @@ export const releaseFinish = (
     closeSprint = { slug: open.slug, file: open.file, link: open.link, actualEnd: String(closed.actualEnd) };
   }
   if (pending.length === 0 && closeSprint === null) {
+    if (readings.shipped === 'unaskable' && scope.sprints.length === 0) {
+      return no('shipped-unread', `no sprint names ${version} and the release merge's changesets could not be read, so nothing says which plans ${version} owes. Nothing is written; run the finish again once the changesets can be read.`);
+    }
     return no('already-released', `every scope plan holds its Released record for ${version} and the sprint is closed. Nothing is written.`);
   }
   const writes = pending.flatMap((p) => [
