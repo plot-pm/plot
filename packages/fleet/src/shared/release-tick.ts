@@ -123,7 +123,7 @@ export const releaseTick = async (
   const checks: ReleaseChecksReading =
     row?.headSha === undefined ? { read: 'unaskable' } : await ports.runs(row.head, row.headSha);
   const headChanges = row?.headSha === undefined ? ('unaskable' as const) : await ports.headChanges(row.headSha);
-  const live = liveReviewRuns(start.repoRoot, start.pidAlive, now);
+  const live = liveReviewRuns(start.repoRoot, start.pidAlive, now, start.boundMs);
   const run = row === null ? null : (live?.find((entry) => entry.pr === row.number) ?? null);
   const starts = row === null ? null : (readReviewStarts(start.repoRoot)?.find((entry) => entry.pr === row.number) ?? null);
   const readings = {

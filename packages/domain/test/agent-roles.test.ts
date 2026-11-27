@@ -4,6 +4,8 @@ import { roleChip, roleRuns, type RoleReadings } from '../src/rules/agent-roles.
 import type { AgentRole } from '../src/rules/delivery-placement.js';
 import { REVIEW_START_GRACE_MS } from '../src/rules/review-run.js';
 
+const BOUND = 3_600_000;
+
 const NOW = 1_000_000_000;
 
 const record = (inFlight?: { pid: number; startedAt: string }): FixerAttemptsRecord =>
@@ -14,6 +16,7 @@ const live = (over: Partial<RoleReadings> = {}): RoleReadings => ({
   fixers: [{ pr: 8, record: record({ pid: 6, startedAt: '2026-11-17T10:00:00Z' }) }],
   design: { running: ['plan-d'] },
   verify: { running: ['plan-v'] },
+  reviewBoundMs: BOUND,
   now: NOW,
   ...over,
 });
@@ -71,6 +74,11 @@ describe('roleRuns', () => {
   it('shows a reviewer whose pid is dead inside the start grace', () => {
     const young = { entry: { pr: 7, head: 'abcdef123', pid: 5, startedAt: NOW - 1, mode: 'review' as const }, pidAlive: false };
     expect(roleRuns(live({ reviews: [young] })).filter((r) => r.role === 'reviewer')).toHaveLength(1);
+  });
+
+  it('shows no reviewer whose pid answers past the bound and the start grace', () => {
+    const hung = { entry: { pr: 7, head: 'abcdef123', pid: 5, startedAt: NOW - BOUND - REVIEW_START_GRACE_MS, mode: 'review' as const }, pidAlive: true };
+    expect(roleRuns(live({ reviews: [hung] })).filter((r) => r.role === 'reviewer')).toEqual([]);
   });
 
   it('keeps a fixer whose mark start does not parse, with no start time', () => {

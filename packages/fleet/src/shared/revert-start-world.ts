@@ -25,7 +25,7 @@ import { trustedReview } from '@plot-pm/domain/rules/pr-index';
 import { prNumberOf, type RedMainCandidate } from '@plot-pm/domain/rules/repair';
 import { DEFAULT_RELEASE_DIR, syncPathSet, syncPathVerdict } from '@plot-pm/domain/rules/state-sync';
 
-import { REVIEW_RUN_LIMIT } from './auto-review.js';
+import { REVIEW_BOUND_MS, REVIEW_RUN_LIMIT } from './auto-review.js';
 import { pidAlive } from './fleet-run.js';
 import type { RevertWorld } from './revert-start.js';
 
@@ -199,6 +199,7 @@ export const revertWorldOf = (options: RevertWorldOptions): RevertWorld => {
         detached: detachedNode(),
         pidAlive: (pid) => pidAlive(pid),
         limit: REVIEW_RUN_LIMIT,
+        boundMs: REVIEW_BOUND_MS,
         mode: 'review',
         now: Date.now(),
       }).started,

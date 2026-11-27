@@ -7,6 +7,7 @@ import {
   repairAdmits,
   REVIEW_START_BUDGET,
   reviewPrNext,
+  reviewRunLive,
   type DefaultBranchReading,
   type FixerReading,
   type FleetOwner,
@@ -16,7 +17,8 @@ import {
 import { agentsFs, defaultBranchFile, fixerAttemptsFile, prIndexFile, repairRecordFile, treesGit } from '@plot-pm/domain/adapters';
 import { detachedNode } from '@plot-pm/domain/adapters/detached/detached-node';
 import {
-  liveReviewRuns,
+  endReviewRun,
+  readReviewRuns,
   readReviewStarts,
   startReview,
   type StartReviewOptions,
@@ -97,6 +99,16 @@ export interface ReviewTickResult {
   readonly step: SlicePrStep;
   /** Set where the step was `review` and a start was tried. */
   readonly started?: { started: true; pid: number } | { started: false; why: string };
+  /** The pids of runs past the bound that the tick ended before the start; set where it ended one. */
+  readonly ended?: readonly number[];
+}
+
+/** A live process that holds the review run lock of one head, and since when. */
+export interface ReviewLockHolder {
+  /** The pid the lock names. */
+  readonly pid: number;
+  /** Epoch milliseconds: the lock file's time, or the first pass that saw the lock where its time cannot be read. */
+  readonly since: number;
 }
 
 /**
@@ -109,34 +121,51 @@ export interface ReviewTickResult {
  * because they live in `review-starts.json`. Steps other than `review` are
  * returned and not acted on.
  *
- * A live run that holds the review lock of the row's head, as `lockHolder`
- * answers, reads as a live run on that head, so the row holds
- * `review-in-flight` whoever started that run.
+ * A run counts as live through `reviewRunLive` with `start.boundMs`. A live
+ * process that holds the review lock of the row's head, as `lockHolder`
+ * answers, reads as a live run on that head started at the holder's `since`,
+ * so the row holds `review-in-flight` whoever started that run, and only
+ * inside the bound.
+ *
+ * On a `review` step the tick first calls `end` with the pid of each run on
+ * the row's PR whose pid answers and that `reviewRunLive` reads as past the
+ * bound: an in-flight entry, or the lock holder. Each pid is ended once per tick.
  *
  * @param rows - the open rows.
  * @param readings - the readings that do not depend on the row, and the owner reading per PR.
  * @param start - the paths, ports and bounds, without the mode.
- * @param lockHolder - the pid of a live run holding the review lock of a PR's head, or `null`; no lock by default.
+ * @param lockHolder - the live holder of the review lock of a PR's head, or `null`; no lock by default.
+ * @param end - ends a run by pid and answers whether it was signalled; ends nothing by default.
  * @returns one result per row.
  */
 export const reviewTick = (
   rows: readonly PrIndexRow[],
   readings: ReviewTickReadings,
   start: Omit<StartReviewOptions, 'mode' | 'now'>,
-  lockHolder: (pr: number, head: string) => number | null = () => null,
+  lockHolder: (pr: number, head: string) => ReviewLockHolder | null = () => null,
+  end: (pid: number) => boolean = () => false,
 ): ReviewTickResult[] => {
   const { owners, ...shared } = readings;
+  const now = readings.now;
   const results: ReviewTickResult[] = [];
   for (const row of rows) {
-    const live = liveReviewRuns(start.repoRoot, start.pidAlive, readings.now);
+    const runs = readReviewRuns(start.repoRoot, start.pidAlive);
     const starts = readReviewStarts(start.repoRoot);
-    const run = live?.find((e) => e.pr === row.number) ?? null;
-    const locked = row.headSha === undefined ? null : lockHolder(row.number, row.headSha);
+    const mine = runs?.filter((r) => r.entry.pr === row.number) ?? [];
+    const run = mine.find((r) => reviewRunLive(r.entry, r.pidAlive, now, start.boundMs))?.entry ?? null;
+    const hung = mine.filter((r) => r.pidAlive && !reviewRunLive(r.entry, true, now, start.boundMs)).map((r) => r.entry.pid);
+    const held = row.headSha === undefined ? null : lockHolder(row.number, row.headSha);
+    const lockEntry =
+      held === null || row.headSha === undefined
+        ? null
+        : { pr: row.number, head: row.headSha, pid: held.pid, startedAt: held.since, mode: 'review' as const };
+    const lockLive = lockEntry !== null && reviewRunLive(lockEntry, true, now, start.boundMs);
+    if (lockEntry !== null && !lockLive) hung.push(lockEntry.pid);
     const reviewRun =
       run !== null
         ? { head: run.head, pid: run.pid, startedAt: run.startedAt, live: true }
-        : locked !== null && row.headSha !== undefined
-          ? { head: row.headSha, pid: locked, startedAt: readings.now, live: true }
+        : lockLive
+          ? { head: lockEntry.head, pid: lockEntry.pid, startedAt: lockEntry.startedAt, live: true }
           : null;
     const owned = owners.get(row.number);
     const step = reviewPrNext({
@@ -152,10 +181,12 @@ export const reviewTick = (
       results.push({ pr: row.number, step });
       continue;
     }
+    const ended = [...new Set(hung)].filter((pid) => pid > 0 && end(pid));
     results.push({
       pr: row.number,
       step,
-      started: startReview(row.number, step.head, { ...start, mode: 'review', now: readings.now }),
+      started: startReview(row.number, step.head, { ...start, mode: 'review', now }),
+      ...(ended.length === 0 ? {} : { ended }),
     });
   }
   return results;
@@ -189,6 +220,10 @@ export interface ReviewPassWorld {
   readonly pidAlive: (pid: number) => boolean;
   /** The text of the review run lock of one head, or `null` where none can be read. */
   readonly readLock: (opts: ActOptions, pr: number, head: string) => string | null;
+  /** The epoch milliseconds the review run lock of one head was written, or `null` where its time cannot be read. */
+  readonly lockTime: (opts: ActOptions, pr: number, head: string) => number | null;
+  /** Ends a review run by pid and answers whether it was signalled; `endReviewRun` by default. */
+  readonly endRun: (pid: number) => boolean;
   /** The ports the owner reading and the attempts record are read through; the real adapters by default. */
   readonly owners: (opts: ActOptions) => ReviewOwnerPorts;
 }
@@ -340,6 +375,55 @@ const logReviewStart = async (
 };
 
 /**
+ * The review run locks the pass loop has seen whose time could not be read:
+ * `<pr>:<head>` to the pid the lock named and the pass that first saw it.
+ */
+export type ReviewLockSeen = Map<string, { readonly pid: number; readonly at: number }>;
+
+/**
+ * The live holder of one head's review run lock, as the pass reads it.
+ *
+ * A lock whose text names no pid, or whose pid does not answer, has no holder
+ * and leaves `seen`. A holder's `since` is the lock's time from
+ * `world.lockTime`; where that cannot be read it is the pass that first saw
+ * the lock with this pid, which `seen` keeps across passes.
+ *
+ * @param world - the lock reads and the pid probe.
+ * @param opts - where the fleet acts.
+ * @param seen - the first-seen times, kept by the caller for the pass loop's life.
+ * @param now - epoch milliseconds.
+ * @returns the holder lookup for {@link reviewTick}.
+ */
+export const reviewLockHolder =
+  (world: Pick<ReviewPassWorld, 'readLock' | 'lockTime' | 'pidAlive'>, opts: ActOptions, seen: ReviewLockSeen, now: number) =>
+  (pr: number, head: string): ReviewLockHolder | null => {
+    const key = `${pr}:${head}`;
+    const text = world.readLock(opts, pr, head);
+    const pid = text === null ? null : reviewLockPid(text);
+    if (pid === null || !world.pidAlive(pid)) {
+      seen.delete(key);
+      return null;
+    }
+    const at = world.lockTime(opts, pr, head);
+    if (at !== null) return { pid, since: at };
+    const first = seen.get(key);
+    if (first !== undefined && first.pid === pid) return { pid, since: first.at };
+    seen.set(key, { pid, at: now });
+    return { pid, since: now };
+  };
+
+/**
+ * The `slice-review.log` line for a run the pass ended.
+ *
+ * @param pid - the ended run's pid.
+ * @param pr - the PR number.
+ * @param boundMs - the bound the run passed, in milliseconds.
+ * @returns the line, without its newline.
+ */
+export const reviewEndedLine = (pid: number, pr: number, boundMs: number): string =>
+  `plot-review: run ${pid} on PR #${pr} passed the ${Math.round(boundMs / 1000)}s bound; ended`;
+
+/**
  * Runs the review tick on the daemon's loop.
  *
  * With `Auto-review` off it reads nothing and starts nothing. Otherwise it
@@ -347,14 +431,17 @@ const logReviewStart = async (
  * {@link readReviewOwners}, and calls {@link reviewTick}, which starts
  * `plot-review.mjs` through the `Detached` port on each `review` step, up to
  * {@link REVIEW_RUN_LIMIT} live runs. A head whose review run lock a live pid
- * holds gets no start. Each start and refusal is written to the run log; a
- * refusal once per PR, head and reason.
+ * holds inside {@link REVIEW_BOUND_MS} gets no start. A run past that bound
+ * whose pid answers is ended through `world.endRun` before the start, and one
+ * line per ended run goes to `slice-review.log`. Each start and refusal is
+ * written to the run log; a refusal once per PR, head and reason.
  *
  * @param opts - where the fleet acts.
  * @param logged - the refusals already logged, kept by the caller for the daemon's life.
  * @param now - epoch milliseconds.
  * @param world - the ports the pass reads and starts through.
  * @param read - reads the rows and readings; {@link readReviewPass} by default.
+ * @param lockSeen - the first-seen times of locks whose time cannot be read, kept by the caller for the pass loop's life.
  * @returns the tick's results, or `null` where nothing was read to act on.
  */
 export const runAutoReviewPass = async (
@@ -363,6 +450,7 @@ export const runAutoReviewPass = async (
   now: number = Date.now(),
   world: ReviewPassWorld = defaultReviewPassWorld,
   read: (opts: ActOptions, now: number) => Promise<ReviewPassReading | null> = readReviewPass,
+  lockSeen: ReviewLockSeen = new Map(),
 ): Promise<ReviewTickResult[] | null> => {
   if (!world.autoReview(opts)) return null;
   const reading = await read(opts, now);
@@ -370,11 +458,7 @@ export const runAutoReviewPass = async (
   const owners = await readReviewOwners(reading.rows, { ...reading.readings, now }, reading.claimStaleMs, world.owners(opts));
   const stateDir = path.join(opts.repoRoot, '.plot', 'state');
   fs.mkdirSync(stateDir, { recursive: true });
-  const lockHolder = (pr: number, head: string): number | null => {
-    const text = world.readLock(opts, pr, head);
-    const pid = text === null ? null : reviewLockPid(text);
-    return pid !== null && world.pidAlive(pid) ? pid : null;
-  };
+  const logFile = path.join(stateDir, 'slice-review.log');
   const results = reviewTick(
     reading.rows,
     { ...reading.readings, now, owners },
@@ -382,13 +466,18 @@ export const runAutoReviewPass = async (
       repoRoot: opts.repoRoot,
       script: path.join(opts.scriptsDir, 'board', 'plot-review.mjs'),
       cwd: opts.repoRoot,
-      logFile: path.join(stateDir, 'slice-review.log'),
+      logFile,
       detached: world.detached,
       pidAlive: world.pidAlive,
       limit: REVIEW_RUN_LIMIT,
+      boundMs: REVIEW_BOUND_MS,
     },
-    lockHolder,
+    reviewLockHolder(world, opts, lockSeen, now),
+    world.endRun,
   );
+  for (const result of results) {
+    for (const pid of result.ended ?? []) fs.appendFileSync(logFile, `${reviewEndedLine(pid, result.pr, REVIEW_BOUND_MS)}\n`);
+  }
   for (const [index, result] of results.entries()) {
     await logReviewStart(opts, reading.rows[index]!, result, logged, now);
   }
@@ -404,12 +493,23 @@ const readOrNull = (file: string): string | null => {
   }
 };
 
+/** The time a file was last written, or `null` where it cannot be read; `plot-review` writes its lock once. */
+const writtenAtOrNull = (file: string): number | null => {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return null;
+  }
+};
+
 /** The ports built from the real adapters. */
 const defaultReviewPassWorld: ReviewPassWorld = {
   autoReview: (opts) => readAutoReview(opts).autoReview,
   detached: detachedNode(),
   pidAlive,
   readLock: (opts, pr, head) => readOrNull(reviewLockPath(opts.repoRoot, pr, head)),
+  lockTime: (opts, pr, head) => writtenAtOrNull(reviewLockPath(opts.repoRoot, pr, head)),
+  endRun: (pid) => endReviewRun(pid),
   owners: (opts) => ({
     trees: treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),
     agents: agentsFs({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }),

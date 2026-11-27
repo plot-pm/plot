@@ -4,7 +4,7 @@ import { mergerAppHeld } from '@plot-pm/domain/adapters';
 
 import { type ConversationHolds, runAutoMergePass } from './auto-merge.js';
 import { runAutoFixerPass } from './auto-fixer.js';
-import { runAutoReviewPass } from './auto-review.js';
+import { runAutoReviewPass, type ReviewLockSeen } from './auto-review.js';
 import { runAutoTicketPass } from './auto-ticket.js';
 import { mainStatusState, runAutoMainStatusPass } from './auto-main-status.js';
 import { runAutoDeliverPass } from './auto-deliver.js';
@@ -70,6 +70,7 @@ export const fleetAutoWrites = (
   const fixerLogged = new Set<string>();
   // THE REVIEW START REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const reviewLogged = new Set<string>();
+  const reviewLockSeen: ReviewLockSeen = new Map();
   // THE TICKET REFUSALS ALREADY LOGGED, for the daemon's life: one line per PR, head and reason.
   const ticketLogged = new Set<string>();
   // THE plot/main STATUS LAST WRITTEN PER PR, kept in .plot/state/main-status.json
@@ -114,7 +115,7 @@ export const fleetAutoWrites = (
       }
       // A REVIEW IS AN AGENT RUN, so a stop skips its start too. It goes
       // before the merge, because a merge needs `plot/review` success.
-      if (!stopped()) await runAutoReviewPass(opts, reviewLogged);
+      if (!stopped()) await runAutoReviewPass(opts, reviewLogged, undefined, undefined, undefined, reviewLockSeen);
       // A TICKET STARTS NO AGENT: it is a tracker write and a status, so a stop does not skip it.
       await runAutoTicketPass(opts, ticketLogged);
       // THE plot/main STATUS STARTS NO AGENT either: a stop does not skip it.

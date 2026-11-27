@@ -6,7 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import type { Detached } from '@plot-pm/domain/ports/detached';
-import { readReviewStarts } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { readReviewStarts, reviewInFlightPath, reviewStartsPath } from '@plot-pm/domain/adapters/review-start/review-start-node';
+import { REVIEW_START_GRACE_MS } from '@plot-pm/domain/rules/review-run';
 import { runLogFixture } from '@plot-pm/domain/adapters';
 import { DEFAULT_BRANCH_VERSION, type DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import { REPAIR_RECORD_VERSION, type RepairRecord } from '@plot-pm/domain/entities/repair-record';
@@ -32,6 +33,7 @@ import type { Scripts } from '@plot-pm/domain/ports/scripts';
 import type { Host } from '@plot-pm/domain/ports/host';
 
 const HEAD = 'a'.repeat(40);
+const BOUND = 3_600_000;
 const NOW = 5_000_000_000;
 let root: string;
 let starts: number;
@@ -90,6 +92,7 @@ const start = () => ({
   } as Detached,
   pidAlive: () => true,
   limit: 4,
+  boundMs: 3_600_000,
 });
 
 describe('reviewTick', () => {
@@ -217,8 +220,10 @@ describe('autoReview', () => {
 describe('runAutoReviewPass', () => {
   const opts = () => ({ repoRoot: root, scriptsDir: root, runLog: runLogFixture() });
   let subjectCalls: string[];
+  let ended: number[];
   beforeEach(() => {
     subjectCalls = [];
+    ended = [];
   });
   const owned = (over: Partial<ReviewOwnerPorts> = {}): ReviewOwnerPorts => ({
     trees: { forBranch: async () => ({ ok: true as const, value: null }) },
@@ -237,6 +242,11 @@ describe('runAutoReviewPass', () => {
     detached: start().detached,
     pidAlive: () => true,
     readLock: () => null,
+    lockTime: () => NOW - 1000,
+    endRun: (pid) => {
+      ended.push(pid);
+      return true;
+    },
     owners: () => owned(),
     ...over,
   });
@@ -290,6 +300,95 @@ describe('runAutoReviewPass', () => {
     );
     expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
     expect(starts).toBe(0);
+  });
+
+  it('starts a review and ends the holder where a lock whose time cannot be read was first seen past the bound', async () => {
+    const seen = new Map();
+    const locked = world({ readLock: () => '4242\trun-1\n', lockTime: () => null });
+    const first = await runAutoReviewPass(opts(), new Set(), NOW, locked, async () => reading([row]), seen);
+    expect(first?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+    const later = NOW + BOUND + REVIEW_START_GRACE_MS;
+    const out = await runAutoReviewPass(opts(), new Set(), later, locked, async () => ({ ...reading([row]), readings: passReadings(later) }), seen);
+    expect(out?.[0]?.started).toMatchObject({ started: true });
+    expect(ended).toEqual([4242]);
+    expect(fs.readFileSync(path.join(root, '.plot', 'state', 'slice-review.log'), 'utf8')).toBe(
+      'plot-review: run 4242 on PR #7 passed the 3600s bound; ended\n',
+    );
+  });
+
+  it('holds a lock whose time cannot be read inside the bound of the pass that first saw it', async () => {
+    const seen = new Map();
+    const locked = world({ readLock: () => '4242\trun-1\n', lockTime: () => null });
+    await runAutoReviewPass(opts(), new Set(), NOW, locked, async () => reading([row]), seen);
+    const later = NOW + BOUND + REVIEW_START_GRACE_MS - 1;
+    const out = await runAutoReviewPass(opts(), new Set(), later, locked, async () => ({ ...reading([row]), readings: passReadings(later) }), seen);
+    expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+    expect(ended).toEqual([]);
+    expect(starts).toBe(0);
+  });
+
+  it('yields no review-in-flight hold for a lock written 3631 s ago', async () => {
+    const out = await runAutoReviewPass(
+      opts(),
+      new Set(),
+      NOW,
+      world({ readLock: () => '4242\trun-1\n', lockTime: () => NOW - BOUND - REVIEW_START_GRACE_MS - 1000 }),
+      async () => reading([row]),
+    );
+    expect(out?.[0]?.started).toMatchObject({ started: true });
+    expect(ended).toEqual([4242]);
+  });
+
+  describe('the #3658 fixture: pending on the head for 9 h with a live pid', () => {
+    const NINE_HOURS = 9 * 3_600_000;
+    const pending: PrIndexRow = {
+      ...row,
+      number: 3658,
+      plotReview: 'pending',
+      plotReviewSha: HEAD,
+      plotReviewAt: new Date(NOW - NINE_HOURS).toISOString(),
+      plotReviewJudged: 'pending',
+      plotReviewCheckedSha: HEAD,
+    };
+    const seed = (count: number): void => {
+      fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+      const at = NOW - NINE_HOURS;
+      fs.writeFileSync(reviewInFlightPath(root), JSON.stringify([{ pr: 3658, head: HEAD, pid: 4242, startedAt: at, mode: 'review' }]));
+      fs.writeFileSync(reviewStartsPath(root), JSON.stringify([{ pr: 3658, head: HEAD, count, lastAt: at }]));
+    };
+    const hung = () => world({
+      readLock: (_o, pr, head) => (pr === 3658 && head === HEAD ? '4242\trun-1\n' : null),
+      lockTime: () => NOW - NINE_HOURS,
+    });
+    const pass = (now: number) =>
+      runAutoReviewPass(opts(), new Set(), now, hung(), async () => ({ ...reading([pending]), readings: passReadings(now) }));
+
+    it('ends the hung run once and starts exactly one review over two passes', async () => {
+      seed(1);
+      const first = await pass(NOW);
+      expect(first?.[0]?.started).toEqual({ started: true, pid: 9001 });
+      const second = await pass(NOW + 60_000);
+      expect(second?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+      expect(starts).toBe(1);
+      expect(ended).toEqual([4242]);
+      expect(readReviewStarts(root)).toEqual([{ pr: 3658, head: HEAD, count: 2, lastAt: NOW }]);
+    });
+
+    it('answers budget-spent for a fourth start on the same head and ends nothing', async () => {
+      seed(3);
+      const out = await pass(NOW);
+      expect(out?.[0]?.step).toEqual({ step: 'none', why: 'budget-spent' });
+      expect(starts).toBe(0);
+      expect(ended).toEqual([]);
+    });
+  });
+
+  it('ends no run inside the bound', async () => {
+    fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+    fs.writeFileSync(reviewInFlightPath(root), JSON.stringify([{ pr: 7, head: HEAD, pid: 4242, startedAt: NOW - BOUND, mode: 'review' }]));
+    const out = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([row]));
+    expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+    expect(ended).toEqual([]);
   });
 
   it('starts a review where the lock names a dead pid', async () => {
