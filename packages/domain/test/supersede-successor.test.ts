@@ -4,6 +4,7 @@ import {
   successorCandidates,
   successorEntry,
   successorHere,
+  successorName,
   successorPreconditions,
   successorReference,
   supersessionRefusalReason,
@@ -179,5 +180,12 @@ describe('successorPreconditions for a successor in another repository', () => {
     const written = '2026-11-20, by `other/repo:new` (unverified)';
     const decided = supersede({ ...plan, phase: 'superseded', supersededRecord: written }, { on: '2026-11-27', by: 'other/repo:new', unverified: true, preconditions: [] });
     expect(decided).toMatchObject({ outcome: 'decided', record: written, alreadyRecorded: true });
+  });
+});
+
+describe('successorName', () => {
+  it('names a plan in this repository by its slug, and one in another repository as owner/repo:slug', () => {
+    expect(successorName({ repo: '', slug: 'new' })).toBe('new');
+    expect(successorName({ repo: 'other/repo', slug: 'new' })).toBe('other/repo:new');
   });
 });
