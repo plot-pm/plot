@@ -11,7 +11,9 @@ import {
   searchTerms,
   shellWord,
   testsNaming,
-  type BundleEntry,
+  type BundleInputs,
+  entryInputs,
+  parseBundleInputs,
   type LocalChecksReadings,
   type SelectionReadings,
   type TestFile,
@@ -302,9 +304,9 @@ describe('estate readers', () => {
   });
 });
 
-describe('bundle entries', () => {
+describe('bundle inputs', () => {
   const ENTRY = 'packages/board/src/server/entry/needs-design.ts';
-  const PAIR: BundleEntry = { entry: ENTRY, shipped: 'skills/plot/scripts/board/plot-needs-design.mjs' };
+  const [PAIR] = entryInputs([{ entry: ENTRY, shipped: 'skills/plot/scripts/board/plot-needs-design.mjs' }]) as [BundleInputs];
   const BUNDLE_TEST: TestFile = {
     path: 'test/reconcile/needs-design-entry.test.mjs',
     text: "const bundle = path.join(repoRoot, 'skills/plot/scripts/board/plot-needs-design.mjs');\n",
@@ -313,9 +315,9 @@ describe('bundle entries', () => {
   const TESTS = [BUNDLE_TEST, OTHER];
   const BOARD_CHECKS = parseLocalChecks('test/reconcile/*.test.mjs = node --test {tests}; packages/board/** = vitest related --run {changed}');
 
-  const local = (changed: readonly string[], bundles?: readonly BundleEntry[]) =>
+  const local = (changed: readonly string[], bundles?: readonly BundleInputs[]) =>
     localChecks({ ...readings({ changed, checks: BOARD_CHECKS }), references: testsNaming(changed, TESTS), tests: TESTS, bundles });
-  const ci = (changed: readonly string[], bundles?: readonly BundleEntry[]) =>
+  const ci = (changed: readonly string[], bundles?: readonly BundleInputs[]) =>
     ciSelection({
       changed,
       generated: [],
@@ -331,7 +333,7 @@ describe('bundle entries', () => {
     expect(searchTerms(ENTRY, [PAIR])).toEqual(['needs-design.ts', 'needs-design.js', 'plot-needs-design.mjs']);
   });
 
-  it('a path that is not an entry gains no term', () => {
+  it('a path no bundle holds gains no term', () => {
     expect(searchTerms('packages/domain/src/workflows/needs-design.ts', [PAIR])).toEqual(['needs-design.ts', 'needs-design.js']);
     expect(ci(['packages/board/src/server/entry/approve.ts'], [PAIR]).tests).toEqual([]);
   });
@@ -342,7 +344,7 @@ describe('bundle entries', () => {
     expect(local([ENTRY], [PAIR]).commands).toContain(`node --test ${BUNDLE_TEST.path}`);
   });
 
-  it('with no pairs it selects nothing new', () => {
+  it('with no map it selects nothing new', () => {
     expect(ci([ENTRY]).tests).toEqual([]);
     expect(ci([ENTRY], []).tests).toEqual([]);
     expect(local([ENTRY]).tests).toEqual([]);
@@ -363,5 +365,60 @@ describe('bundle entries', () => {
     const changed = [ENTRY, 'packages/board/src/server/entry/approve.ts'];
     expect(local(changed, [PAIR]).tests).toEqual(ci(changed, [PAIR]).tests);
     expect(local(changed).tests).toEqual(ci(changed).tests);
+  });
+
+  const WORKFLOW = 'packages/domain/src/workflows/approve.ts';
+  const APPROVE: BundleInputs = {
+    shipped: 'skills/plot/scripts/board/plot-approve.mjs',
+    inputs: ['packages/board/src/server/entry/approve.ts', WORKFLOW],
+  };
+  const ASK: BundleInputs = { shipped: 'skills/plot/scripts/board/plot-ask.mjs', inputs: ['packages/board/src/server/entry/main.ts', WORKFLOW] };
+  const APPROVE_TEST: TestFile = { path: 'test/reconcile/approve-batch.test.mjs', text: "const bundle = 'plot-approve.mjs';\n" };
+
+  it('a source the approve bundle imports adds plot-approve.mjs to the search terms', () => {
+    expect(searchTerms(WORKFLOW, [APPROVE])).toEqual(['approve.ts', 'approve.js', 'plot-approve.mjs']);
+  });
+
+  it('a path two bundles hold adds both basenames', () => {
+    expect(searchTerms(WORKFLOW, [APPROVE, ASK])).toEqual(['approve.ts', 'approve.js', 'plot-approve.mjs', 'plot-ask.mjs']);
+  });
+
+  it('a changed imported source selects the tests naming every bundle that holds it', () => {
+    const tests = [APPROVE_TEST, OTHER];
+    const selection = ciSelection({
+      changed: [WORKFLOW],
+      generated: [],
+      checks: BOARD_CHECKS,
+      tests,
+      corpus: [],
+      corpusFiles: [],
+      sync: { planDir: 'docs/plans/', activeIndex: 'docs/plans/active/', deliveredIndex: 'docs/plans/delivered/', sprintDir: 'docs/sprints/', releaseDir: 'docs/releases/' },
+      bundles: [APPROVE, ASK],
+    });
+    expect(selection.tests).toEqual([APPROVE_TEST.path, OTHER.path]);
+    const local = localChecks({ ...readings({ changed: [WORKFLOW], checks: BOARD_CHECKS }), tests, bundles: [APPROVE, ASK] });
+    expect(local.tests).toEqual([APPROVE_TEST.path, OTHER.path]);
+  });
+
+  it('the entry pairs as a map hold the entry and nothing it imports', () => {
+    const fallback = entryInputs([{ entry: 'packages/board/src/server/entry/approve.ts', shipped: APPROVE.shipped }]);
+    expect(searchTerms('packages/board/src/server/entry/approve.ts', fallback)).toContain('plot-approve.mjs');
+    expect(searchTerms(WORKFLOW, fallback)).toEqual(['approve.ts', 'approve.js']);
+  });
+});
+
+describe('parseBundleInputs', () => {
+  it('reads the rows the build writes', () => {
+    expect(parseBundleInputs(JSON.stringify([{ shipped: 'a.mjs', inputs: ['src/a.ts'] }]))).toEqual([{ shipped: 'a.mjs', inputs: ['src/a.ts'] }]);
+  });
+
+  it('answers null for a missing file, text that is not JSON, a wrong shape and an empty map', () => {
+    expect(parseBundleInputs(null)).toBeNull();
+    expect(parseBundleInputs('{not json')).toBeNull();
+    expect(parseBundleInputs('{}')).toBeNull();
+    expect(parseBundleInputs('[]')).toBeNull();
+    expect(parseBundleInputs(JSON.stringify([{ shipped: 'a.mjs' }]))).toBeNull();
+    expect(parseBundleInputs(JSON.stringify([{ shipped: 'a.mjs', inputs: [1] }]))).toBeNull();
+    expect(parseBundleInputs(JSON.stringify([null]))).toBeNull();
   });
 });

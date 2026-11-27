@@ -20,12 +20,15 @@ import {
   candidateTests,
   ciSelection,
   corpusGlobs,
+  entryInputs,
   globRoot,
   globToRegExp,
   localChecks,
   parseList,
+  parseBundleInputs,
   parseLocalChecks,
   testsNaming,
+  type BundleInputs,
   type LocalChecksAnswer,
   type TestFile,
 } from '@plot-pm/domain/rules/local-checks';
@@ -65,8 +68,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * naming the accepted forms where it resolves to none; else the `base` the desk manifest
  * records, where `origin` holds it; else whichever of `origin/<default>` and
  * every `origin/sprint/*` HEAD sits the fewest commits past, a tie going to
- * the default branch. The first output line names the base and the reason.
+ * the default branch. The first output line names the base and the reason,
+ * unless the fallback line below precedes it.
  * No host is asked.
+ *
+ * A changed path selects the tests that name every bundle holding it, as the
+ * bundle input map `packages/board/dist/bundle-inputs.json` lists them; the
+ * board build writes the map. Where the map is missing or does not parse, the
+ * selection reads the bundle entry pairs instead, and a `# bundle inputs:`
+ * line naming that fallback comes first, before the base line; with `--ci` it
+ * goes to stderr, so standard output stays one line of JSON.
  *
  * `--run` runs each printed command through `bash -c`, in order, and stops at
  * the first failure: it prints the command and the last 80 lines of its output
@@ -95,6 +106,27 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * per line; an unreadable file reads as an empty line. It reads no repository
  * and exits 0.
  */
+
+/** The bundle input map the board build writes, relative to the repository root. */
+export const BUNDLE_INPUTS_FILE = 'packages/board/dist/bundle-inputs.json';
+
+/**
+ * Reads the bundle input map, or falls back to the bundle entry pairs.
+ *
+ * @param repoRoot - the repository root.
+ * @returns the map, and `null` as `fallback`; or the entry pairs as a map, and
+ *   the line naming the fallback, where the file is missing or does not parse.
+ */
+export const readBundleInputs = (repoRoot: string): { bundles: readonly BundleInputs[]; fallback: string | null } => {
+  const text = readOrNull(path.join(repoRoot, BUNDLE_INPUTS_FILE));
+  const rows = parseBundleInputs(text);
+  if (rows !== null) return { bundles: rows, fallback: null };
+  const reason = text === null ? 'missing' : 'unparseable';
+  return {
+    bundles: entryInputs(BOARD_BUNDLE_ENTRIES),
+    fallback: `# bundle inputs: ${BUNDLE_INPUTS_FILE} is ${reason}; selecting by bundle entry sources (BOARD_BUNDLE_ENTRIES) — run pnpm build:board for the full map`,
+  };
+};
 
 /** The exit codes the caller reads. */
 export const EXIT = {
@@ -283,6 +315,7 @@ export const run = async (
   const tests = await readTests(refs, repoRoot, checks, changed);
 
   const corpus = corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : '');
+  const { bundles, fallback } = readBundleInputs(repoRoot);
 
   if (ci) {
     const selection = ciSelection({
@@ -300,8 +333,9 @@ export const run = async (
         releaseDir: DEFAULT_RELEASE_DIR,
       },
       root: repoRoot,
-      bundles: BOARD_BUNDLE_ENTRIES,
+      bundles,
     });
+    if (fallback !== null) warn(`${fallback}\n`);
     write(`${JSON.stringify(selection)}\n`);
     return EXIT.ok;
   }
@@ -319,14 +353,15 @@ export const run = async (
         references,
         corpus,
         tests,
-        bundles: BOARD_BUNDLE_ENTRIES,
+        bundles,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
         root: repoRoot,
       }),
       parseList(rawSuites.ok ? rawSuites.value.trim() : ''),
     );
-  write(chosen === null ? output : `${baseLine(chosen.base, chosen.candidates)}\n${output}`);
+  const head = [...(fallback === null ? [] : [fallback]), ...(chosen === null ? [] : [baseLine(chosen.base, chosen.candidates)])];
+  write(`${head.map((line) => `${line}\n`).join('')}${output}`);
   return runChecks ? runPrinted(context, printedCommands(output), write) : EXIT.ok;
 };
 

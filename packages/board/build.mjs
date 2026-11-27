@@ -6,8 +6,8 @@
 // The artifact is then copied to skills/plot/scripts/board/board-server.mjs so
 // the plot plugin ships a runnable, dependency-free board with no install step.
 // This copy is what the release pipeline commits and CI diffs for freshness.
-import esbuild from 'esbuild';
-import fs from 'node:fs';
+import esbuildApi from 'esbuild';
+import nodeFs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pruneStaleVendoredHelpers } from './vendored-helpers.mjs';
@@ -29,6 +29,58 @@ import {
 } from '../fleet/build.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, '../..');
+
+// THE INPUTS OF EACH SHIPPED BUNDLE, read from esbuild's metafile. Every
+// `esbuild.build` call below goes through `recordedBuild`, which asks for the
+// metafile and keeps the repository-relative source files esbuild bundled for
+// that `outfile`; every `fs.copyFileSync` records which output reached which
+// shipped path. `writeBundleInputs` joins the two after the last build into
+// `dist/bundle-inputs.json`, which the test selection in
+// `packages/domain/src/rules/local-checks.ts` reads: a changed path selects the
+// tests naming every bundle that holds it. A bundle this file only copies, such
+// as a fleet artifact, has no build here and gets no row.
+const builtInputs = new Map();
+const copiedFrom = new Map();
+const repoRelative = (file) => path.relative(repoRoot, file).split(path.sep).join('/');
+const recordedBuild = async (options) => {
+  const result = await esbuildApi.build({ ...options, metafile: true });
+  if (options.outfile) {
+    const cwd = options.absWorkingDir ?? process.cwd();
+    const inputs = Object.keys(result.metafile.inputs)
+      .filter((key) => !/^[a-z-]+:/.test(key))
+      .map((key) => repoRelative(path.resolve(cwd, key)))
+      .filter((file) => !file.startsWith('../') && !file.split('/').includes('node_modules'));
+    builtInputs.set(path.resolve(options.outfile), [...new Set(inputs)].sort());
+  }
+  return result;
+};
+const esbuild = { ...esbuildApi, build: recordedBuild };
+const fs = {
+  ...nodeFs,
+  copyFileSync: (from, to, mode) => {
+    nodeFs.copyFileSync(from, to, mode);
+    copiedFrom.set(path.resolve(to), path.resolve(from));
+  },
+};
+const bundleInputsFile = path.join(here, 'dist/bundle-inputs.json');
+const writeBundleInputs = () => {
+  const rows = [...copiedFrom]
+    .filter(([, from]) => builtInputs.has(from))
+    .map(([to, from]) => ({ shipped: repoRelative(to), inputs: builtInputs.get(from) }))
+    .sort((a, b) => (a.shipped < b.shipped ? -1 : a.shipped > b.shipped ? 1 : 0));
+  const empty = rows.filter((row) => row.inputs.length === 0).map((row) => row.shipped);
+  if (rows.length === 0 || empty.length > 0) {
+    console.error(
+      rows.length === 0
+        ? 'No shipped bundle has a recorded build — the bundle input map is blind.'
+        : `A built bundle lists no repository source in its metafile: ${empty.join(', ')}`,
+    );
+    console.error('The test selection reads dist/bundle-inputs.json; a row with no inputs selects nothing. Fix the build, not the map.');
+    process.exit(1);
+  }
+  nodeFs.writeFileSync(bundleInputsFile, `${JSON.stringify(rows, null, 2)}\n`);
+};
 const clientHtml = path.join(here, 'dist/client/index.html');
 if (!fs.existsSync(clientHtml)) {
   console.error('Missing dist/client/index.html — run `pnpm run build:client` first.');
@@ -2345,3 +2397,6 @@ console.log(`Built plot-state-sync.mjs (${stateSyncKb} KB) → skills/plot/scrip
 console.log(`Built plot-record-ref.mjs (${recordRefKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-write-probe.mjs (${writeProbeKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
+
+writeBundleInputs();
+console.log(`Wrote ${path.relative(here, bundleInputsFile)} (the inputs of each shipped bundle)`);
