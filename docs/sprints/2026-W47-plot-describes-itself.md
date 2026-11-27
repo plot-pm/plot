@@ -29,11 +29,6 @@ The sprint delivers two plans. One plan makes the documents describe the automat
      checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
-- [ ] [plots-documents-describe-the-automation-that-runs] Plot's documents describe the automation that runs (plan PR #3631)
-- [ ] [a-guide-leads-from-install-to-the-first-autonomous-run] A guide leads from install to the first autonomous run (plan PR #3633)
-- [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
-- [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
-- [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
 
 ### Should Have
 
@@ -72,6 +67,8 @@ The sprint delivers two plans. One plan makes the documents describe the automat
 - Start this sprint only when no other sprint is active: the fleet reads no scope while `docs/sprints/active/` holds more than one sprint.
 
 ### Scope Changes
+
+- 2026-11-27: moved the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) to fleet-runs-safely-alone; none was approved before the timebox.
 - 2026-11-24: Deferred [the-bitbucket-client-sends-an-access-token] from Could — its bb change in quatico-solutions/agent-skills, a quatico-bb release and an upgrade on every machine come first; no plan builds that bb change yet
 - 2026-11-25: Added [the-bb-pause-rule-follows-bb-1-15-2] to Should — bb 1.15.2 caps Retry-After at one day; fleetd and bb share one ledger, so Plot's pause rule must follow
 

@@ -25,6 +25,11 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
      checkbox. Strike a reference — `~~[<plan-slug>]~~` — to mark an item that
      left the sprint; the plan's own state then says whether it was withdrawn. -->
 
+- [ ] [plots-documents-describe-the-automation-that-runs] Plot's documents describe the automation that runs (plan PR #3631)
+- [ ] [a-guide-leads-from-install-to-the-first-autonomous-run] A guide leads from install to the first autonomous run (plan PR #3633)
+- [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
+- [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
+- [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
 
 ### Should Have
 
@@ -47,6 +52,8 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 ### Scope Changes
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
+
+- 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 <!-- Session log, decisions, links -->
