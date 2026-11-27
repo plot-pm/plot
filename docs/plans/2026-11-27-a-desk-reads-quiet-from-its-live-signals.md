@@ -48,7 +48,7 @@ The loop's idle watch (`worker-loop.ts:1367`, "the desk file the loop's own outp
 
 ### Quiet Reading
 
-- `bug/a-desk-reads-quiet-from-its-live-signals` — `deskQuietSeconds` over the four mtimes, and `logQuietSeconds` in `trees-git.ts` reads through it <!-- builds: deskQuietSeconds --> <!-- tests: deskQuietSeconds — the newest signal wins, an old log with a new pass file reads from the pass file, no readable signal answers null; the adapter reads all four files -->
+- `bug/a-desk-reads-quiet-from-its-live-signals` — `deskQuietSeconds` over the four mtimes, and `logQuietSeconds` in `trees-git.ts` reads through it <!-- builds: deskQuietSeconds --> <!-- tests: deskQuietSeconds — the newest signal wins, an old log with a new pass file reads from the pass file, no readable signal answers null; the adapter reads all four files --> → #3749
 
 ### Status Line
 
