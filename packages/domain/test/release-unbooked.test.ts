@@ -139,6 +139,25 @@ describe('releaseUnbooked — the 2.36.0 release', () => {
   });
 });
 
+// The repository as `v2.37.0` (a55df0f41) left it: no sprint names 2.37.0 and
+// the active sprint names 2.38.0.
+describe('releaseUnbooked — the 2.37.0 release', () => {
+  const AT = join(import.meta.dirname, 'fixtures', 'release-2-37-0');
+  const SPRINT = '2026-W47-plot-describes-itself.md';
+
+  it('names the 10 changeset-named plans and no open sprint', () => {
+    const answer = releaseUnbooked({
+      tag: { tag: 'v2.37.0', date: '2026-11-27' },
+      sprints: [releaseScopeSprintOf(`docs/sprints/${SPRINT}`, readFileSync(join(AT, SPRINT), 'utf8'))],
+      plans: JSON.parse(readFileSync(join(AT, 'plans.json'), 'utf8')),
+      shipped: JSON.parse(readFileSync(join(AT, 'changesets.json'), 'utf8')),
+    });
+    if (typeof answer === 'string') throw new Error(answer);
+    expect(answer.plans).toHaveLength(10);
+    expect(answer.sprintOpen).toBeNull();
+  });
+});
+
 describe('releaseUnbooked and releaseFinish — one scope', () => {
   it('name the same plans for the same readings', () => {
     const r = fixture();

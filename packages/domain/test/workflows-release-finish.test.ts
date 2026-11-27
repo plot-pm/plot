@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
+import type { ReleaseChangeset } from '../src/rules/release-prepare.js';
+import { releaseScopeSprintOf } from '../src/rules/release-scope.js';
 import { releaseFinish, type FinishSprint, type ReleaseFinishReadings, type ScopePlan } from '../src/workflows/release-finish.js';
 
 const plan = (slug: string, over: Partial<ScopePlan> = {}): ScopePlan => ({
@@ -134,9 +138,6 @@ describe('releaseFinish — books a release in one commit', () => {
     const ambiguous = releaseFinish(readings({ sprints: [unlinked('w44'), unlinked('w46')] }), input);
     expect(ambiguous).toMatchObject({ outcome: 'refused', reason: 'sprint-ambiguous' });
     if (ambiguous.outcome === 'refused') expect(ambiguous.detail).toContain('docs/sprints/2026-w44.md, docs/sprints/2026-w46.md');
-    const mismatch = releaseFinish(readings({ sprints: [sprint({ link: '', release: '2.31.0' })] }), input);
-    expect(mismatch).toMatchObject({ outcome: 'refused', reason: 'release-scope-mismatch' });
-    if (mismatch.outcome === 'refused') expect(mismatch.detail).toContain('open sprint docs/sprints/2026-w44.md names');
   });
 
   it('books with no sprint to close, from the shipped changesets alone', () => {
@@ -159,13 +160,13 @@ describe('releaseFinish — books a release in one commit', () => {
     }
   });
 
-  it('refuses release-scope-mismatch when the active sprint names another version, and writes nothing', () => {
-    const out = releaseFinish(readings({ sprints: [sprint({ release: '2.31.0' })] }), input);
-    expect(out).toMatchObject({ outcome: 'refused', reason: 'release-scope-mismatch' });
-    if (out.outcome === 'refused') {
-      expect(out.detail).toContain('docs/sprints/active/2026-w44.md');
-      expect(out.detail).toContain('2.31.0');
-    }
+  it('books the shipped changesets and notes an active sprint naming another version, leaving it open', () => {
+    const shipped = [{ file: 'x.md', plan: 'docs/plans/2026-10-01-x.md' }];
+    const out = releaseFinish(readings({ sprints: [sprint({ release: '2.31.0' })], outside: [plan('x')], shipped }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['x']);
+    expect(out.detail.closeSprint).toBeNull();
+    expect(out.detail.notes).toContain('open sprint w44 names 2.31.0; left open');
   });
 
   it('ignores an open sprint naming another version where another open sprint is in scope', () => {
@@ -184,12 +185,12 @@ describe('releaseFinish — books a release in one commit', () => {
     expect(reasonOf(two)).toBe('sprint-ambiguous');
   });
 
-  it('orders release-scope-mismatch before plan-unbookable, on a fixture that triggers both', () => {
-    const both = readings({
+  it('does not refuse plan-unbookable for an Approved plan of a sprint naming another version', () => {
+    const other = readings({
       scope: [plan('a'), plan('d', { phase: 'approved' })],
       sprints: [sprint({ release: '2.31.0' })],
     });
-    expect(reasonOf(both)).toBe('release-scope-mismatch');
+    expect(reasonOf(other)).toBe('already-released');
   });
 
   it('matches 2.30.0 against v2.30.0, ignoring the leading v on both sides', () => {
@@ -313,8 +314,90 @@ describe('releaseFinish — a closed sprint names the version', () => {
     expect(out.outcome).toBe('decided');
   });
 
-  it('refuses release-scope-mismatch only for an active sprint naming another version', () => {
-    expect(reasonOf(readings({ sprints: [closed({ release: '2.31.0' })] }))).toBe('already-released');
-    expect(reasonOf(readings({ sprints: [sprint({ release: '2.31.0' })] }))).toBe('release-scope-mismatch');
+  it('notes an active sprint naming another version and does not note a closed one', () => {
+    const shipped = [{ file: 'x.md', plan: 'docs/plans/2026-10-01-x.md' }];
+    const notesFor = (s: FinishSprint) => {
+      const out = releaseFinish(readings({ sprints: [s], scope: [], outside: [plan('x')], shipped }), input);
+      if (out.outcome === 'refused') throw new Error(out.detail);
+      return out.detail.notes;
+    };
+    expect(notesFor(closed({ release: '2.31.0' }))).toEqual([]);
+    expect(notesFor(sprint({ release: '2.31.0' }))).toEqual(['open sprint w44 names 2.31.0; left open']);
+  });
+});
+
+// The repository as `v2.37.0` (a55df0f41) left it: the active sprint
+// `plot-describes-itself` naming `Release: 2.38.0`, the 15 changesets the
+// release merge removed, and the 10 plans their `plan:` lines name, read at the tag.
+describe('releaseFinish — no sprint names the version (the 2.37.0 fixture)', () => {
+  const FIXTURE = join(import.meta.dirname, 'fixtures', 'release-2-37-0');
+  const SPRINT = '2026-W47-plot-describes-itself.md';
+  const shipped = (): ReleaseChangeset[] => JSON.parse(readFileSync(join(FIXTURE, 'changesets.json'), 'utf8'));
+  const plans = (): ScopePlan[] => JSON.parse(readFileSync(join(FIXTURE, 'plans.json'), 'utf8'));
+  const sprints = (): FinishSprint[] => [
+    {
+      ...releaseScopeSprintOf(`docs/sprints/${SPRINT}`, readFileSync(join(FIXTURE, SPRINT), 'utf8')),
+      file: `docs/sprints/${SPRINT}`,
+      link: 'docs/sprints/active/plot-describes-itself.md',
+    },
+  ];
+  const at237 = (over: Partial<ReleaseFinishReadings> = {}): ReleaseFinishReadings => ({
+    caller: 'person',
+    version: '2.37.0',
+    tagExists: true,
+    tagDate: '2026-11-27',
+    plans: plans(),
+    shipped: shipped(),
+    sprints: sprints(),
+    ...over,
+  });
+  const NAMED = [
+    'a-refused-bb-call-writes-no-budget-row',
+    'delivery-is-measured-from-the-plan-files',
+    'shell-scripts-refuse-a-second-mode-and-name-the-fetch',
+    'plot-init-checks-for-the-bb-cli',
+    'the-bb-pause-rule-follows-bb-1-15-2',
+    'the-board-refuses-unauthenticated-remote-writes',
+    'the-checklist-badge-reads-the-newest-release',
+    'the-default-runner-has-a-spend-cap',
+    'github-refuses-a-merge-into-a-red-main',
+    'fleetctl-runs-in-a-submodule-checkout',
+  ];
+
+  it('reads 15 changesets, 12 naming 10 distinct plans, against an active sprint naming 2.38.0', () => {
+    const cs = shipped();
+    expect(cs).toHaveLength(15);
+    expect(cs.filter((c) => c.plan !== '')).toHaveLength(12);
+    expect(sprints()[0]).toMatchObject({ slug: 'plot-describes-itself', state: 'Active', release: '2.38.0' });
+  });
+
+  it('books the 10 changeset-named plans in changeset order, closes no sprint and notes plot-describes-itself', () => {
+    const out = releaseFinish(at237(), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(NAMED);
+    expect(out.detail.closeSprint).toBeNull();
+    expect(out.detail.notes).toContain('open sprint plot-describes-itself names 2.38.0; left open');
+    const commit = out.writes.find((w) => w.kind === 'commit');
+    expect(commit).toMatchObject({ message: 'plot: record v2.37.0' });
+    const paths = commit !== undefined && 'paths' in commit ? commit.paths : [];
+    expect(paths).toHaveLength(10);
+    expect(paths.filter((p) => p.startsWith('docs/sprints/'))).toEqual([]);
+  });
+
+  it('answers already-released on a re-run with every plan holding its Released record', () => {
+    const booked = plans().map((p) => ({ ...p, phase: 'released', releasedRecord: '2026-11-27, v2.37.0' }));
+    expect(reasonOf(at237({ plans: booked }))).toBe('already-released');
+  });
+
+  it('answers already-released for a sprint-free release whose changesets name no plan', () => {
+    const planless = shipped().map((c) => ({ ...c, plan: '' }));
+    expect(reasonOf(at237({ shipped: planless }))).toBe('already-released');
+    expect(reasonOf(at237({ shipped: planless, sprints: [] }))).toBe('already-released');
+  });
+
+  it('refuses shipped-unread where the changesets are unaskable and no sprint is in scope', () => {
+    const out = releaseFinish(at237({ shipped: 'unaskable' }), input);
+    expect(out).toMatchObject({ outcome: 'refused', reason: 'shipped-unread' });
+    if (out.outcome === 'refused') expect(out.detail).toContain('v2.37.0');
   });
 });

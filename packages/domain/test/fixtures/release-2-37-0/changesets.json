@@ -1,0 +1,62 @@
+[
+  {
+    "file": "a-refused-bb-call-writes-no-budget-row.md",
+    "plan": "docs/plans/2026-11-23-a-refused-bb-call-writes-no-budget-row.md"
+  },
+  {
+    "file": "delivery-is-measured-from-the-plan-files.md",
+    "plan": "docs/plans/2026-11-23-delivery-is-measured-from-the-plan-files.md"
+  },
+  {
+    "file": "fleetctl-restart-reads-the-bundle-checkout.md",
+    "plan": "docs/plans/2026-11-21-shell-scripts-refuse-a-second-mode-and-name-the-fetch.md"
+  },
+  {
+    "file": "plot-init-proposes-the-bb-install.md",
+    "plan": "docs/plans/2026-11-23-plot-init-checks-for-the-bb-cli.md"
+  },
+  {
+    "file": "plot-init-reads-which-bb-answers.md",
+    "plan": "docs/plans/2026-11-23-plot-init-checks-for-the-bb-cli.md"
+  },
+  {
+    "file": "the-bb-pause-rule-follows-bb-1-15-2.md",
+    "plan": "docs/plans/2026-11-24-the-bb-pause-rule-follows-bb-1-15-2.md"
+  },
+  {
+    "file": "the-board-reader-reads-main.md",
+    "plan": ""
+  },
+  {
+    "file": "the-board-refuses-the-remote-write-opt-in.md",
+    "plan": "docs/plans/2026-11-23-the-board-refuses-unauthenticated-remote-writes.md"
+  },
+  {
+    "file": "the-checklist-badge-orders-by-version.md",
+    "plan": "docs/plans/2026-11-23-the-checklist-badge-reads-the-newest-release.md"
+  },
+  {
+    "file": "the-default-runner-has-a-spend-cap.md",
+    "plan": "docs/plans/2026-11-23-the-default-runner-has-a-spend-cap.md"
+  },
+  {
+    "file": "the-main-reading-becomes-a-pr-status.md",
+    "plan": "docs/plans/2026-11-23-github-refuses-a-merge-into-a-red-main.md"
+  },
+  {
+    "file": "the-pr-age-counts-from-the-last-read.md",
+    "plan": ""
+  },
+  {
+    "file": "the-pr-age-follows-the-rows-served.md",
+    "plan": ""
+  },
+  {
+    "file": "the-repo-root-reads-core-worktree.md",
+    "plan": "docs/plans/2026-11-23-fleetctl-runs-in-a-submodule-checkout.md"
+  },
+  {
+    "file": "the-state-home-reads-core-worktree.md",
+    "plan": "docs/plans/2026-11-23-fleetctl-runs-in-a-submodule-checkout.md"
+  }
+]

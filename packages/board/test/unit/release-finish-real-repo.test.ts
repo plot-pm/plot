@@ -113,6 +113,15 @@ describe('finishRelease against a real remote', () => {
     return { repo, origin, ctx, trackerCalls };
   };
 
+  /** The context with a host whose release PR names the tagged commit as its merge, so the shipped changesets read as `[]`. */
+  const mergedAtTag = (ctx: FinishContext, repo: string): FinishContext => {
+    const mergeCommit = git(repo, 'rev-parse', 'v1.2.3^{commit}').trim();
+    const host = {
+      prState: async () => answered({ number: 9, head: 'changeset-release/main', base: 'main', state: 'MERGED', mergeCommit }),
+    } as unknown as Host;
+    return { ...ctx, host };
+  };
+
   const run = async (ctx: FinishContext) => {
     const out: string[] = [];
     const err: string[] = [];
@@ -254,22 +263,24 @@ describe('finishRelease against a real remote', () => {
     expect(onMain(repo, 'docs/sprints/2026-W44-s.md')).toContain('- **State:** Closed');
   });
 
-  it('refuses release-scope-mismatch and writes nothing once a later sprint is active for a different release', async () => {
-    const { repo, origin, ctx } = estate({ tagged: true });
+  it('answers already-released and writes nothing once a later sprint is active for a different release', async () => {
+    const { repo, origin, ctx: unread } = estate({ tagged: true });
+    const ctx = mergedAtTag(unread, repo);
     const root = path.dirname(repo);
     expect((await run(ctx)).code).toBe(0);
     startSprint(root, origin, '2026-W46', 'epsilon', '2.30.1');
     git(repo, 'fetch', '-q', 'origin', 'main');
     const before = originMain(origin);
 
-    const { code, err } = await run(ctx);
+    const { code, out, err } = await run(ctx);
 
-    expect(code).toBe(1);
-    expect(err).toContain('release-scope-mismatch');
-    expect(err).toContain('docs/sprints/active/2026-W46-t.md');
+    expect(code).toBe(0);
+    expect(err).not.toContain('release-scope-mismatch');
+    expect(out).toContain('already-released');
     expect(originMain(origin)).toBe(before);
     git(repo, 'fetch', '-q', 'origin', 'main');
     expect(onMain(repo, 'docs/plans/2026-10-20-epsilon.md')).not.toContain('Released:');
+    expect(onMain(repo, 'docs/sprints/2026-W46-t.md')).toContain('- **State:** Active');
   });
 
   it('books the next release against the next sprint once the first close removed its active entry', async () => {
@@ -309,7 +320,8 @@ describe('finishRelease against a real remote', () => {
   });
 
   it('reports already-released and writes nothing on a second run, and calls the tracker no further', async () => {
-    const { repo, ctx, trackerCalls } = estate({ tagged: true });
+    const { repo, ctx: unread, trackerCalls } = estate({ tagged: true });
+    const ctx = mergedAtTag(unread, repo);
     expect((await run(ctx)).code).toBe(0);
     git(repo, 'fetch', '-q', 'origin', 'main');
     const after = mainSha(repo);
@@ -526,6 +538,18 @@ describe('finishRelease against a real remote', () => {
     expect(onMain(repo, 'docs/plans/2026-10-02-omega.md')).toContain('- **State:** Released');
     expect(onMain(repo, 'docs/plans/2026-10-02-zeta.md')).toContain('- **State:** Delivered');
     expect(onMain(repo, 'docs/plans/2026-10-02-appr.md')).toContain('- **State:** Approved');
+  });
+
+  it('refuses shipped-unread and writes nothing on a second run whose changesets cannot be read', async () => {
+    const { origin, ctx } = estate({ tagged: true });
+    expect((await run(ctx)).code).toBe(0);
+    const before = originMain(origin);
+
+    const { code, err } = await run(ctx);
+
+    expect(code).toBe(1);
+    expect(err).toContain('shipped-unread');
+    expect(originMain(origin)).toBe(before);
   });
 
   it('books the scope and names shipped-unread where the merge commit cannot be read', async () => {
