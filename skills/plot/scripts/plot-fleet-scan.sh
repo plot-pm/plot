@@ -266,9 +266,10 @@ MAIN=$(c "Main branch"); MAIN=${MAIN:-$(default_branch)}
 # with the explicit heads refspec, because a narrow refspec scopes the prune to
 # `origin/$MAIN` alone and a branch merged and deleted upstream would keep its
 # stale ref and read `wip`. `--offline`, `--no-fetch` and `--slice-names` skip it.
-printf '%s\n' "$@" | grep -qxE -- '--no-fetch|--offline|--slice-names'; skip=$((1 - $?))
+skip=$(printf '%s\n' "$@" | grep -m1 -cxE -- '--no-fetch|--offline|--slice-names')
 [ "$skip" = 1 ] || err=$(git fetch -q --prune origin "$MAIN" "+refs/heads/*:refs/remotes/origin/*" 2>&1) || failed=1
-exec node "$here/board/plot-scan-walk.mjs" \
+bundle="$here/board/plot-scan-walk.mjs"
+exec node "$bundle" \
   "$(printf '%s\n' "$@" | awk '{s[$0]=1} END{printf "%d%d%d%d%d%d%d%d", s["--slice-names"], s["--why-nothing"], s["--list-eligible"], s["--next"]||s["--list-eligible"]||s["--why-nothing"], s["--json"]||s["--stream"], s["--log-pulse"], s["--loose"], s["--stream"]}')" \
   "$(printf '%s\n' "$@" | grep -v '^-' | tail -1)" "$MAIN" "$(c "Plan directory" docs/plans/)" "$(c "Active index" docs/plans/active/)" "$(c "Delivered index" docs/plans/delivered/)" \
   "$(c "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' -)" "$((skip == 1 ? 1 : 0))" \

@@ -71,6 +71,44 @@ export const parseBundleInputs = (text: string | null): BundleInputs[] | null =>
   return rows;
 };
 
+const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
+
+/** One shipped shell file and its text, as the caller read it. */
+export interface ScriptFile {
+  /** The path, relative to the repository root. */
+  readonly path: string;
+  /** The file's content. */
+  readonly text: string;
+}
+
+/** For each bundle basename, the basenames of the launchers that assign it, sorted. */
+export type LauncherMap = ReadonlyMap<string, readonly string[]>;
+
+/** A line that assigns a launcher's bundle: `bundle="$script_dir/board/<name>.mjs"` or the `$here` form. */
+const BUNDLE_ASSIGNMENT = /^[ \t]*bundle="\$(?:script_dir|here)\/board\/([A-Za-z0-9_.-]+\.mjs)"[ \t]*$/gm;
+
+/**
+ * The launchers of each bundle: the shell files holding a line that assigns
+ * `bundle="$script_dir/board/<name>.mjs"` or `bundle="$here/board/<name>.mjs"`.
+ * A file with no such line, including one that names a bundle in a comment or
+ * mid-script, launches nothing.
+ *
+ * @param scripts - the shipped shell files and their text.
+ * @returns for each bundle basename, the basenames of the files assigning it, sorted, each once.
+ */
+export const launcherBundles = (scripts: readonly ScriptFile[]): Map<string, readonly string[]> => {
+  const found = new Map<string, Set<string>>();
+  for (const script of scripts) {
+    for (const match of script.text.matchAll(BUNDLE_ASSIGNMENT)) {
+      const bundle = match[1] as string;
+      const launchers = found.get(bundle) ?? new Set<string>();
+      launchers.add(basename(script.path));
+      found.set(bundle, launchers);
+    }
+  }
+  return new Map([...found].map(([bundle, launchers]) => [bundle, [...launchers].sort()] as const));
+};
+
 /** What the caller read about the branch. */
 export interface LocalChecksReadings {
   /** Every path the branch changes, committed or not, relative to the repository root. */
@@ -88,6 +126,8 @@ export interface LocalChecksReadings {
   readonly tests?: readonly TestFile[];
   /** The bundle input map (see {@link searchTerms}); absent reads as none. */
   readonly bundles?: readonly BundleInputs[];
+  /** The launchers of each bundle (see {@link launcherBundles}); absent reads as none. */
+  readonly launchers?: LauncherMap;
   /** The declared checks, in declaration order. */
   readonly checks: readonly LocalCheck[];
   /** The most test files one path may select before it is reported instead. */
@@ -185,24 +225,32 @@ export const globToRegExp = (glob: string): RegExp => {
   return new RegExp(`^${source}$`);
 };
 
-const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
-
 /**
  * The words a test file uses to name a path: its basename, for a TypeScript
  * source its `.js` form, which is how an import names it, and for a source a
  * bundle holds the basename of every bundle holding it, which is how a test
- * that runs the bundle names it.
+ * that runs the bundle names it, and the basename of every launcher of each
+ * such bundle, which is how a test that runs the launcher names it.
  *
  * @param path - a changed path.
  * @param bundles - the bundle input map; a path no row's `inputs` hold gains no term.
+ * @param launchers - the launchers of each bundle basename; a bundle with no entry adds no launcher term.
  * @returns the search terms, without duplicates.
  */
-export const searchTerms = (path: string, bundles: readonly BundleInputs[] = []): string[] => {
+export const searchTerms = (
+  path: string,
+  bundles: readonly BundleInputs[] = [],
+  launchers: LauncherMap = new Map(),
+): string[] => {
   const base = basename(path);
   const terms = [base];
   const ts = /^(.*)\.(?:ts|tsx|mts)$/.exec(base);
   if (ts) terms.push(`${ts[1]}.js`);
-  for (const bundle of bundles) if (bundle.inputs.includes(path)) terms.push(basename(bundle.shipped));
+  for (const bundle of bundles) {
+    if (!bundle.inputs.includes(path)) continue;
+    const shipped = basename(bundle.shipped);
+    terms.push(shipped, ...(launchers.get(shipped) ?? []));
+  }
   return [...new Set(terms)];
 };
 
@@ -266,6 +314,8 @@ export interface SelectionReadings {
   readonly root?: string;
   /** The bundle input map (see {@link searchTerms}); absent reads as none. */
   readonly bundles?: readonly BundleInputs[];
+  /** The launchers of each bundle (see {@link launcherBundles}); absent reads as none. */
+  readonly launchers?: LauncherMap;
 }
 
 /** The answer a CI job reads. */
@@ -358,16 +408,18 @@ export const candidateTests = (paths: readonly string[], checks: readonly LocalC
  * @param changed - the changed paths.
  * @param tests - the test files and their text.
  * @param bundles - the bundle input map; none when absent.
+ * @param launchers - the launchers of each bundle basename; none when absent.
  * @returns for each changed path, the paths of the test files naming it, sorted.
  */
 export const testsNaming = (
   changed: readonly string[],
   tests: readonly TestFile[],
   bundles: readonly BundleInputs[] = [],
+  launchers: LauncherMap = new Map(),
 ): Map<string, readonly string[]> =>
   new Map(
     changed.map((path) => {
-      const terms = searchTerms(path, bundles);
+      const terms = searchTerms(path, bundles, launchers);
       const naming = tests.filter((test) => terms.some((term) => test.text.includes(term))).map((test) => test.path);
       return [path, [...new Set(naming)].sort()] as const;
     }),
@@ -559,7 +611,8 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
  *   checks run like named test files, whatever their number; they are listed
  *   in `estateTests`.
  * - A changed path that a `bundles` row's `inputs` hold also selects the test
- *   files in `tests` that name that row's shipped basename, for every such row.
+ *   files in `tests` that name that row's shipped basename, or the basename of
+ *   a `launchers` entry for it, for every such row.
  * - A path no check reaches is reported in `untested`.
  *
  * @param readings - what the caller read.
@@ -571,7 +624,7 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
   const entries = readings.changed.filter(
     (path) => !generated.has(path) && (readings.bundles ?? []).some((bundle) => bundle.inputs.includes(path)),
   );
-  const bundled = testsNaming(entries, readings.tests ?? [], readings.bundles);
+  const bundled = testsNaming(entries, readings.tests ?? [], readings.bundles, readings.launchers);
   const references = new Map(
     [...new Set([...readings.references.keys(), ...bundled.keys()])]
       .filter((path) => !patterns.some((pattern) => pattern.test(path)))
@@ -613,8 +666,8 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  *   request only where this is true.
  *
  * The references are derived here from the test files' text by
- * {@link testsNaming}, with the `bundles` map, so CI and the local run read
- * one map.
+ * {@link testsNaming}, with the `bundles` and `launchers` maps, so CI and the
+ * local run read one map.
  *
  * @param readings - what the caller read.
  * @returns the suites, the checks and the report.
@@ -629,7 +682,7 @@ export const ciSelection = (readings: SelectionReadings): Selection => {
     {
       changed: code,
       generated: [],
-      references: testsNaming(code, readings.tests, readings.bundles),
+      references: testsNaming(code, readings.tests, readings.bundles, readings.launchers),
       checks: readings.checks,
       limit: Number.POSITIVE_INFINITY,
       root: readings.root,
