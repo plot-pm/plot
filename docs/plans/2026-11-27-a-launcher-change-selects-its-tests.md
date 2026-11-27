@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-bundle-names-its-input-sources`
+- **Started:** 2026-11-27, Jan Wloka, `bug/a-launcher-names-the-bundle-it-runs`
 
 ## Changelog
 
