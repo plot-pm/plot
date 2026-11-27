@@ -1127,6 +1127,8 @@ export interface SupersedeInput {
    * a reader with a plan that stopped and no way to find where the work went.
    */
   by: string;
+  /** Whether the successor lives in another repository and was not checked: the record says `(unverified)`. */
+  unverified?: boolean;
   /** Readings an adapter measured. */
   preconditions?: readonly Precondition[];
 }
@@ -1183,7 +1185,7 @@ export const supersede = (plan: TransitionPlan, input: SupersedeInput): Transiti
     slug: plan.slug,
     phase: 'superseded',
     field: 'Superseded',
-    record: written === '' ? `${input.on}, by \`${by}\`` : written,
+    record: written === '' ? `${input.on}, by \`${by}\`${input.unverified === true ? ' (unverified)' : ''}` : written,
     alreadyRecorded: plan.phase === 'superseded' && written !== '',
   };
 };

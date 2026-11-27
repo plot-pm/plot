@@ -74,7 +74,7 @@ describe('plot-supersede marks a plan Superseded by its successor', () => {
 
     const landed = git(origin, 'show', `main:${OLD}`);
     expect(landed).toContain('- **State:** Superseded');
-    expect(landed).toMatch(/- \*\*Superseded:\*\* \d{4}-\d{2}-\d{2}, by `new`/);
+    expect(landed).toMatch(/^- \*\*Superseded:\*\* \d{4}-\d{2}-\d{2}, by `new`$/m);
     const tree = git(origin, 'ls-tree', '-r', '--name-only', 'main');
     expect(tree).toContain('docs/plans/delivered/old.md');
     expect(tree).not.toContain('docs/plans/active/old.md');
@@ -150,5 +150,55 @@ describe('plot-supersede marks a plan Superseded by its successor', () => {
     const r = await supersede(repo, ['old']);
     expect(r.code).toBe(1);
     expect(r.err).toContain('need a plan slug and its successor');
+  }, 60_000);
+
+  it('records a successor in another repository unverified, with no plan file of its slug', async () => {
+    const { repo, origin } = setup();
+    const by = 'quatico-solutions/agent-skills-internal:plot-init-checks-bb';
+
+    const r = await supersede(repo, ['--who', 'jw', '--by', by, 'old']);
+    expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+    expect(r.out).toMatch(/summary: phase=flipped record=written index=moved push=\S+ successor=unverified/);
+    expect(r.out).toContain("this repository's owner/repo could not be read");
+    expect(git(origin, 'show', `main:${OLD}`)).toMatch(
+      /^- \*\*Superseded:\*\* \d{4}-\d{2}-\d{2}, by `quatico-solutions\/agent-skills-internal:plot-init-checks-bb` \(unverified\)$/m,
+    );
+    expect(git(origin, 'log', '-1', '--format=%s', 'main').trim()).toBe(`plot: supersede old by ${by}`);
+  }, 60_000);
+
+  it('accepts a successor in another repository that carries the plan\'s own slug', async () => {
+    const { repo, origin } = setup();
+
+    const r = await supersede(repo, ['--who', 'jw', '--by', 'other/repo:old', 'old']);
+    expect(r.code, `${r.out}\n${r.err}`).toBe(0);
+    expect(git(origin, 'show', `main:${OLD}`)).toMatch(/, by `other\/repo:old` \(unverified\)$/m);
+  }, 60_000);
+
+  it('refuses a malformed reference as successor-unparsed and leaves the plan unchanged', async () => {
+    const { repo, origin } = setup();
+    const before = tipOf(origin);
+    const text = readFileSync(path.join(repo, OLD), 'utf8');
+
+    const r = await supersede(repo, ['--by', 'owner/:x', 'old']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('successor-unparsed');
+    expect(tipOf(origin)).toBe(before);
+    expect(readFileSync(path.join(repo, OLD), 'utf8')).toBe(text);
+    expect(receipts(repo)).toEqual([]);
+  }, 60_000);
+
+  it("reads a reference naming this repository's own owner/repo as a local slug", async () => {
+    const { repo, origin } = setup();
+    const before = tipOf(origin);
+    // origin names plot-pm/plot; ssh is disabled so the command's fetch fails at once and reaches no network.
+    git(repo, 'remote', 'set-url', 'origin', 'ssh://git@example.invalid/plot-pm/plot.git');
+    git(repo, 'config', 'core.sshCommand', 'false');
+
+    const r = await supersede(repo, ['--by', 'plot-pm/plot:nowhere', 'old']);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('successor-not-found');
+    expect(r.err).toContain("'nowhere'");
+    expect(tipOf(origin)).toBe(before);
+    expect(receipts(repo)).toEqual([]);
   }, 60_000);
 });
