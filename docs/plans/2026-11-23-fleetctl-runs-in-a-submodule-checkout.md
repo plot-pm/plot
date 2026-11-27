@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #3043
@@ -14,6 +14,7 @@
 - **Started:** 2026-11-24, Jan Wloka, `bug/the-repo-root-reads-core-worktree`
 - **Started:** 2026-11-25, Jan Wloka, `bug/the-state-home-reads-core-worktree`
 - **Delivered:** 2026-11-25
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
