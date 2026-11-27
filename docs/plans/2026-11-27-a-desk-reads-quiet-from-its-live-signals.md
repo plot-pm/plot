@@ -26,7 +26,7 @@ Two readers take quiet from the log alone:
 - `plot-fleetctl.sh:928-935` reads the log's mtime for the status line.
 - `logQuietSeconds` in `packages/domain/src/adapters/trees/trees-git.ts:460` does the same for `plan-walk-desks.ts:98`.
 
-The loop's idle watch (`worker-loop.ts:1367`, "the desk file the loop's own output goes to") reads the log first and falls back to the prompt's CPU time, so it does not mistake a working prompt for an idle one. The two readers above have no such fallback. Since the loop runs in one process (#1292, 2026-10-06), the prompt's output no longer reaches the log, so the log's age is the loop's age.
+The loop's idle watch (`worker-loop.ts:1367`, "the desk file the loop's own output goes to") reads the log first and falls back to the prompt's CPU time, so it does not mistake a working prompt for an idle one. The two readers above have no such fallback. On the three desks the log held only the loop's start line while two prompts ran, so the log's age was the loop's age. Which change stopped the prompt's output from reaching the log is not traced here; `[question-log-output]` asks whether it should reach it again.
 
 ## Design
 
