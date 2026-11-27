@@ -47,7 +47,7 @@ The PR's CI built its bundles from its own source; stale committed bundles were 
 
 ### Launchers
 
-- `bug/a-launcher-names-the-bundle-it-runs` — `launcherBundles`, and the selection adds a selected bundle's launchers as terms <!-- waits: bug/a-bundle-names-its-input-sources --> <!-- builds: launcherBundles, the launcher-to-bundle rule --> <!-- tests: the diff of #3653 selects test/reconcile/approve-batch.test.mjs; the approve launcher maps to plot-approve.mjs; a launcher with no bundle= line maps to nothing -->
+- `bug/a-launcher-names-the-bundle-it-runs` — `launcherBundles`, and the selection adds a selected bundle's launchers as terms <!-- waits: bug/a-bundle-names-its-input-sources --> <!-- builds: launcherBundles, the launcher-to-bundle rule --> <!-- tests: the diff of #3653 selects test/reconcile/approve-batch.test.mjs; the approve launcher maps to plot-approve.mjs; a launcher with no bundle= line maps to nothing --> → #3757
 
 ## Notes
 
