@@ -48,7 +48,7 @@
 
 ### Board
 
-- `feature/the-supersede-dialog-takes-a-foreign-successor` — `POST /api/supersede` accepts the form, the dialog takes it as free text, and the plan card names the foreign successor <!-- waits: feature/supersede-takes-a-foreign-successor --> <!-- builds: the foreign-successor arm of the Supersede route and dialog --> <!-- tests: the route answers 200 for owner/repo:slug and 422 successor-unparsed for a malformed reference; the card's successor text is a domain property read in a unit test -->
+- `feature/the-supersede-dialog-takes-a-foreign-successor` — `POST /api/supersede` accepts the form, the dialog takes it as free text, and the plan card names the foreign successor <!-- waits: feature/supersede-takes-a-foreign-successor --> <!-- builds: the foreign-successor arm of the Supersede route and dialog --> <!-- tests: the route answers 200 for owner/repo:slug and 422 successor-unparsed for a malformed reference; the card's successor text is a domain property read in a unit test --> → #3759
 
 ## Notes
 
