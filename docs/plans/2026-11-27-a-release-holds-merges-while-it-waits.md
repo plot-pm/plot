@@ -48,7 +48,7 @@ fleetd's merge arm, `mergeArm` (`packages/domain/src/rules/slice-pr-next.ts:481`
 
 ### Hold
 
-- `bug/a-waiting-release-holds-merges` — `releaseHold`, the `release-waiting` hold in `mergeArm`, and fleetd's `release-hold.json` record <!-- builds: releaseHold, the release-waiting rule --> <!-- tests: a green reviewed release head holds a slice PR into main; a PR into sprint/x is not held; the named repair PR is not held; the hold ends past Checks wait, on a lift for the head, and when the release row is MERGED; an expired head is not held again -->
+- `bug/a-waiting-release-holds-merges` — `releaseHold`, the `release-waiting` hold in `mergeArm`, and fleetd's `release-hold.json` record <!-- builds: releaseHold, the release-waiting rule --> <!-- tests: a green reviewed release head holds a slice PR into main; a PR into sprint/x is not held; the named repair PR is not held; the hold ends past Checks wait, on a lift for the head, and when the release row is MERGED; an expired head is not held again --> → #3746
 
 ### Board
 
