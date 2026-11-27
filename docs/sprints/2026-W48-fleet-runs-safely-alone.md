@@ -4,8 +4,8 @@
 
 ## Status
 
-- **State:** Committed
-- **Start:** 2026-12-04
+- **State:** Active
+- **Start:** 2026-11-27
 - **End:** 2026-12-11
 - **Owner:** jwloka
 <!-- Optional. The version this sprint is working toward, named before it is
@@ -62,6 +62,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 
+- 2026-11-27: committed and started on 2026-11-27, a week early, beside plot-describes-itself, so the board shows the plans the fleet already builds. The End stays 2026-12-11.
 - 2026-11-27: added issue #3752 as a Must Have: the hold plan reads readiness from the stage this issue changes.
 - 2026-11-27: added issue #3750 as a Should Have, from the panel on a-release-holds-merges-while-it-waits.
 - 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
