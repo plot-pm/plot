@@ -53,7 +53,7 @@ The loop's idle watch (`worker-loop.ts:1367`, "the desk file the loop's own outp
 
 ### Status Line
 
-- `bug/fleetctl-status-asks-the-desk-quiet-reading` — `plot-fleetctl.sh --status` prints quiet from one bundle call over the running desks and removes its own `stat` reading <!-- waits: bug/a-desk-reads-quiet-from-its-live-signals --> <!-- builds: the status bundle call --> <!-- tests: a contract test where a desk's log is 2 h old and its pass file 1 min old prints quiet near 60 s; a desk with a future usage-limit reset still prints the wait -->
+- `bug/fleetctl-status-asks-the-desk-quiet-reading` — `plot-fleetctl.sh --status` prints quiet from one bundle call over the running desks and removes its own `stat` reading <!-- waits: bug/a-desk-reads-quiet-from-its-live-signals --> <!-- builds: the status bundle call --> <!-- tests: a contract test where a desk's log is 2 h old and its pass file 1 min old prints quiet near 60 s; a desk with a future usage-limit reset still prints the wait --> → #3761
 
 ## Notes
 
