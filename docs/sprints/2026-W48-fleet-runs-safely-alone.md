@@ -37,6 +37,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 ### Should Have
 - [ ] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
+- [ ] [a-stale-pending-review-is-asked-again] A stale pending review is asked again <!-- pr: #3740, branch: bug/a-held-stale-review-names-its-reason -->
 
 <!-- add items here -->
 
