@@ -38,6 +38,8 @@ const WalkBranchSchema = z.object({
   branch: z.string(),
   readings: z.object({
     deferredByPlan: z.boolean(),
+    /** The repository the slice line places the branch in, where that is not this one; `null` or absent for a branch of this one. */
+    foreignRepo: z.string().nullable().optional(),
     refTip: z.string().nullable(),
     mainTip: z.string().nullable(),
     mergeSubjectFound: z.boolean(),
@@ -46,7 +48,9 @@ const WalkBranchSchema = z.object({
     prListComplete: z.boolean(),
     commitsAhead: z.number(),
     realCommitsAhead: z.number(),
-    waits: z.array(z.object({ branch: z.string(), pr: PrReadingSchema, namedSlice: z.boolean() })).readonly(),
+    waits: z
+      .array(z.object({ branch: z.string(), pr: PrReadingSchema, namedSlice: z.boolean(), foreignRepo: z.string().optional() }))
+      .readonly(),
   }),
   landed: z.array(z.object({ commit: z.string(), contained: ContainmentSchema })).readonly(),
   changedPaths: z.array(z.string()).readonly(),
@@ -58,6 +62,8 @@ const WalkBranchSchema = z.object({
       z.object({ state: PrRowStateSchema, checks: z.string(), draft: z.boolean() }),
     ])
     .optional(),
+  /** Whether the host merged the foreign branch's PR in its own repository; absent for a branch of this one. */
+  foreignMerged: z.boolean().optional(),
 });
 
 /** One desk's git readings beside its desk files and worker: what `readDeskReadings` adds. */
