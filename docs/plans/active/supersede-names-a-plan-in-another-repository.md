@@ -1,0 +1,1 @@
+../2026-11-27-supersede-names-a-plan-in-another-repository.md

@@ -1,0 +1,1 @@
+../2026-11-27-a-launcher-change-selects-its-tests.md
