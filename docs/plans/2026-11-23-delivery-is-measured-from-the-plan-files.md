@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** plot-describes-itself
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-24, jwloka, plan-PR #3698 merged
 - **Started:** 2026-11-24, Jan Wloka, `feature/delivery-is-measured-from-the-plan-files`
 - **Delivered:** 2026-11-25
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
