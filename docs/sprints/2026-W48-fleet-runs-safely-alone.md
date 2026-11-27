@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Planning
+- **State:** Committed
 - **Start:** 2026-12-04
 - **End:** 2026-12-11
 - **Owner:** jwloka
