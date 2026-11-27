@@ -10,6 +10,9 @@ import {
   type MergePorts,
   type MergeResult,
   type MergerAppReading,
+  RELEASE_HOLD_VERSION,
+  type ReleaseHoldStore,
+  type ReleaseHoldVerdict,
   type SlicePrNextReadings,
   type SlicePrStep,
 } from '@plot-pm/domain';
@@ -20,6 +23,7 @@ import {
   defaultBranchFile,
   mergerAppHeld,
   prIndexFile,
+  releaseHoldFile,
   repairRecordFile,
   type MergerAppReader,
 } from '@plot-pm/domain/adapters';
@@ -29,6 +33,8 @@ import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { liveReviewRuns } from '@plot-pm/domain/adapters/review-start/review-start-node';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
 import { baseBranchRed } from '@plot-pm/domain/rules/default-branch';
+import { RELEASE_BRANCH_PREFIX } from '@plot-pm/domain/rules/loose-delete';
+import { releaseHold } from '@plot-pm/domain/rules/release-hold';
 import { shippedPathsOf } from '@plot-pm/domain/rules/bundle-commit';
 import { DEFAULT_RELEASE_DIR, syncPathSet } from '@plot-pm/domain/rules/state-sync';
 import { readUnsettled } from '@plot-pm/domain/workflows/unsettled-line';
@@ -209,6 +215,41 @@ const baseRepairReadings = async (
     out.set(base, await readRepair({ ...ports, repair: ports.baseRepair(base) }, reading.branch, settled, named.number, 'base'));
   }
   return out;
+};
+
+/**
+ * Reads the release hold once for a tick, and records when the hold for a head began.
+ *
+ * Takes the release row from the open rows: a `changeset-release/` row into the default
+ * branch, or the first `changeset-release/` row where none is into it. Reads the record once and
+ * asks {@link releaseHold}. Where the answer is `holds` for a head the record does not name, writes
+ * `{ head, since: now }`; the record is written nowhere else.
+ *
+ * @param rows - the open rows.
+ * @param defaultBranchName - the default branch's name.
+ * @param store - the release hold record's store.
+ * @param now - epoch milliseconds of the tick.
+ * @param boundMs - the `Checks wait` bound.
+ * @returns the verdict, or `undefined` where the record did not read or the write failed, which holds nothing.
+ */
+export const releaseHoldReading = async (
+  rows: readonly PrIndexRow[],
+  defaultBranchName: string,
+  store: ReleaseHoldStore,
+  now: number,
+  boundMs: number,
+): Promise<ReleaseHoldVerdict | undefined> => {
+  const releases = rows.filter((row) => row.state === 'OPEN' && row.head.startsWith(RELEASE_BRANCH_PREFIX));
+  const release = releases.find((row) => row.base === defaultBranchName) ?? releases[0] ?? null;
+  if (release === null) return { verdict: 'none', reason: 'no-release' };
+  const record = await store.read();
+  if (!record.ok) return undefined;
+  const verdict = releaseHold(release, record.value, now, boundMs, defaultBranchName);
+  if (verdict.verdict === 'holds' && record.value?.head !== verdict.head) {
+    const written = await store.write({ v: RELEASE_HOLD_VERSION, head: verdict.head, since: verdict.since });
+    if (!written.ok) return undefined;
+  }
+  return verdict;
 };
 
 /**
@@ -416,10 +457,12 @@ export const runAutoMergePass = async (
     const read = await baseBranchFile(home, base).read();
     baseReadings.set(base, read.ok ? read.value : null);
   }
+  const held = await releaseHoldReading(rows, defaultBranch.branch, releaseHoldFile(home), now, checksWaitMs);
   return mergeTick(
     rows,
     {
       defaultBranchName: defaultBranch.branch,
+      ...(held === undefined ? {} : { releaseHold: held }),
       baseReadings,
       newestMerged: merged[0] === undefined ? null : { mergedAt: merged[0] },
       pathSet: plotPaths,
