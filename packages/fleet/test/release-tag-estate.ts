@@ -71,6 +71,11 @@ export const tagEstate = (roots: string[]): TagEstate => {
 
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
   execFileSync('git', ['init', '-q', '-b', 'main', repo]);
+  // The finish commits its booking with the repository's own identity, and a
+  // CI runner has no global one.
+  git('config', 'user.name', 't');
+  git('config', 'user.email', 't@t');
+  git('config', 'commit.gpgsign', 'false');
   git('config', 'core.hooksPath', path.join(root, 'no-hooks'));
   put('package.json', '{"name":"x","version":"1.0.0"}\n');
   put('.changeset/README.md', 'readme\n');
