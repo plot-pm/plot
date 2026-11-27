@@ -50,8 +50,11 @@ const CONFIG_VITEST = [
  * A repository whose `origin` is itself, so `origin/main...HEAD` reads with no
  * network. Main holds a script, two tests naming it and a generated file; the
  * branch changes the script and the generated file and leaves one file
- * uncommitted.
+ * uncommitted. An ignored bundle input map holds one row, as a board build
+ * leaves it.
  */
+const MAP = 'packages/board/dist/bundle-inputs.json';
+
 const sandbox = (config = CONFIG) => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-'));
   const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
@@ -73,6 +76,8 @@ const sandbox = (config = CONFIG) => {
   write('test/w2.test.mjs', '// wide.sh\n');
   write('test/w3.test.mjs', '// wide.sh\n');
   write('docs/note.md', 'a note\n');
+  write('.gitignore', 'packages/board/dist/\n');
+  write(MAP, JSON.stringify([{ shipped: 'skills/plot/scripts/board/plot-tool.mjs', inputs: ['src/tool.sh'] }]));
   git('add', '-A');
   git('commit', '-q', '-m', 'main');
   git('remote', 'add', 'origin', repo);
@@ -166,6 +171,8 @@ const vitestSandbox = () => {
   ].join('\n'));
   fs.mkdirSync(path.join(target, 'node_modules'), { recursive: true });
   fs.symlinkSync(vitestPkg, path.join(target, 'node_modules', 'vitest'));
+  write('.gitignore', 'packages/board/dist/\n');
+  write(MAP, JSON.stringify([{ shipped: 'skills/plot/scripts/board/plot-a.mjs', inputs: ['src/a.mjs'] }]));
   git('add', '-A');
   git('commit', '-q', '-m', 'main');
   git('remote', 'add', 'origin', target);
@@ -544,6 +551,74 @@ test('--run with --ci, and --base without a value, exit 2', () => {
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
+});
+
+test('a path two bundles hold selects the tests naming either bundle', () => {
+  const repo = sandbox();
+  const list = path.join(repo, '.git', 'changed.txt');
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+    fs.writeFileSync(path.join(repo, 'src', 'shared.ts'), 'export const x = 1;\n');
+    fs.writeFileSync(path.join(repo, 'test', 'a.test.mjs'), "// runs plot-a.mjs\n");
+    fs.writeFileSync(path.join(repo, 'test', 'b.test.mjs'), "// runs plot-b.mjs\n");
+    git('add', '-A');
+    git('commit', '-q', '-m', 'bundles');
+    fs.writeFileSync(
+      path.join(repo, MAP),
+      JSON.stringify([
+        { shipped: 'skills/plot/scripts/board/plot-a.mjs', inputs: ['src/a.ts', 'src/shared.ts'] },
+        { shipped: 'skills/plot/scripts/board/plot-b.mjs', inputs: ['src/b.ts', 'src/shared.ts'] },
+      ]),
+    );
+    fs.writeFileSync(list, 'src/shared.ts\n');
+    const res = runCi(repo, '--files', list);
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.stderr, '');
+    assert.deepEqual(JSON.parse(res.stdout).tests, ['test/a.test.mjs', 'test/b.test.mjs']);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+for (const [reason, damage] of [
+  ['missing', (file) => fs.rmSync(file)],
+  ['unparseable', (file) => fs.writeFileSync(file, '[{"shipped":')],
+]) {
+  test(`a ${reason} bundle input map falls back to the entry pairs, and the first line names the fallback`, () => {
+    const repo = sandbox();
+    const list = path.join(repo, '.git', 'changed.txt');
+    try {
+      const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+      fs.writeFileSync(path.join(repo, 'test', 'approve.test.mjs'), "// runs plot-approve.mjs\n");
+      git('add', '-A');
+      git('commit', '-q', '-m', 'approve test');
+      damage(path.join(repo, MAP));
+      const line = `# bundle inputs: ${MAP} is ${reason}; selecting by bundle entry sources (BOARD_BUNDLE_ENTRIES) — run pnpm build:board for the full map`;
+
+      const local = runIn(repo);
+      assert.equal(local.status, 0, local.stderr);
+      const lines = local.stdout.split('\n');
+      assert.equal(lines[0], line);
+      assert.equal(lines[1], '# base: origin/main (nearest: HEAD is 2 commits past it)');
+
+      fs.writeFileSync(list, 'packages/board/src/server/entry/approve.ts\npackages/domain/src/workflows/approve.ts\n');
+      const ci = runCi(repo, '--files', list);
+      assert.equal(ci.status, 0, ci.stderr);
+      assert.equal(ci.stderr.split('\n')[0], line);
+      const selection = JSON.parse(ci.stdout);
+      assert.deepEqual(selection.tests, ['test/approve.test.mjs']);
+
+      fs.writeFileSync(list, 'packages/domain/src/workflows/approve.ts\n');
+      assert.deepEqual(JSON.parse(runCi(repo, '--files', list).stdout).tests, []);
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+}
+
+test('git ignores the bundle input map, so no pull request carries it', () => {
+  const res = spawnSync('git', ['-C', repoRoot, 'check-ignore', '-q', MAP], { encoding: 'utf8' });
+  assert.equal(res.status, 0, `git check-ignore ${MAP} exited ${res.status}: ${res.stderr}`);
 });
 
 test('this repository declares its Local checks cheapest first', () => {

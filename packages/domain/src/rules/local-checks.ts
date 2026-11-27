@@ -27,6 +27,50 @@ export interface BundleEntry {
   readonly shipped: string;
 }
 
+/** One shipped bundle and the source files it holds, all relative to the repository root. */
+export interface BundleInputs {
+  /** The path the bundle ships at. */
+  readonly shipped: string;
+  /** The source files the bundle holds, sorted. */
+  readonly inputs: readonly string[];
+}
+
+/**
+ * The bundle input map built from the entry pairs alone: each bundle holds its
+ * entry source and nothing else.
+ *
+ * @param pairs - the bundle entry pairs.
+ * @returns one row per pair.
+ */
+export const entryInputs = (pairs: readonly BundleEntry[]): BundleInputs[] =>
+  pairs.map((pair) => ({ shipped: pair.shipped, inputs: [pair.entry] }));
+
+/**
+ * Reads the bundle input map the board build writes (`packages/board/dist/bundle-inputs.json`).
+ *
+ * @param text - the file's text, or `null` where it could not be read.
+ * @returns the rows; `null` for a missing file, text that is not JSON, a value
+ *   that is not an array of `{ shipped: string, inputs: string[] }`, or an
+ *   empty array.
+ */
+export const parseBundleInputs = (text: string | null): BundleInputs[] | null => {
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const rows: BundleInputs[] = [];
+  for (const row of parsed as unknown[]) {
+    const { shipped, inputs } = (row ?? {}) as { shipped?: unknown; inputs?: unknown };
+    if (typeof shipped !== 'string' || !Array.isArray(inputs) || !inputs.every((input) => typeof input === 'string')) return null;
+    rows.push({ shipped, inputs: inputs as string[] });
+  }
+  return rows;
+};
+
 /** What the caller read about the branch. */
 export interface LocalChecksReadings {
   /** Every path the branch changes, committed or not, relative to the repository root. */
@@ -42,8 +86,8 @@ export interface LocalChecksReadings {
   readonly corpus?: readonly string[];
   /** The test files the caller read, with their text, for {@link estateReaders} and `bundles`; absent reads as none. */
   readonly tests?: readonly TestFile[];
-  /** The bundle entry pairs (see {@link searchTerms}); absent reads as none. */
-  readonly bundles?: readonly BundleEntry[];
+  /** The bundle input map (see {@link searchTerms}); absent reads as none. */
+  readonly bundles?: readonly BundleInputs[];
   /** The declared checks, in declaration order. */
   readonly checks: readonly LocalCheck[];
   /** The most test files one path may select before it is reported instead. */
@@ -145,20 +189,20 @@ const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
 
 /**
  * The words a test file uses to name a path: its basename, for a TypeScript
- * source its `.js` form, which is how an import names it, and for a bundle's
- * entry source the basename of each bundle built from it, which is how a test
+ * source its `.js` form, which is how an import names it, and for a source a
+ * bundle holds the basename of every bundle holding it, which is how a test
  * that runs the bundle names it.
  *
  * @param path - a changed path.
- * @param bundles - the bundle entry pairs; a path that is no pair's `entry` gains no term.
+ * @param bundles - the bundle input map; a path no row's `inputs` hold gains no term.
  * @returns the search terms, without duplicates.
  */
-export const searchTerms = (path: string, bundles: readonly BundleEntry[] = []): string[] => {
+export const searchTerms = (path: string, bundles: readonly BundleInputs[] = []): string[] => {
   const base = basename(path);
   const terms = [base];
   const ts = /^(.*)\.(?:ts|tsx|mts)$/.exec(base);
   if (ts) terms.push(`${ts[1]}.js`);
-  for (const pair of bundles) if (pair.entry === path) terms.push(basename(pair.shipped));
+  for (const bundle of bundles) if (bundle.inputs.includes(path)) terms.push(basename(bundle.shipped));
   return [...new Set(terms)];
 };
 
@@ -220,8 +264,8 @@ export interface SelectionReadings {
   readonly sync: SyncPathKeys;
   /** The repository root; when given, placeholders are filled with absolute paths. */
   readonly root?: string;
-  /** The bundle entry pairs (see {@link searchTerms}); absent reads as none. */
-  readonly bundles?: readonly BundleEntry[];
+  /** The bundle input map (see {@link searchTerms}); absent reads as none. */
+  readonly bundles?: readonly BundleInputs[];
 }
 
 /** The answer a CI job reads. */
@@ -313,13 +357,13 @@ export const candidateTests = (paths: readonly string[], checks: readonly LocalC
  *
  * @param changed - the changed paths.
  * @param tests - the test files and their text.
- * @param bundles - the bundle entry pairs; none when absent.
+ * @param bundles - the bundle input map; none when absent.
  * @returns for each changed path, the paths of the test files naming it, sorted.
  */
 export const testsNaming = (
   changed: readonly string[],
   tests: readonly TestFile[],
-  bundles: readonly BundleEntry[] = [],
+  bundles: readonly BundleInputs[] = [],
 ): Map<string, readonly string[]> =>
   new Map(
     changed.map((path) => {
@@ -514,8 +558,8 @@ const decide = (readings: LocalChecksReadings, policy: Policy, declared: Readonl
  *   selects the test files {@link estateReaders} answers for it, which the
  *   checks run like named test files, whatever their number; they are listed
  *   in `estateTests`.
- * - A changed path that is a `bundles` pair's `entry` also selects the test
- *   files in `tests` that name the pair's shipped basename.
+ * - A changed path that a `bundles` row's `inputs` hold also selects the test
+ *   files in `tests` that name that row's shipped basename, for every such row.
  * - A path no check reaches is reported in `untested`.
  *
  * @param readings - what the caller read.
@@ -525,7 +569,7 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
   const patterns = (readings.corpus ?? []).map(globToRegExp);
   const generated = new Set(readings.generated);
   const entries = readings.changed.filter(
-    (path) => !generated.has(path) && (readings.bundles ?? []).some((pair) => pair.entry === path),
+    (path) => !generated.has(path) && (readings.bundles ?? []).some((bundle) => bundle.inputs.includes(path)),
   );
   const bundled = testsNaming(entries, readings.tests ?? [], readings.bundles);
   const references = new Map(
@@ -569,7 +613,7 @@ export const localChecks = (readings: LocalChecksReadings): LocalChecksAnswer =>
  *   request only where this is true.
  *
  * The references are derived here from the test files' text by
- * {@link testsNaming}, with the `bundles` pairs, so CI and the local run read
+ * {@link testsNaming}, with the `bundles` map, so CI and the local run read
  * one map.
  *
  * @param readings - what the caller read.
