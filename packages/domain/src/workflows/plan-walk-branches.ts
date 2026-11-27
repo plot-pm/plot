@@ -19,6 +19,7 @@ import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
 import { planIsFinished } from '../rules/plan-names-branch.js';
+import { repoOfRemote, sliceForeignReference, sliceForeignRepo } from '../rules/slice-foreign-repo.js';
 
 /** How many merge commits the subject lookup walks, as the shell scan caps it. */
 const MERGE_WALK = 20000;
@@ -167,6 +168,13 @@ export interface BranchReading {
   subjectPredatesPlan?: boolean;
   /** The PR row the list held for the branch; present only under `input.loose`. */
   prDetail?: PrDetail;
+  /**
+   * Whether the host merged the branch's PR in the repository `foreignRepo`
+   * names; true only for a foreign branch whose line names `→ owner/repo#N`
+   * and whose host answered `merged`. Absent or false is *not known to be
+   * merged*, never *not merged*.
+   */
+  foreignMerged?: boolean;
 }
 
 /** What the branch stage reads: one entry per branch line of every live plan. */
@@ -422,6 +430,33 @@ export const readBranchReadings = async (
     return !tipOf.has(name) && !openRow && indexMerged.has(name) ? 'MERGED' : listedPr;
   };
 
+  // A FOREIGN BRANCH IS ASKED OF ITS OWN REPOSITORY, never of this one: by
+  // `prMerged(branch, { repo })`, and only where its line names the foreign PR.
+  // A line with no arrow puts no question, and its answer stays `unreadable`;
+  // so does every foreign branch where the stage may put no per-name question.
+  const thisRepo = repoOfRemote(origin);
+  const foreignOf = new Map<string, { repo: string; arrow: boolean }>();
+  for (const { record } of estate.plans) {
+    for (const slice of record.slices) {
+      for (const b of slice.branches) {
+        const repo = b.line === undefined ? null : sliceForeignRepo(b.line, thisRepo);
+        if (repo === null || foreignOf.has(b.branch)) continue;
+        foreignOf.set(b.branch, { repo, arrow: sliceForeignReference(b.line!, thisRepo) !== null });
+      }
+    }
+  }
+  const foreignAsked = new Map<string, PrReading>();
+  const foreignPrFor = async (branch: string): Promise<PrReading> => {
+    const foreign = foreignOf.get(branch);
+    if (foreign === undefined || !foreign.arrow || !mayAsk) return 'unreadable';
+    const known = foreignAsked.get(branch);
+    if (known !== undefined) return known;
+    const answer = await host.prMerged(branch, { repo: foreign.repo });
+    const reading: PrReading = answer.ok && answer.value === 'merged' ? 'MERGED' : 'unreadable';
+    foreignAsked.set(branch, reading);
+    return reading;
+  };
+
   const live = estate.plans.filter((p) => !planIsFinished(p.record.phase));
   const sliceNames = namedSlices(
     estate.plans.map((p) => ({
@@ -510,11 +545,20 @@ export const readBranchReadings = async (
         }
         const waits: WaitsReading[] = [];
         for (const name of line.waitsOn) {
-          waits.push({ branch: name, pr: await waitPrFor(name), namedSlice: sliceNames.has(name) });
+          const foreign = foreignOf.get(name);
+          waits.push(
+            foreign === undefined
+              ? { branch: name, pr: await waitPrFor(name), namedSlice: sliceNames.has(name) }
+              : { branch: name, pr: await foreignPrFor(name), namedSlice: sliceNames.has(name), foreignRepo: foreign.repo },
+          );
         }
+        const foreignRepo = foreignOf.get(line.branch)?.repo ?? null;
         // A branch with a ref answers from the list alone; a merge subject or a
-        // landed commit already proves a refless one, so neither is asked.
-        const listedPr = refTip === null && !proven && !commitsLanded ? await askedPrFor(line.branch) : prFor(line.branch);
+        // landed commit already proves a refless one, so neither is asked. A
+        // foreign branch is never asked of this repository's host.
+        const listedPr = refTip === null && !proven && !commitsLanded && foreignRepo === null
+          ? await askedPrFor(line.branch)
+          : prFor(line.branch);
         // The index confirms a landing a subject or a named commit proves, with
         // a terminal answer only: a head it does not hold keeps the list's word.
         // An OPEN row blocks it; the index's own OPEN rows decide where given.
@@ -526,6 +570,7 @@ export const readBranchReadings = async (
           branch: line.branch,
           readings: {
             deferredByPlan: line.deferred,
+            foreignRepo,
             refTip,
             mainTip: noMain ? null : mainTip,
             mergeSubjectFound: refTip === null && (proven || commitsLanded),
@@ -541,6 +586,7 @@ export const readBranchReadings = async (
           localAhead,
           subjectPredatesPlan: predates,
           ...(input.loose === true ? { prDetail: detailOf(line.branch) } : {}),
+          ...(foreignRepo === null ? {} : { foreignMerged: (await foreignPrFor(line.branch)) === 'MERGED' }),
         });
       }
     }
@@ -552,7 +598,7 @@ export const readBranchReadings = async (
     // confirm a landing.
     if (record.phase === 'approved' && listed && mayAsk) {
       const own = branches.slice(planStart);
-      const candidate = own.every((b) => b.readings.deferredByPlan || branchState({ ...b.readings, waits: [] }) === 'merged');
+      const candidate = own.every((b) => b.readings.deferredByPlan || b.foreignMerged === true || branchState({ ...b.readings, waits: [] }) === 'merged');
       for (let i = planStart; candidate && i < branches.length; i += 1) {
         const b = branches[i]!;
         if (!b.readings.mergeSubjectFound || b.readings.pr === 'MERGED') continue;

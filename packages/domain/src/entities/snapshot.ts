@@ -113,6 +113,8 @@ const PlanBranchSchema = z.object({
   waitsOn: z.array(z.string()).readonly(),
   spike: z.boolean().optional(),
   commits: z.array(z.string()).readonly().optional(),
+  /** The branch's first claim line, verbatim from the plan's text; absent where the store read no text. */
+  line: z.string().optional(),
 });
 
 /** One plan, sprint or story file as the `PlanStore` port's `PlanRecord` reports it. */

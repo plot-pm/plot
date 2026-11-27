@@ -305,7 +305,9 @@ const compareEstate = async (
       for (const field of ['deferredByPlan', 'refTip', 'mainTip', 'mergeSubjectFound', 'hostReach', 'pr', 'prListComplete', 'commitsAhead', 'realCommitsAhead'] as const) {
         compareField(found, subject, field, stage.readings[field], oracle[field]);
       }
-      compareField(found, subject, 'waits', JSON.stringify(stage.readings.waits), JSON.stringify(oracle.waits));
+      // The shell scan reads three fields of a wait; `foreignRepo` comes from the slice line, and the scan has no reading of it.
+      const shellWaits = stage.readings.waits.map(({ branch, pr, namedSlice }) => ({ branch, pr, namedSlice }));
+      compareField(found, subject, 'waits', JSON.stringify(shellWaits), JSON.stringify(oracle.waits));
       names.push(b.branch);
       stageLines.push(line(stage.readings));
       oracleLines.push(line(oracle));

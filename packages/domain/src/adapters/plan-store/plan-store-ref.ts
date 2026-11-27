@@ -8,6 +8,7 @@ import { asJsonLines, runProcess, resultOf } from '../run-script.js';
 import { makeStageDir, removeStageDir } from '../stage-dirs.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 import { planOf, planStoreShell, prefixArgs, statusField, type RawPlan } from './plan-store-shell.js';
+import { withClaimLines } from '../../rules/cross-repo-reference.js';
 
 /**
  * Escapes the control characters that JSON whitespace does not use in the parser's
@@ -128,6 +129,7 @@ export const planStoreRef = (
     try {
       const staged: { stagedPath: string; file: string }[] = [];
       const rejectedByStagedPath = new Map<string, string>();
+      const contentByStagedPath = new Map<string, string>();
       let n = 0;
       for (const { path, sha } of blobs) {
         const content = read.value.get(sha);
@@ -138,6 +140,7 @@ export const planStoreRef = (
         writeFileSync(stagedPath, content, 'utf8');
         staged.push({ stagedPath, file: path });
         rejectedByStagedPath.set(stagedPath, statusField(content, 'Rejected'));
+        contentByStagedPath.set(stagedPath, content);
       }
 
       // ONE SPAWN of the parser over every staged path, never one per file —
@@ -155,7 +158,8 @@ export const planStoreRef = (
       if (parsed.value.some((raw) => raw.error !== undefined)) return failed<readonly PlanRecord[]>();
       const records = parsed.value.map((raw) => {
         const rejectedRaw = raw.file === undefined ? '' : rejectedByStagedPath.get(raw.file) ?? '';
-        const record = planOf(raw, rejectedRaw);
+        const content = raw.file === undefined ? undefined : contentByStagedPath.get(raw.file);
+        const record = content === undefined ? planOf(raw, rejectedRaw) : withClaimLines(planOf(raw, rejectedRaw), content);
         const canonical = raw.file === undefined ? undefined : canonicalPath.get(raw.file);
         return canonical === undefined ? record : { ...record, file: canonical };
       });

@@ -3,7 +3,7 @@ import { BranchStateSchema, type BranchState } from '../entities/fleet.js';
 /*
  * A BRANCH'S STATE IS DERIVED FROM GIT AND THE HOST, so a transition here is a
  * VERDICT on a change that already happened and carries nothing to write.
- * `plot-fleet-scan.sh` re-derives all eight from refs and PR state every run.
+ * `plot-fleet-scan.sh` re-derives the git-read states from refs and PR state every run.
  *
  * WHAT THIS ADDS THAT `rules/reapable.ts` DOES NOT, and the distinction is the
  * reason this is not a third copy: that rule answers *may this WORKTREE be
@@ -41,6 +41,7 @@ export const BRANCH_LIFECYCLE: readonly BranchState[] = [
   'unknown',
   'waiting',
   'blocked',
+  'foreign',
 ];
 
 /**
@@ -63,18 +64,23 @@ export const BRANCH_LIFECYCLE: readonly BranchState[] = [
  * prerequisite lands; `blocked` resolves by editing the plan, so it reaches
  * `open` and not `waiting`.
  *
+ * `foreign` is reachable from every unfinished state and reaches `open` and
+ * `deferred`: like `deferred`, it is the plan's statement, here that the
+ * branch lives in another repository, and it moves only by editing the plan.
+ *
  * `unknown` reaches every state a reading can produce: it is the absence of an
  * answer, and any answer replaces it.
  */
 const NEXT: Readonly<Record<BranchState, readonly BranchState[]>> = {
-  unknown: ['open', 'claimed', 'wip', 'merged', 'deferred', 'waiting', 'blocked'],
-  open: ['claimed', 'wip', 'merged', 'deferred', 'waiting', 'blocked'],
-  claimed: ['wip', 'merged', 'deferred', 'open'],
-  wip: ['merged', 'deferred'],
+  unknown: ['open', 'claimed', 'wip', 'merged', 'deferred', 'waiting', 'blocked', 'foreign'],
+  open: ['claimed', 'wip', 'merged', 'deferred', 'waiting', 'blocked', 'foreign'],
+  claimed: ['wip', 'merged', 'deferred', 'open', 'foreign'],
+  wip: ['merged', 'deferred', 'foreign'],
   merged: [],
   deferred: [],
-  waiting: ['open', 'claimed', 'wip', 'merged', 'deferred'],
-  blocked: ['open', 'deferred'],
+  waiting: ['open', 'claimed', 'wip', 'merged', 'deferred', 'foreign'],
+  blocked: ['open', 'deferred', 'foreign'],
+  foreign: ['open', 'deferred'],
 };
 
 /**
