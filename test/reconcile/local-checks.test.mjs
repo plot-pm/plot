@@ -616,6 +616,77 @@ for (const [reason, damage] of [
   });
 }
 
+// The 14 paths #3653 changed. Its PR CI passed and main went red on
+// approve-batch.test.mjs, which runs plot-approve.sh and never names the bundle.
+const PR_3653 = [
+  '.changeset/plot-approve-asks-the-pr-of-the-adding-merge.md',
+  'packages/board/src/server/entry/approve.ts',
+  'packages/board/src/server/entry/needs-design.ts',
+  'packages/board/src/server/entry/open-prs.ts',
+  'packages/board/src/server/interrogate.ts',
+  'packages/board/test/unit/approve-host.test.ts',
+  'packages/board/test/unit/approve.test.ts',
+  'packages/board/test/unit/needs-design.test.ts',
+  'packages/domain/src/rules/plan-pr.ts',
+  'packages/domain/src/workflows/approve.ts',
+  'packages/domain/test/approve-spike.test.ts',
+  'packages/domain/test/rules-plan-pr.test.ts',
+  'packages/domain/test/workflows-approve.test.ts',
+  'skills/plot-approve/SKILL.md',
+];
+
+const ciOnRepo = (paths) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-local-checks-repo-'));
+  try {
+    const list = path.join(dir, 'changed.txt');
+    fs.writeFileSync(list, `${paths.join('\n')}\n`);
+    const res = runCi(repoRoot, '--files', list);
+    assert.equal(res.status, 0, res.stderr);
+    return JSON.parse(res.stdout);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+
+test('the diff of #3653 selects approve-batch.test.mjs, which runs the approve launcher', () => {
+  assert.ok(ciOnRepo(PR_3653).tests.includes('test/reconcile/approve-batch.test.mjs'));
+});
+
+test('a source the approve bundle imports, with no entry change, selects the launcher test', (t) => {
+  if (!fs.existsSync(path.join(repoRoot, MAP))) return t.skip(`${MAP} is missing; run pnpm build:board`);
+  assert.ok(ciOnRepo(['packages/domain/src/workflows/approve.ts']).tests.includes('test/reconcile/approve-batch.test.mjs'));
+});
+
+test('a changed bundle source selects the test naming its launcher, and an unreadable .sh does not stop the selection', () => {
+  const repo = sandbox();
+  const list = path.join(repo, '.git', 'changed.txt');
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
+    const write = (file, content) => {
+      fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
+      fs.writeFileSync(path.join(repo, file), content);
+    };
+    write('skills/plot/scripts/plot-tool.sh', 'bundle="$script_dir/board/plot-tool.mjs"\nexec node "$bundle" "$@"\n');
+    write('skills/plot/scripts/plot-gone.sh', 'bundle="$script_dir/board/plot-tool.mjs"\n');
+    write('skills/plot/scripts/plot-noted.sh', '# bundle="$script_dir/board/plot-tool.mjs"\n');
+    write('test/launch.test.mjs', "// runs plot-tool.sh\n");
+    write('test/gone.test.mjs', "// runs plot-gone.sh\n");
+    write('test/noted.test.mjs', "// runs plot-noted.sh\n");
+    git('add', '-A');
+    git('commit', '-q', '-m', 'launchers');
+    fs.rmSync(path.join(repo, 'skills/plot/scripts/plot-gone.sh'));
+    fs.writeFileSync(list, 'src/tool.sh\n');
+    const res = runCi(repo, '--files', list);
+    assert.equal(res.status, 0, res.stderr);
+    assert.deepEqual(JSON.parse(res.stdout).tests, ['test/launch.test.mjs', 'test/tool.test.mjs']);
+    const local = runIn(repo, '--files', list);
+    assert.equal(local.status, 0, local.stderr);
+    assert.match(local.stdout, /^node --test \S*\/test\/launch\.test\.mjs \S*\/test\/tool\.test\.mjs$/m, local.stdout);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test('git ignores the bundle input map, so no pull request carries it', () => {
   const res = spawnSync('git', ['-C', repoRoot, 'check-ignore', '-q', MAP], { encoding: 'utf8' });
   assert.equal(res.status, 0, `git check-ignore ${MAP} exited ${res.status}: ${res.stderr}`);
