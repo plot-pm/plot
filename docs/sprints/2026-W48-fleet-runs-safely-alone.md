@@ -41,6 +41,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [a-desk-reads-quiet-from-its-live-signals] A desk reads quiet from its live signals (#3745) <!-- pr: #3747, branch: bug/a-desk-reads-quiet-from-its-live-signals -->
 
 <!-- add items here -->
+- [ ] [#3750](https://github.com/plot-pm/plot/issues/3750) A release can be approved on a board reached through its tailnet origin, or the button says why not
 
 ### Could Have
 
@@ -60,6 +61,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 <!-- Log scope changes here: added/removed items, tier changes, with date and reason -->
 
+- 2026-11-27: added issue #3750 as a Should Have, from the panel on a-release-holds-merges-while-it-waits.
 - 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
 - 2026-11-27: added issue #3745 as a Should Have: the status read three working agents as quiet for 2 h.
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
