@@ -57,10 +57,14 @@ export const reportBanner = (header: FleetReadingHeader, context: ReportContext)
  * @returns the sentence.
  */
 const branchNote = (branch: AssembledBranch, hostWord: string): string => {
-  const waits = branch.waitsOn.join(', ');
+  const waits = branch.waitsOn
+    .map((name) => (branch.waitsForeign[name] === undefined ? name : `${name} (in ${branch.waitsForeign[name]})`))
+    .join(', ');
   switch (branch.state) {
     case 'waiting':
       return `waiting on ${waits}`;
+    case 'foreign':
+      return `foreign — lives in ${branch.foreignRepo}, not claimed here`;
     case 'blocked':
       return `blocked — no PR found for ${waits}`;
     case 'deferred':

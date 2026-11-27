@@ -27,7 +27,7 @@ import {
  * With `--branch`, the implement briefs that branch and `plot-dispatch.sh`
  * hands over that branch alone, and the command refuses by name where the
  * bridged pulse does not show the branch as startable for the plan
- * (`no-pulse-reading`, `branch-not-in-plan`, `branch-not-startable`). Without
+ * (`no-pulse-reading`, `branch-not-in-plan`, `branch-foreign`, `branch-not-startable`). Without
  * it, the first startable branch the pulse names is briefed.
  *
  * Holds what `POST /api/dispatch` decides: an `Implement command` must be

@@ -10,6 +10,7 @@ import type {
 } from '../../ports/plan-store.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import { parsedPlans } from '../../rules/parsed-plans.js';
+import { withClaimLines } from '../../rules/cross-repo-reference.js';
 import { asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -267,7 +268,7 @@ export const planStoreShell = (context: ShellContext): PlanStore => {
         } catch {
           /* rejectedRaw stays '' */
         }
-        return { ...plan, rejectedRaw: statusField(body, 'Rejected') };
+        return { ...withClaimLines(plan, body), rejectedRaw: statusField(body, 'Rejected') };
       }),
     );
     return answered(withRejected);

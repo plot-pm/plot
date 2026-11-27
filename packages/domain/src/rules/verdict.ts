@@ -52,9 +52,9 @@ export const startabilityVerdict = (
   brief: BriefState,
 ): StartabilityVerdict | null => {
   // `wip` and `claimed` mean someone has it; merged is finished; deferred was
-  // shelved. Only `open` can be started.
+  // shelved; foreign lives in another repository. Only `open` can be started.
   if (state === 'wip' || state === 'claimed') return 'someone-is-on-it';
-  if (state === 'merged' || state === 'deferred') return null;
+  if (state === 'merged' || state === 'deferred' || state === 'foreign') return null;
 
   // A Draft plan is not yours to start — approve it or leave it.
   if (planPhase === 'draft') return 'waiting-on-approval';
@@ -97,7 +97,8 @@ export interface SliceHold {
  * waits on an open prerequisite, and none of them is startable.
  *
  * Reads {@link startabilityVerdict} through each branch's `startability` and adds
- * only the hold. A branch counts as unsettled unless it is `merged` or `deferred`.
+ * only the hold. A branch counts as unsettled unless it is `merged` or `deferred`;
+ * a `foreign` branch is unsettled and never startable, so it neither holds nor frees the slice.
  *
  * @param verdict - the slice's verdict, as the scan reports it.
  * @param branches - each branch's state and startability.

@@ -44,6 +44,10 @@ import { SpikeUnlicensedSchema } from "./card-facts.js";
  * `open` or `unknown` only, so a branch carrying work keeps the state its work
  * earned.
  *
+ * `foreign` comes from the slice line rather than from git: the plan places the
+ * branch in another repository, so no ref, claim or PR of this repository is
+ * about it, and nothing here claims or dispatches it.
+ *
  * `blocked` here is a BRANCH state and shares only its spelling with
  * {@link SliceVerdictSchema}'s `blocked`, which is about wave ordering. The two
  * travel in different fields and are counted separately.
@@ -62,6 +66,7 @@ export const BranchStateSchema = z.enum([
   'unknown',
   'waiting',
   'blocked',
+  'foreign',
 ]);
 export type BranchState = z.infer<typeof BranchStateSchema>;
 
@@ -226,6 +231,18 @@ export const BranchSchema = z.object({
     (value) => (typeof value === 'string' ? (value === '' ? [] : [value]) : value),
     z.array(z.string()),
   ).default([]),
+  /**
+   * The repository the plan places this branch in, `owner/repo`, where that is
+   * not this one; "" for a branch of this repository. Set exactly where `state`
+   * is `foreign`; absent on a branch of this repository and on a pulse from a
+   * scan predating the field.
+   */
+  foreign_repo: z.string().optional(),
+  /**
+   * Each prerequisite in `waits_on` that its plan places in another repository,
+   * mapped to that repository. Absent where no prerequisite is foreign.
+   */
+  waits_foreign: z.record(z.string(), z.string()).optional(),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
   /**

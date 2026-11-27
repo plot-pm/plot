@@ -667,7 +667,12 @@ export const dispatchReading = (pulse: FleetReading | null, slug: string): Dispa
 };
 
 /** Why a dispatch that names its branch refuses it: see {@link dispatchReadingFor}. */
-export type NamedBranchRefusal = 'no-pulse-reading' | 'branch-not-in-plan' | 'branch-not-startable' | 'pulse-partial';
+export type NamedBranchRefusal =
+  | 'no-pulse-reading'
+  | 'branch-not-in-plan'
+  | 'branch-not-startable'
+  | 'branch-foreign'
+  | 'pulse-partial';
 
 /**
  * What a pulse says about starting a plan, refusals of a named branch included.
@@ -684,12 +689,20 @@ export type DispatchReadingFor =
 const joinNames = (names: string[]): string =>
   names.length <= 1 ? (names[0] ?? 'an unnamed prerequisite') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
+/** A prerequisite's name, with the repository its plan places it in where that is not this one. */
+const waitName = (b: Branch, name: string): string => {
+  const repo = b.waits_foreign?.[name];
+  return repo === undefined ? name : `${name} in ${repo}`;
+};
+
 /** Why a branch of an eligible slice is not startable, or `null` where it is. */
 const branchHold = (b: Branch): string | null => {
   switch (b.state) {
     case 'waiting':
     case 'blocked':
-      return `it is held on ${joinNames(b.waits_on)}`;
+      return `it is held on ${joinNames(b.waits_on.map((name) => waitName(b, name)))}`;
+    case 'foreign':
+      return `it lives in ${b.foreign_repo ?? 'another repository'}`;
     case 'claimed':
     case 'merged':
     case 'deferred':
@@ -710,7 +723,9 @@ const branchHold = (b: Branch): string | null => {
  * offers it, since `branchHold` covers every state it excludes). Otherwise it is
  * `branch-refused`: `no-pulse-reading` where the pulse holds no dispatchable
  * reading of the plan, `branch-not-in-plan` where no slice of the plan names the
- * branch, and `branch-not-startable` with the reason (the slice's verdict, the
+ * branch, `branch-foreign` where the plan places the branch in another
+ * repository, whatever its slice's verdict, with that repository in `detail`,
+ * and `branch-not-startable` with the reason (the slice's verdict, the
  * prerequisites it is held on, or its state) in `detail`.
  *
  * @param pulse - a fleet reading, or `null` where there is none.
@@ -730,6 +745,9 @@ export const dispatchReadingFor = (
   const slice = plan.slices.find((s) => s.branches.some((b) => b.branch === branch));
   const found = slice?.branches.find((b) => b.branch === branch);
   if (slice === undefined || found === undefined) return refuse('branch-not-in-plan', `${branch} is not a branch of plan ${slug}`);
+  if (found.state === 'foreign') {
+    return refuse('branch-foreign', `${branch} is not startable here: it lives in ${found.foreign_repo ?? 'another repository'}`);
+  }
   const why = slice.verdict === 'eligible' ? branchHold(found) : `its slice "${slice.name}" is ${slice.verdict}`;
   if (why !== null) return refuse('branch-not-startable', `${branch} is not startable: ${why}`);
   return { kind: 'branch', branch };

@@ -117,6 +117,8 @@ export interface PlanRecordBranch {
    * Absent where the line names none.
    */
   commits?: readonly string[];
+  /** The branch's first claim line, verbatim from the plan's text; absent where the store read no text. */
+  line?: string;
 }
 
 /** One plan blob a caller already holds: the object name and the path it sits at. */

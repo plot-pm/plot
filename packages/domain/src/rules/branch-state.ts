@@ -60,6 +60,12 @@ export interface WaitsReading {
    * released, rejected or superseded plan.
    */
   namedSlice: boolean;
+  /**
+   * The repository the prerequisite's plan places it in, where that is not
+   * this one; absent for a prerequisite of this repository. Its `pr` is then
+   * the foreign PR's answer, and `unreadable` where its line names no PR.
+   */
+  foreignRepo?: string;
 }
 
 /** The phases after which a plan starts no further slice. */
@@ -123,6 +129,12 @@ export interface BranchReadings {
    * the same precedence written where it can be tested.
    */
   deferredByPlan: boolean;
+  /**
+   * The repository the slice line places this branch in, where that is not
+   * this one (`sliceForeignRepo`); `null` or absent for a branch of this
+   * repository. A statement of the plan, and it outranks every git reading.
+   */
+  foreignRepo?: string | null;
   /** The remote ref's object id, or `null` when no remote ref exists. */
   refTip: string | null;
   /** The default branch's remote object id, or `null` when it cannot be read. */
@@ -370,10 +382,12 @@ const ownState = (readings: BranchReadings): BranchState => {
  * 1. **A plan's `deferred:` beats everything git says.** Somebody gave the
  *    branch up. It is a decision, not a measurement, and no merge state
  *    overturns it.
- * 2. **The branch's own readings**, in the order {@link ownState} states: the
+ * 2. **A slice line placing the branch in another repository** reads
+ *    `foreign`. No ref, claim or PR of this repository is about it.
+ * 3. **The branch's own readings**, in the order {@link ownState} states: the
  *    ref before the merge subject, the claim count before the work count, the
  *    tip comparison before the host's answer.
- * 3. **A prerequisite's state beats `open` and `unknown`, and nothing else.**
+ * 4. **A prerequisite's state beats `open` and `unknown`, and nothing else.**
  *    A branch carrying work, a claim or a merge keeps the state its work
  *    earned.
  *
@@ -383,10 +397,11 @@ const ownState = (readings: BranchReadings): BranchState => {
  * they cannot be conflated by accident.
  *
  * @param readings - what was measured of the branch.
- * @returns one of the eight states in {@link BranchState}.
+ * @returns one of the nine states in {@link BranchState}.
  */
 export const branchState = (readings: BranchReadings): BranchState => {
   if (readings.deferredByPlan) return 'deferred';
+  if (readings.foreignRepo !== undefined && readings.foreignRepo !== null) return 'foreign';
 
   const own = ownState(readings);
 

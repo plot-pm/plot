@@ -85,6 +85,10 @@ export interface AssembledBranch {
   changedPaths: readonly string[];
   /** Commits on the local branch its remote ref does not hold, read from refs. */
   localAhead: number;
+  /** The repository the plan places the branch in, where that is not this one; `''` otherwise. */
+  foreignRepo: string;
+  /** Each prerequisite the plan places in another repository, mapped to that repository. */
+  waitsForeign: Readonly<Record<string, string>>;
 }
 
 /** One slice with its verdict. */
@@ -317,12 +321,15 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       return branchState({ ...f!.readings, waits });
     });
 
-    const candidate = record.phase === 'approved' && lines.every(({ line }, i) => line.deferred || states[i] === 'merged');
+    // A FOREIGN BRANCH SETTLES ITS SLICE ONLY ON A MERGE ITS OWN HOST ANSWERED.
+    const foreignSettled = (i: number): boolean => states[i] === 'foreign' && found[i]!.foreignMerged === true;
+    const candidate = record.phase === 'approved'
+      && lines.every(({ line }, i) => line.deferred || states[i] === 'merged' || foreignSettled(i));
     const degraded: string[][] = record.slices.map(() => []);
     const outstandingPerSlice = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
       return own.filter((i) => {
-        if (states[i] === 'deferred' || states[i] === 'merged') return false;
+        if (states[i] === 'deferred' || states[i] === 'merged' || foreignSettled(i)) return false;
         if (states[i] !== 'wip' || input.loose === undefined || !input.loose.verifiable) return true;
         const readiness = looseReadiness(found[i]!.prDetail);
         if (readiness.ready) return false;
@@ -364,6 +371,10 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
           refHeld: f.readings.refTip !== null,
           changedPaths: f.changedPaths,
           localAhead: f.localAhead ?? 0,
+          foreignRepo: f.readings.foreignRepo ?? '',
+          waitsForeign: Object.fromEntries(
+            f.readings.waits.flatMap((w) => (w.foreignRepo === undefined ? [] : [[w.branch, w.foreignRepo] as const])),
+          ),
         };
         if (state === 'waiting') summary.waiting += 1;
         if (state === 'blocked') summary.prereqMissing += 1;
@@ -500,6 +511,8 @@ const branchRow = (
   const row: Record<string, unknown> = { branch: b.branch, state: b.state, own_state: b.ownState, deferred: b.deferred };
   if (b.state === 'merged' && b.bySubject && !b.hostConfirmed) row.evidence = 'subject';
   if (b.subjectIgnored) row.subjectIgnored = 'predates-plan';
+  if (b.foreignRepo !== '') row.foreign_repo = b.foreignRepo;
+  if (Object.keys(b.waitsForeign).length > 0) row.waits_foreign = b.waitsForeign;
   return {
     ...row,
     deferred_reason: b.deferredReason,

@@ -36,10 +36,13 @@ export interface BranchClaim {
 
 const SECTION = /^## (Slices|Branches|Waves)\b/;
 const FENCE = /^\s*(```|~~~)/;
-const LIST_CLAIM = /^-\s+`([A-Za-z0-9_./-]+)`/;
-const HEADING_CLAIM = /^#{3,}\s.*\(Branch:\s*([A-Za-z0-9_./-]+)/;
+/** A top-level list-item claim: `- \`<branch>\``, the branch in group 1. */
+export const LIST_CLAIM = /^-\s+`([A-Za-z0-9_./-]+)`/;
+/** A heading claim: `### … (Branch: <branch>`, the branch in group 1. */
+export const HEADING_CLAIM = /^#{3,}\s.*\(Branch:\s*([A-Za-z0-9_./-]+)/;
 const CROSS_REPO_REFERENCE = /→ [A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+|\bPR:\s*[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[0-9]+/;
-const REFERENCE = /(?:→ |\bPR:\s*)(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+))?#([0-9]+)/g;
+/** A PR reference, `→ #N`, `→ owner/repo#N` or `PR: …`: the repository in group 1 (absent for this one), the number in group 2. Global. */
+export const REFERENCE = /(?:→ |\bPR:\s*)(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+))?#([0-9]+)/g;
 
 /** The `Branch prefixes` default, without the trailing slash. */
 export const DEFAULT_BRANCH_PREFIXES: readonly string[] = ['idea', 'feature', 'bug', 'docs', 'infra'];
@@ -148,4 +151,36 @@ export const crossRepoReferences = (content: string): ReadonlyMap<string, readon
     found.set(branch, [...(found.get(branch) ?? []), reference]);
   }
   return found;
+};
+
+/**
+ * The first claim line of each branch the record names, read from the plan's own text.
+ *
+ * A claim line is a list-item claim or a heading claim inside a slice section,
+ * as {@link branchClaims} reads them. A branch whose name no such line carries
+ * keeps no `line`.
+ *
+ * @param record - the parsed plan, with its slices.
+ * @param content - the plan file's whole text.
+ * @returns the record with `line` set on every branch a claim line names.
+ */
+export const withClaimLines = <R extends { slices: readonly { branches: readonly { branch: string }[] }[] }>(
+  record: R,
+  content: string,
+): R => {
+  const first = new Map<string, string>();
+  for (const { line } of sectionLines(content)) {
+    const branch = LIST_CLAIM.exec(line)?.[1] ?? HEADING_CLAIM.exec(line)?.[1];
+    if (branch !== undefined && !first.has(branch)) first.set(branch, line);
+  }
+  return {
+    ...record,
+    slices: record.slices.map((slice) => ({
+      ...slice,
+      branches: slice.branches.map((b) => {
+        const line = first.get(b.branch);
+        return line === undefined ? b : { ...b, line };
+      }),
+    })),
+  };
 };

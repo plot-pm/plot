@@ -50,8 +50,8 @@ export interface NextWork {
 /** A branch in one of these states is finished with, whatever its slice says. */
 const SETTLED: readonly BranchState[] = ['merged', 'deferred'];
 
-/** A branch in one of these states is somebody's already. */
-const TAKEN: readonly BranchState[] = ['claimed', 'wip'];
+/** A branch in one of these states is somebody's already, here or in the repository its plan places it in. */
+const TAKEN: readonly BranchState[] = ['claimed', 'wip', 'foreign'];
 
 /**
  * Is there work for this worker, is there work it cannot have yet, or is there
