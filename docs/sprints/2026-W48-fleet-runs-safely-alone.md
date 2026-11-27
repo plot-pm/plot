@@ -36,6 +36,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
 
 ### Should Have
+- [ ] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
 
 <!-- add items here -->
 

@@ -6,7 +6,7 @@
 
 - **State:** Approved
 - **Type:** feature
-- **Sprint:**
+- **Sprint:** fleet-runs-safely-alone
 - **Issue:** #3710
 - **Review:** pr
 - **Impl:** own branches
