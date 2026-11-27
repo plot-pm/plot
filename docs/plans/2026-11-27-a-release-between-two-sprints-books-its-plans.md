@@ -46,7 +46,7 @@ The 11th plan, `a-held-board-shows-the-indexed-tickets`, is named by no changese
 
 ### Shipped Scope
 
-- `bug/a-release-no-sprint-names-books-its-changesets` — `releaseScope` answers the changeset scope where no sprint names the version, `releaseFinish` drops `release-scope-mismatch` and notes the open sprint <!-- builds: the sprint-free release scope --> <!-- tests: the 2.37.0 fixture — no sprint names 2.37.0 and an open sprint names 2.38.0 — books the 10 changeset-named plans, closes no sprint and notes plot-describes-itself; a fully booked re-run answers already-released -->
+- `bug/a-release-no-sprint-names-books-its-changesets` — `releaseScope` answers the changeset scope where no sprint names the version, `releaseFinish` drops `release-scope-mismatch` and notes the open sprint <!-- builds: the sprint-free release scope --> <!-- tests: the 2.37.0 fixture — no sprint names 2.37.0 and an open sprint names 2.38.0 — books the 10 changeset-named plans, closes no sprint and notes plot-describes-itself; a fully booked re-run answers already-released --> → #3741
 
 ### Tag Range
 
