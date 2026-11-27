@@ -1,0 +1,1 @@
+../2026-11-27-a-desk-reads-quiet-from-its-live-signals.md
