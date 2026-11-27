@@ -43,7 +43,7 @@
 
 ### Command
 
-- `feature/supersede-takes-a-foreign-successor` — `successorReference`, the foreign arm of `successorPreconditions` with `successor-unparsed`, the `(unverified)` record, and `plot-supersede.mjs --by owner/repo:slug` <!-- builds: successorReference, the successor reference parser --> <!-- tests: `--by quatico-solutions/agent-skills-internal:plot-init-checks-bb` writes the unverified record with no plan file present; `--by owner/:x` refuses successor-unparsed; `--by plot-pm/plot:<local slug>` in plot-pm/plot reads the local file and refuses successor-not-found where none exists -->
+- `feature/supersede-takes-a-foreign-successor` — `successorReference`, the foreign arm of `successorPreconditions` with `successor-unparsed`, the `(unverified)` record, and `plot-supersede.mjs --by owner/repo:slug` <!-- builds: successorReference, the successor reference parser --> <!-- tests: `--by quatico-solutions/agent-skills-internal:plot-init-checks-bb` writes the unverified record with no plan file present; `--by owner/:x` refuses successor-unparsed; `--by plot-pm/plot:<local slug>` in plot-pm/plot reads the local file and refuses successor-not-found where none exists --> → #3744
 
 ### Board
 
