@@ -50,7 +50,7 @@ The 11th plan, `a-held-board-shows-the-indexed-tickets`, is named by no changese
 
 ### Tag Range
 
-- `bug/the-release-scope-reads-the-tag-range` — the scope adds Delivered plans whose slice merge commits lie in `<previous tag>..<tag>` <!-- waits: bug/a-release-no-sprint-names-books-its-changesets --> <!-- builds: the tag-range arm of releaseScope --> <!-- tests: a plan whose only slice PR (3709) merged in v2.36.1..v2.37.0 with no changeset is in the 2.37.0 scope; a plan whose merge lies before v2.36.1 is not; an Approved plan in the range is not booked -->
+- `bug/the-release-scope-reads-the-tag-range` — the scope adds Delivered plans whose slice merge commits lie in `<previous tag>..<tag>` <!-- waits: bug/a-release-no-sprint-names-books-its-changesets --> <!-- builds: the tag-range arm of releaseScope --> <!-- tests: a plan whose only slice PR (3709) merged in v2.36.1..v2.37.0 with no changeset is in the 2.37.0 scope; a plan whose merge lies before v2.36.1 is not; an Approved plan in the range is not booked --> <!-- deferred: 2026-11-27 until the panel amendments of round 1 land (.plot/panels/2026-11-27-a-release-between-two-sprints-books-its-plans/panel.md) -->
 
 ## Notes
 

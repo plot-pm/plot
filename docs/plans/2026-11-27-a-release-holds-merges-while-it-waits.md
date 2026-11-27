@@ -52,7 +52,7 @@ fleetd's merge arm, `mergeArm` (`packages/domain/src/rules/slice-pr-next.ts:481`
 
 ### Board
 
-- `bug/the-board-shows-the-release-hold` — the release row's hold text, the "Lift the hold" button, `POST /api/release-hold-lift`, `plot-ask.mjs release-hold-lift`, and the gate's refusal of the HTTP call from a shell <!-- waits: bug/a-waiting-release-holds-merges --> <!-- builds: the release-hold lift controller and its board button --> <!-- tests: the row text names since and end from the record; the route writes liftedBy for the head; the command refuses PLOT_UNATTENDED=1; the gate refuses curl POST /api/release-hold-lift -->
+- `bug/the-board-shows-the-release-hold` — the release row's hold text, the "Lift the hold" button, `POST /api/release-hold-lift`, `plot-ask.mjs release-hold-lift`, and the gate's refusal of the HTTP call from a shell <!-- waits: bug/a-waiting-release-holds-merges --> <!-- builds: the release-hold lift controller and its board button --> <!-- tests: the row text names since and end from the record; the route writes liftedBy for the head; the command refuses PLOT_UNATTENDED=1; the gate refuses curl POST /api/release-hold-lift --> <!-- deferred: 2026-11-27 until the panel amendments of round 1 land (.plot/panels/2026-11-27-a-release-holds-merges-while-it-waits/panel.md) -->
 
 ## Notes
 
