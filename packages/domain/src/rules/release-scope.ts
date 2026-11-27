@@ -148,7 +148,6 @@ export const tagVerdict = (reading: ReleaseTagPlanReading, wanted: string): { ve
   if (reading.foreignCommit || releasePr(reading.references).outcome === 'all-foreign' || shipped.some((row) => row.reference!.repo !== '')) {
     return { verdict: 'slice-foreign', touches };
   }
-  if (reading.merges.length === 0) return { verdict: 'outside', touches };
   if (reading.merges.some((row) => row.mergeCommit === '')) return { verdict: 'no-merge-subject', touches };
   if (!touches) return { verdict: 'outside', touches };
   const resolved = releaseTag({ prs: reading.merges, wantedVersion: wanted });
@@ -192,14 +191,15 @@ const tagArm = (
       tagged.push(plan.slug);
       continue;
     }
+    // An owed plan reaches this line only with a verdict other than `in-tag`
+    // (booked above) and `outside` (`outside` means no touch, and an untouched
+    // owed plan passes the candidate test only with an unproven verdict).
     const reason: ReleaseTagSkip =
       plan.releasedRecord.trim() !== '' || plan.phase === 'released'
         ? 'already-released'
         : plan.phase !== 'delivered'
           ? 'not-delivered'
-          : verdict === 'outside' || verdict === 'in-tag'
-            ? 'slice-after-tag'
-            : verdict;
+          : (verdict as Exclude<TagVerdict, 'in-tag' | 'outside'>);
     tagSkipped.push({ slug: plan.slug, reason });
   }
   return { tagged, tagSkipped };
