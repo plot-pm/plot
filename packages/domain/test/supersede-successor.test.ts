@@ -96,6 +96,26 @@ describe('successorEntry', () => {
   it('is not ready for the plan itself', () => {
     expect(successorEntry('old', 'old')).toEqual({ by: 'old', ready: false, reason: 'a plan cannot supersede itself' });
   });
+
+  it('is ready for owner/repo:slug, trimmed', () => {
+    expect(successorEntry('old', ' owner/repo:new ')).toEqual({ by: 'owner/repo:new', ready: true, reason: null });
+  });
+
+  it('is ready for a plan in another repository that carries this plan\'s slug', () => {
+    expect(successorEntry('p', 'owner/repo:p')).toEqual({ by: 'owner/repo:p', ready: true, reason: null });
+    expect(successorEntry('p', 'p').ready).toBe(false);
+  });
+
+  it.each(['owner/:x', '/repo:x', 'owner/repo:', 'a/b/c:x', 'owner/repo', 'owner/repo:a b', 'a b', 'owner /repo:x'])(
+    'is not ready for %j, which names no successor',
+    (typed) => {
+      expect(successorEntry('old', typed)).toEqual({
+        by: typed.trim(),
+        ready: false,
+        reason: "give a plan slug, or 'owner/repo:slug' for a plan in another repository",
+      });
+    },
+  );
 });
 
 describe('successorReference', () => {
