@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** plot-describes-itself
 - **Issue:** #3551
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-24, jwloka, plan-PR #3699 merged
 - **Started:** 2026-11-24, Jan Wloka, `bug/a-held-board-shows-tickets-after-its-first-render`
 - **Delivered:** 2026-11-24
+- **Released:** 2026-11-27, v2.37.0
 
 ## Changelog
 
