@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Issue:** #3752
 - **Approved:** 2026-11-27, jwloka, plan-PR #3753 merged
+- **Started:** 2026-11-27, Jan Wloka, `bug/the-release-head-is-reviewed-while-its-scope-waits`
 
 ## Changelog
 
