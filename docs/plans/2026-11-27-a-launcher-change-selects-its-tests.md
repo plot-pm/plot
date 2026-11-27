@@ -42,7 +42,7 @@ The PR's CI built its bundles from its own source; stale committed bundles were 
 
 ### Bundle Inputs
 
-- `bug/a-bundle-names-its-input-sources` — `build.mjs` writes `dist/bundle-inputs.json`, and `searchTerms` adds every bundle whose inputs hold a changed path <!-- builds: bundle-inputs.json, the bundle-to-source map --> <!-- tests: a change to packages/domain/src/workflows/approve.ts adds plot-approve.mjs to the search terms; a missing map falls back to BOARD_BUNDLE_ENTRIES and says so; git check-ignore holds the map file -->
+- `bug/a-bundle-names-its-input-sources` — `build.mjs` writes `dist/bundle-inputs.json`, and `searchTerms` adds every bundle whose inputs hold a changed path <!-- builds: bundle-inputs.json, the bundle-to-source map --> <!-- tests: a change to packages/domain/src/workflows/approve.ts adds plot-approve.mjs to the search terms; a missing map falls back to BOARD_BUNDLE_ENTRIES and says so; git check-ignore holds the map file --> → #3742
 
 ### Launchers
 
