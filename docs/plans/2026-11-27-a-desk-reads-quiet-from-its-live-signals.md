@@ -12,6 +12,7 @@
 - **Issue:** #3745
 - **Approved:** 2026-11-27, jwloka, plan-PR #3747 merged
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-desk-reads-quiet-from-its-live-signals`
+- **Started:** 2026-11-27, Jan Wloka, `bug/fleetctl-status-asks-the-desk-quiet-reading`
 
 ## Changelog
 
