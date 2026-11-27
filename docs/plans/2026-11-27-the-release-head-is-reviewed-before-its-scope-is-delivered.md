@@ -45,7 +45,7 @@ A person may approve and publish a release in `waiting-scope`: 2.37.0 merged at 
 
 ### Review
 
-- `bug/the-release-head-is-reviewed-while-its-scope-waits` — `releasePrepareNext` answers `review` for a green, unreviewed release head in `waiting-scope`, through one review-check function shared with `preparing` <!-- builds: the shared release review check --> <!-- tests: releasePrepareNext — waiting-scope with a green unreviewed head answers review; a reviewed head answers hold waiting-scope; red or pending checks answer hold waiting-scope; an unread scope answers hold unaskable; a foreign head answers hold release-head-foreign; waiting-scope never answers notify; the 2026-11-26 readings of #3719 at 8e1373e0f answer review -->
+- `bug/the-release-head-is-reviewed-while-its-scope-waits` — `releasePrepareNext` answers `review` for a green, unreviewed release head in `waiting-scope`, through one review-check function shared with `preparing` <!-- builds: the shared release review check --> <!-- tests: releasePrepareNext — waiting-scope with a green unreviewed head answers review; a reviewed head answers hold waiting-scope; red or pending checks answer hold waiting-scope; an unread scope answers hold unaskable; a foreign head answers hold release-head-foreign; waiting-scope never answers notify; the 2026-11-26 readings of #3719 at 8e1373e0f answer review --> → #3754
 
 ## Notes
 
