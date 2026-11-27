@@ -333,3 +333,81 @@ describe('release changeset record, remaining arms', () => {
     expect(groupChangesets([{ file: 'o.md', plan: '' }], ['x'])).toEqual({ scope: [], outside: ['o.md'] });
   });
 });
+
+describe('releasePrepareNext — the review while the scope waits', () => {
+  const unfinished = { phases: new Map([['x', 'delivered'], ['y', 'approved']]) };
+  const unreviewed = row({ plotReview: 'absent', plotReviewSha: undefined });
+  const waiting = { step: 'hold', reason: 'waiting-scope' };
+
+  it('answers review for a green unreviewed head in waiting-scope, and the stage stays waiting-scope', () => {
+    const r = readings({ ...unfinished, pr: unreviewed });
+    expect(releaseStage(r)).toBe('waiting-scope');
+    expect(releasePrepareNext(r)).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('answers hold waiting-scope for a head reviewed on this head', () => {
+    expect(releasePrepareNext(readings(unfinished))).toEqual(waiting);
+  });
+
+  it('answers hold waiting-scope, not none, for red or pending checks', () => {
+    const failed = { read: 'runs', runs: [{ workflow: 'CI', status: 'completed', conclusion: 'failure' }] } as const;
+    const pending = { read: 'runs', runs: [{ workflow: 'CI', status: 'in_progress', conclusion: null }] } as const;
+    for (const checks of [failed, pending]) {
+      expect(releasePrepareNext(readings({ ...unfinished, pr: unreviewed, checks }))).toEqual(waiting);
+    }
+  });
+
+  it('answers hold unaskable for unread phases, and hold waiting-scope for a scope read as none', () => {
+    expect(releasePrepareNext(readings({ phases: 'unaskable', pr: unreviewed }))).toEqual({ step: 'hold', reason: 'unaskable' });
+    const none = readings({ scope: { read: 'none', why: 'no-active-sprint' }, pr: unreviewed });
+    expect(releasePrepareNext(none)).toEqual(waiting);
+  });
+
+  it('answers hold release-head-foreign for a foreign head, which the stage does not name', () => {
+    const r = readings({ ...unfinished, pr: unreviewed, headChanges: FOREIGN_HEAD });
+    expect(releaseStage(r)).toBe('waiting-scope');
+    expect(releasePrepareNext(r)).toEqual({ step: 'hold', reason: 'release-head-foreign' });
+  });
+
+  it('answers hold unaskable where the head changes could not be read or are empty', () => {
+    for (const headChanges of ['unaskable', []] as const) {
+      expect(releasePrepareNext(readings({ ...unfinished, pr: unreviewed, headChanges }))).toEqual({ step: 'hold', reason: 'unaskable' });
+    }
+  });
+
+  it('never answers notify over a green, reviewed, clean head whose changesets differ from the log', () => {
+    const r = readings({ ...unfinished, log: [line({ outcome: encodeNotifyOutcome('sent', ['old.md']) })] });
+    expect(releasePrepareNext(readings({ log: r.log })).step).toBe('notify');
+    expect(releasePrepareNext(r)).toEqual(waiting);
+  });
+
+  it('answers hold waiting-scope for an absent, unread, closed or headless PR', () => {
+    for (const pr of ['none', 'unaskable', row({ ...unreviewed, state: 'CLOSED' }), row({ ...unreviewed, headSha: undefined })] as const) {
+      expect(releasePrepareNext(readings({ ...unfinished, pr }))).toEqual(waiting);
+    }
+  });
+
+  it('starts a review with an unreadable run log or changeset list, which gate only the notification', () => {
+    expect(releasePrepareNext(readings({ ...unfinished, pr: unreviewed, log: 'unaskable' }))).toEqual({ step: 'review', head: HEAD });
+    expect(releasePrepareNext(readings({ ...unfinished, pr: unreviewed, changesets: 'unaskable' }))).toEqual({ step: 'review', head: HEAD });
+  });
+
+  it('spends the same per-head budget as preparing', () => {
+    const r = readings({ ...unfinished, pr: unreviewed, reviewStarts: { head: HEAD, count: 3, lastAt: NOW - 1 } });
+    expect(releasePrepareNext(r)).toEqual(waiting);
+  });
+
+  it('answers review for the 2026-11-26 readings of #3719 at 8e1373e0f', () => {
+    const sha = '8e1373e0f3d1bb2f2ab93bb90c912f6a3c1e8345';
+    const slugs = ['m1', 'm2', 'm3', 'm4', 'm5'];
+    const r = readings({
+      scope: { read: 'scope', sprint: {} as Sprint, slugs, branches: [] },
+      phases: new Map(slugs.map((slug) => [slug, 'approved'])),
+      pr: row({ number: 3719, headSha: sha, checksSha: sha, plotReview: 'absent', plotReviewSha: undefined }),
+      checks: { read: 'runs', runs: [{ workflow: 'CI', status: 'completed', conclusion: 'success' }] },
+      now: Date.parse('2026-11-26T21:00:00Z'),
+    });
+    expect(releaseStage(r)).toBe('waiting-scope');
+    expect(releasePrepareNext(r)).toEqual({ step: 'review', head: sha });
+  });
+});
