@@ -421,6 +421,25 @@ export const conflictArm = (readings: ArmReadings): SlicePrStep => {
 };
 
 /**
+ * Whether a row's trusted `plot/review` reads `pending` on its head for longer than the bound.
+ *
+ * @param row - the PR's index row.
+ * @param now - epoch milliseconds.
+ * @param boundMs - the review bound, in milliseconds.
+ * @returns `true` where the trusted review is `pending`, `plotReviewSha` is the head and
+ *   `now - plotReviewAt` exceeds `boundMs`; `false` where `plotReviewAt` is missing or does not parse.
+ */
+export const reviewPendingStale = (
+  row: Pick<PrIndexRow, 'headSha' | 'plotReview' | 'plotReviewSha' | 'plotReviewAt' | 'plotReviewJudged' | 'plotReviewCheckedSha'>,
+  now: number,
+  boundMs: number,
+): boolean => {
+  if (trustedReview(row) !== 'pending' || row.plotReviewSha !== row.headSha) return false;
+  const startedAt = row.plotReviewAt === undefined ? Number.NaN : Date.parse(row.plotReviewAt);
+  return now - startedAt > boundMs;
+};
+
+/**
  * Arm 7. Whether this head gets a review.
  *
  * Answers `review` when all hold, and `none` with the first failed reason
@@ -442,10 +461,8 @@ export const reviewArm = (readings: ArmReadings): SlicePrStep => {
   const trusted = trustedReview(row);
   if (trusted === 'unchecked') return hold('review-writer-unchecked');
   const onHead = row.plotReviewSha === row.headSha;
-  const startedAt = row.plotReviewAt === undefined ? Number.NaN : Date.parse(row.plotReviewAt);
-  const pendingStale = trusted === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
   const needs =
-    trusted === 'absent' || trusted === 'error' || !onHead || pendingStale;
+    trusted === 'absent' || trusted === 'error' || !onHead || reviewPendingStale(row, now, config.reviewBoundMs);
   if (!needs) return none('reviewed');
 
   const allowed = reviewStartAllowed(reviewStarts, row.headSha, config.startBudget, now);

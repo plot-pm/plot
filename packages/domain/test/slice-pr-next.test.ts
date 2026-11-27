@@ -7,7 +7,7 @@ import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import type { FixerAttemptsRecord, FixerRerun } from '../src/entities/fixer-attempts.js';
 import { fixerReadingOf } from '../src/rules/fixer-attempts.js';
-import { ciRedArm, ciRerunArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
+import { ciRedArm, ciRerunArm, conflictArm, fixerPrNext, highArm, mergeArm, nextMerge, repairAdmits, restatusArm, reviewArm, reviewPendingStale, reviewPrNext, slicePrNext, type ReviewPrNextReadings, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 
 const HEAD = 'a'.repeat(40);
 const OLD = 'b'.repeat(40);
@@ -1086,5 +1086,36 @@ describe('reviewPrNext', () => {
   it('walks no merge arm: a reviewed head answers reviewed', () => {
     const reviewed = outside({ plotReview: 'success', plotReviewSha: HEAD });
     expect(reviewPrNext(asReview({ row: reviewed }))).toEqual({ step: 'none', why: 'reviewed' });
+  });
+});
+
+describe('reviewPendingStale', () => {
+  const BOUND = 3_600_000;
+  const pending = (over: Partial<PrIndexRow> = {}): PrIndexRow => ({
+    ...row(),
+    plotReview: 'pending',
+    plotReviewSha: HEAD,
+    plotReviewAt: new Date(NOW - BOUND - 1).toISOString(),
+    plotReviewJudged: 'pending',
+    plotReviewCheckedSha: HEAD,
+    ...over,
+  });
+
+  it('reads a pending on the head one millisecond past the bound as stale', () => {
+    expect(reviewPendingStale(pending(), NOW, BOUND)).toBe(true);
+  });
+
+  it('reads a pending exactly at the bound as not stale', () => {
+    expect(reviewPendingStale(pending({ plotReviewAt: new Date(NOW - BOUND).toISOString() }), NOW, BOUND)).toBe(false);
+  });
+
+  it('reads a pending on an older head, a missing time and an unparseable time as not stale', () => {
+    expect(reviewPendingStale(pending({ plotReviewSha: OLD }), NOW, BOUND)).toBe(false);
+    expect(reviewPendingStale(pending({ plotReviewAt: undefined }), NOW, BOUND)).toBe(false);
+    expect(reviewPendingStale(pending({ plotReviewAt: 'never' }), NOW, BOUND)).toBe(false);
+  });
+
+  it('reads a review that is not pending as not stale', () => {
+    expect(reviewPendingStale(pending({ plotReview: 'success', plotReviewJudged: 'success' }), NOW, BOUND)).toBe(false);
   });
 });

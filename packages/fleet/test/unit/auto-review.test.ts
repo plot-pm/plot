@@ -416,6 +416,88 @@ describe('runAutoReviewPass', () => {
     ]);
   });
 
+  describe('a stale pending review that gets no start', () => {
+    const logPath = () => path.join(root, '.plot', 'state', 'slice-review.log');
+    const logText = () => (fs.existsSync(logPath()) ? fs.readFileSync(logPath(), 'utf8') : '');
+    const pendingFor = (ageMs: number, over: Partial<PrIndexRow> = {}): PrIndexRow => ({
+      ...row,
+      plotReview: 'pending',
+      plotReviewSha: HEAD,
+      plotReviewAt: new Date(NOW - ageMs).toISOString(),
+      plotReviewJudged: 'pending',
+      plotReviewCheckedSha: HEAD,
+      ...over,
+    });
+    const outOfScope = (ageMs: number, over: Partial<PrIndexRow> = {}) => pendingFor(ageMs, { base: 'release/1', ...over });
+    const seedStarts = (count: number, lastAt: number): void => {
+      fs.mkdirSync(path.join(root, '.plot', 'state'), { recursive: true });
+      fs.writeFileSync(reviewStartsPath(root), JSON.stringify([{ pr: 7, head: HEAD, count, lastAt }]));
+    };
+
+    it('writes one line naming the reason and the pending time', async () => {
+      const stale = outOfScope(BOUND + 1);
+      await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([stale]));
+      expect(logText()).toBe(`plot-review: PR #7 pending since ${stale.plotReviewAt}; held: base-out-of-scope\n`);
+    });
+
+    it('writes no second line on a second pass over the same head', async () => {
+      const logged = new Set<string>();
+      const stale = outOfScope(BOUND + 1);
+      await runAutoReviewPass(opts(), logged, NOW, world(), async () => reading([stale]));
+      await runAutoReviewPass(opts(), logged, NOW + 5000, world(), async () => ({ ...reading([stale]), readings: passReadings(NOW + 5000) }));
+      expect(logText().split('\n').filter(Boolean)).toHaveLength(1);
+    });
+
+    it('writes a new line for a new head on the same PR', async () => {
+      const logged = new Set<string>();
+      const NEW = 'c'.repeat(40);
+      await runAutoReviewPass(opts(), logged, NOW, world(), async () => reading([outOfScope(BOUND + 1)]));
+      const moved = outOfScope(BOUND + 1, { headSha: NEW, checksSha: NEW, plotReviewSha: NEW, plotReviewCheckedSha: NEW });
+      await runAutoReviewPass(opts(), logged, NOW, world(), async () => reading([moved]));
+      expect(logText().split('\n').filter(Boolean)).toHaveLength(2);
+    });
+
+    it('writes nothing for a pending exactly at the bound, and one line one millisecond past it', async () => {
+      await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([outOfScope(BOUND)]));
+      expect(logText()).toBe('');
+      await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([outOfScope(BOUND + 1)]));
+      expect(logText()).toContain('held: base-out-of-scope');
+    });
+
+    it('writes nothing for a pending with no time, or a time that does not parse', async () => {
+      const { plotReviewAt: _drop, ...untimed } = outOfScope(BOUND + 1);
+      await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([untimed, { ...outOfScope(BOUND + 1), number: 8, plotReviewAt: 'never' }]));
+      expect(logText()).toBe('');
+    });
+
+    it('names budget-spent from a none step of the review arm', async () => {
+      seedStarts(3, NOW - BOUND - 1);
+      const stale = pendingFor(BOUND + 1);
+      const out = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([stale]));
+      expect(out?.[0]?.step).toEqual({ step: 'none', why: 'budget-spent' });
+      expect(logText()).toBe(`plot-review: PR #7 pending since ${stale.plotReviewAt}; held: budget-spent\n`);
+    });
+
+    it('names review-in-flight from a hold step', async () => {
+      const stale = pendingFor(BOUND + 1);
+      const out = await runAutoReviewPass(
+        opts(),
+        new Set(),
+        NOW,
+        world({ readLock: (_o, pr, head) => (pr === 7 && head === HEAD ? '4242\trun-1\n' : null) }),
+        async () => reading([stale]),
+      );
+      expect(out?.[0]?.step).toEqual({ step: 'hold', reason: 'review-in-flight' });
+      expect(logText()).toBe(`plot-review: PR #7 pending since ${stale.plotReviewAt}; held: review-in-flight\n`);
+    });
+
+    it('writes no held line where the stale pending starts a review', async () => {
+      const out = await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => reading([pendingFor(BOUND + 1)]));
+      expect(out?.[0]?.started).toMatchObject({ started: true });
+      expect(logText()).toBe('');
+    });
+  });
+
   it('acts on nothing where the reading gives nothing', async () => {
     expect(await runAutoReviewPass(opts(), new Set(), NOW, world(), async () => null)).toBeNull();
     expect(starts).toBe(0);
