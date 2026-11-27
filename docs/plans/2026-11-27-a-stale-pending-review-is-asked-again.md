@@ -44,7 +44,7 @@ The fleet's records from 2026-11-22 do not survive: `.plot/state/review-starts.j
 
 ### Bounded Run
 
-- `bug/a-review-run-past-its-bound-is-dead` — `reviewRunLive` takes the bound, the lock-holder path carries the lock's start, and the pass ends a run past the bound before it starts one <!-- builds: the bounded reviewRunLive --> <!-- tests: an entry with a live pid started 3601 s ago reads not live; a lock first seen 3601 s ago yields no review-in-flight hold; the #3658 fixture — pending on the head for 9 h with a live pid — starts exactly one review; a fourth start on the same head answers budget-spent -->
+- `bug/a-review-run-past-its-bound-is-dead` — `reviewRunLive` takes the bound, the lock-holder path carries the lock's start, and the pass ends a run past the bound before it starts one <!-- builds: the bounded reviewRunLive --> <!-- tests: an entry with a live pid started 3601 s ago reads not live; a lock first seen 3601 s ago yields no review-in-flight hold; the #3658 fixture — pending on the head for 9 h with a live pid — starts exactly one review; a fourth start on the same head answers budget-spent --> → #3748
 
 ### Held Reason
 
