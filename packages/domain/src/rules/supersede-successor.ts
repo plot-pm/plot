@@ -6,15 +6,88 @@
  */
 import type { Precondition, Refusal, RefusalReason } from '../transitions/plan.js';
 
-/** The two successor readings, named as their refusals are. */
-export type SuccessorRefusal = 'same-plan' | 'successor-not-found';
+import { hostAndPathOfRemote } from './remote-url.js';
+
+/** The successor readings, named as their refusals are. */
+export type SuccessorRefusal = 'same-plan' | 'successor-not-found' | 'successor-unparsed';
+
+/** A successor `--by` names: a plan in this repository, or one in another repository on the same host. */
+export interface SuccessorReference {
+  /** `owner/repo` for a plan in another repository; `''` for a plan in this one. */
+  readonly repo: string;
+  /** The successor plan's slug. */
+  readonly slug: string;
+}
+
+const SLUG = '[A-Za-z0-9][A-Za-z0-9._-]{0,99}';
+const REPO = '[A-Za-z0-9._-]+/[A-Za-z0-9._-]+';
+const BARE = new RegExp(`^${SLUG}$`);
+const FOREIGN = new RegExp(`^(${REPO}):(${SLUG})$`);
+
+/**
+ * Parses what `--by` names as a successor.
+ *
+ * A bare slug names a plan in this repository. `owner/repo:slug` names a plan
+ * in another repository on the same host. The text is trimmed first; any
+ * other shape, including whitespace inside it, is `unparsed`.
+ *
+ * @param by - the successor as given.
+ * @returns the reference, or `unparsed`.
+ */
+export const successorReference = (by: string): SuccessorReference | 'unparsed' => {
+  const text = by.trim();
+  if (BARE.test(text)) return { repo: '', slug: text };
+  const foreign = FOREIGN.exec(text);
+  return foreign === null ? 'unparsed' : { repo: foreign[1], slug: foreign[2] };
+};
+
+/**
+ * This repository's `owner/repo`, read from the path of its remote URL.
+ *
+ * @param url - the remote URL as git reports it.
+ * @returns `owner/repo`, or `null` where the URL names no two-segment path.
+ */
+export const repositoryOfRemote = (url: string): string | null => {
+  const parsed = hostAndPathOfRemote(url.trim().replace(/\/+$/, '').replace(/\.git$/, ''));
+  if (parsed === null) return null;
+  const path = parsed.path.replace(/^\/+/, '');
+  return new RegExp(`^${REPO}$`).test(path) ? path : null;
+};
+
+/**
+ * Reads a reference against this repository's `owner/repo`: a reference that
+ * names this repository becomes a bare slug. The comparison ignores case.
+ *
+ * @param reference - the parsed reference.
+ * @param here - this repository's `owner/repo`, or `null` where it was not read.
+ * @returns the reference, with `repo: ''` where it names this repository.
+ */
+export const successorHere = (
+  reference: SuccessorReference | 'unparsed',
+  here: string | null,
+): SuccessorReference | 'unparsed' =>
+  reference !== 'unparsed' && here !== null && reference.repo !== '' && reference.repo.toLowerCase() === here.toLowerCase()
+    ? { repo: '', slug: reference.slug }
+    : reference;
+
+/**
+ * The text a supersession records as its successor: the slug for a plan in
+ * this repository, `owner/repo:slug` for one in another.
+ *
+ * @param reference - the parsed reference.
+ * @returns the successor's name as the record carries it.
+ */
+export const successorName = (reference: SuccessorReference): string =>
+  reference.repo === '' ? reference.slug : `${reference.repo}:${reference.slug}`;
 
 /** What the caller measured about the plan and the successor it names. */
 export interface SuccessorReading {
   /** The slug of the plan to supersede. */
   readonly slug: string;
-  /** The slug `--by` names. */
+  /** The successor as `--by` names it. */
   readonly by: string;
+  /** The parsed successor, read against this repository by {@link successorHere}. */
+  readonly reference: SuccessorReference | 'unparsed';
   /** The successor's plan file, repository-relative, or `''` where no plan file carries the slug. */
   readonly successorFile: string;
 }
@@ -22,26 +95,40 @@ export interface SuccessorReading {
 /**
  * The preconditions a supersession's successor must meet.
  *
- * `same-plan` is unmet where the successor is the plan itself.
- * `successor-not-found` is unmet where the successor names no plan file. An
- * empty `by` produces no reading: `supersede` refuses it as `successor-missing`.
+ * `successor-unparsed` is unmet where `by` parses as neither a slug nor
+ * `owner/repo:slug`. For a successor in this repository, `same-plan` is unmet
+ * where the successor is the plan itself, and `successor-not-found` where the
+ * successor names no plan file. A successor in another repository meets no
+ * further reading: it is recorded unverified. An empty `by` produces no
+ * reading: `supersede` refuses it as `successor-missing`.
  *
- * @param reading - the plan's slug, the successor's slug, and the successor's file.
- * @returns the two readings, `same-plan` first.
+ * @param reading - the plan's slug, the successor, its parsed reference, and its file.
+ * @returns the readings, `successor-unparsed` alone or `same-plan` first.
  */
 export const successorPreconditions = (reading: SuccessorReading): readonly Precondition[] => {
   const by = reading.by.trim();
   if (by === '') return [];
+  const { reference } = reading;
+  if (reference === 'unparsed') {
+    return [
+      {
+        name: 'successor-unparsed',
+        met: false,
+        detail: `'${by}' names no successor. Give a plan slug, or 'owner/repo:slug' for a plan in another repository.`,
+      },
+    ];
+  }
+  if (reference.repo !== '') return [];
   return [
     {
       name: 'same-plan',
-      met: by !== reading.slug,
+      met: reference.slug !== reading.slug,
       detail: `plan '${reading.slug}' cannot supersede itself. Name the plan that replaces it.`,
     },
     {
       name: 'successor-not-found',
       met: reading.successorFile !== '',
-      detail: `no plan file carries the slug '${by}'. A supersession that points nowhere loses the work. Create the successor plan first, or check the slug.`,
+      detail: `no plan file carries the slug '${reference.slug}'. A supersession that points nowhere loses the work. Create the successor plan first, or check the slug.`,
     },
   ];
 };
@@ -52,7 +139,7 @@ export const successorPreconditions = (reading: SuccessorReading): readonly Prec
  *
  * @param refusal - the refusal `supersede` returned.
  * @param preconditions - the readings it was given.
- * @returns `same-plan`, `successor-not-found`, or the domain's refusal reason.
+ * @returns `same-plan`, `successor-not-found`, `successor-unparsed`, or the domain's refusal reason.
  */
 export const supersessionRefusalReason = (
   refusal: Refusal,
@@ -60,7 +147,7 @@ export const supersessionRefusalReason = (
 ): SuccessorRefusal | RefusalReason => {
   if (refusal.reason !== 'precondition-unmet') return refusal.reason;
   const failing = preconditions.find((p) => !p.met)?.name;
-  return failing === 'same-plan' || failing === 'successor-not-found' ? failing : refusal.reason;
+  return failing === 'same-plan' || failing === 'successor-not-found' || failing === 'successor-unparsed' ? failing : refusal.reason;
 };
 
 /**

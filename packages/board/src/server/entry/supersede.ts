@@ -10,13 +10,14 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
  * The `node` entry point that marks a plan Superseded by another plan.
  *
  * ```
- * plot-supersede.mjs [--who <name>] --by <successor-slug> <slug>
+ * plot-supersede.mjs [--who <name>] --by <successor-slug | owner/repo:slug> <slug>
  * ```
  *
  * Runs `supersedePlan` (`supersession.ts`), which asks the domain's `supersede`
  * transition and books the result on the default branch through a booking
  * worktree on `plot/supersede-<slug>`: it writes `State: Superseded` and the
- * dated `Superseded:` record, moves the index link from the active index to
+ * dated `Superseded:` record (`(unverified)` after a successor in another
+ * repository, which the command does not read), moves the index link from the active index to
  * the delivered index, leaves the state receipt `plot-state-gate.sh` reads,
  * commits and pushes.
  *
@@ -30,9 +31,10 @@ import { endEntry } from '@plot-pm/domain/adapters/entry-exit';
 /** The usage block `-h` prints. */
 const USAGE = [
   '# Plot helper: mark a plan Superseded by the plan that replaces it.',
-  '# Usage: plot-supersede.mjs [--who <name>] --by <successor-slug> <slug>',
+  '# Usage: plot-supersede.mjs [--who <name>] --by <successor-slug | owner/repo:slug> <slug>',
   '#   --who   the name the booking commit carries (default: git user.name)',
-  '#   --by    the slug of the plan that replaces this one; it must name a plan file',
+  '#   --by    the slug of the plan that replaces this one; it must name a plan file.',
+  "#           'owner/repo:slug' names a plan in another repository, recorded (unverified)",
   '#   <slug>  the plan to supersede',
   '# Output: one `step:` line per step, then a machine-countable summary:',
   '#             summary: phase=flipped record=written index=moved push=clean',
@@ -58,7 +60,7 @@ export const parseArgs = (argv: readonly string[]): SupersedeArgs | string => {
     else if (arg.startsWith('-')) return `unknown flag '${arg}'`;
     else slug = arg;
   }
-  if (slug === '' || by === '') return 'need a plan slug and its successor (usage: plot-supersede.mjs [--who <name>] --by <successor-slug> <slug>)';
+  if (slug === '' || by === '') return 'need a plan slug and its successor (usage: plot-supersede.mjs [--who <name>] --by <successor-slug | owner/repo:slug> <slug>)';
   return { who, by, slug };
 };
 

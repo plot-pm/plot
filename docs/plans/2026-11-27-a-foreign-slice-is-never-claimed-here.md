@@ -51,7 +51,7 @@ The same desk then read `failed`. `.plot/state/endings.jsonl` holds `{"reason":"
 
 ### Free Wait Ending
 
-- `bug/a-free-wait-writes-its-own-ending` — `free-wait-expired` in `EndingReasonSchema`, the row-2 `loop-end` write in `agentLoop`, and its ending action <!-- builds: the free-wait-expired ending --> <!-- tests: agentLoop with no assignment and waitedSeconds at the bound writes loop-end free-wait-expired with exit 124; killedWorkerEnding composes null for that desk; the desk reads finished, not failed -->
+- `bug/a-free-wait-writes-its-own-ending` — `free-wait-expired` in `EndingReasonSchema`, the row-2 `loop-end` write in `agentLoop`, and its ending action <!-- builds: the free-wait-expired ending --> <!-- tests: agentLoop with no assignment and waitedSeconds at the bound writes loop-end free-wait-expired with exit 124; killedWorkerEnding composes null for that desk; the desk reads finished, not failed --> → #3758
 
 ## Notes
 

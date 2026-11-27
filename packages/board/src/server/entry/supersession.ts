@@ -7,7 +7,16 @@ import { scriptsShell } from '@plot-pm/domain/adapters/scripts/scripts-shell';
 import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { PlanStore, Refs, Scripts, Trees } from '@plot-pm/domain';
 import { isRefusal, supersede, type RefusalReason, type TransitionPlan } from '@plot-pm/domain/transitions/plan';
-import { successorPreconditions, supersessionRefusalReason, type SuccessorRefusal } from '@plot-pm/domain/rules/supersede-successor';
+import {
+  repositoryOfRemote,
+  successorHere,
+  successorName,
+  successorPreconditions,
+  successorReference,
+  supersessionRefusalReason,
+  type SuccessorReference,
+  type SuccessorRefusal,
+} from '@plot-pm/domain/rules/supersede-successor';
 import { flipFrontMatterPhase, insertStatusRecord } from '@plot-pm/domain/rules/plan-record-edit';
 import { withPhase } from '@plot-pm/domain/workflows/rendering';
 import { indexSymlinkPlacement } from '@plot-pm/domain/rules/index-symlink';
@@ -30,7 +39,7 @@ import path from 'node:path';
 export interface SupersedeArgs {
   /** The name the booking commit carries; `''` reads git `user.name`. */
   who: string;
-  /** The successor's slug. */
+  /** The successor: a slug, or `owner/repo:slug` for a plan in another repository. */
   by: string;
   /** The plan to supersede. */
   slug: string;
@@ -175,6 +184,27 @@ const supersedablePlanOf = async (
   };
 };
 
+/** The `supersede` input for a successor: its recorded name, and `unverified` for another repository's plan. */
+const decisionInput = (
+  on: string,
+  by: string,
+  reference: SuccessorReference | 'unparsed',
+  preconditions: ReturnType<typeof successorPreconditions>,
+): Parameters<typeof supersede>[1] =>
+  reference === 'unparsed'
+    ? { on, by, preconditions }
+    : { on, by: successorName(reference), unverified: reference.repo !== '', preconditions };
+
+/**
+ * This repository's `owner/repo`, from the `origin` remote URL.
+ *
+ * @returns the name, or `null` where the remote cannot be read.
+ */
+const repositoryHere = async (refs: Refs): Promise<string | null> => {
+  const url = await refs.remoteUrl('origin');
+  return url.ok ? repositoryOfRemote(url.value) : null;
+};
+
 /** What one supersession write did, in the words the summary line prints. */
 export interface SupersessionReport {
   phase: 'flipped' | 'already';
@@ -188,6 +218,8 @@ export interface SupersessionBooking {
   rel: string;
   slug: string;
   by: string;
+  /** The parsed successor, read against this repository. */
+  reference: SuccessorReference | 'unparsed';
   /** The date the `Superseded:` record carries, `YYYY-MM-DD`. */
   today: string;
   dirs: Dirs;
@@ -225,9 +257,11 @@ export const bookSupersession = async (
     return { reason: 'plan-unreadable', refused: `${rel} is not present in ${wt}, or does not parse — refusing rather than guessing.` };
   }
 
-  const successorHere = await findPlanFile(ctx.planStore, wt, dirs, by);
-  const preconditions = successorPreconditions({ slug, by, successorFile: successorHere || booking.successorElsewhere });
-  const decision = supersede(read.plan, { on: booking.today, by, preconditions });
+  const { reference } = booking;
+  const local = reference !== 'unparsed' && reference.repo === '';
+  const successorFile = local ? (await findPlanFile(ctx.planStore, wt, dirs, reference.slug)) || booking.successorElsewhere : '';
+  const preconditions = successorPreconditions({ slug, by, reference, successorFile });
+  const decision = supersede(read.plan, decisionInput(booking.today, by, reference, preconditions));
   if (isRefusal(decision)) return { reason: supersessionRefusalReason(decision, preconditions), refused: decision.detail };
 
   let phase: SupersessionReport['phase'] = 'already';
@@ -330,20 +364,28 @@ const perform = async (ctx: Context, args: SupersedeArgs, write: Printer): Promi
   }
   const rel = realPlanPath(ctx.repoRoot, planFile);
   if (rel === null) throw new Refusal('plan-not-found', `${planFile} is outside the repository root (${ctx.repoRoot}).`);
+  const parsed = successorReference(by);
+  const here = parsed !== 'unparsed' && parsed.repo !== '' ? await repositoryHere(ctx.refs) : null;
+  const reference = successorHere(parsed, here);
+  const foreign = reference !== 'unparsed' && reference.repo !== '';
   const successorElsewhere =
-    (await findPlanFile(ctx.planStore, ctx.repoRoot, dirs, by)) || (await planFileOnMain(ctx.refs, main, dirs, by));
+    reference === 'unparsed' || foreign
+      ? ''
+      : (await findPlanFile(ctx.planStore, ctx.repoRoot, dirs, reference.slug)) || (await planFileOnMain(ctx.refs, main, dirs, reference.slug));
 
   const read = await supersedablePlanOf(ctx.planStore, slug, path.join(ctx.repoRoot, rel));
   if (read === null) {
     throw new Refusal('plan-unreadable', `cannot parse '${rel}' — refusing rather than guessing.\n  See what the parser reads: ${ctx.scriptDir}/plot-plan-meta.sh ${rel}`);
   }
   const today = localDate();
-  const preconditions = successorPreconditions({ slug, by, successorFile: successorElsewhere });
-  const decision = supersede(read.plan, { on: today, by, preconditions });
+  const preconditions = successorPreconditions({ slug, by, reference, successorFile: successorElsewhere });
+  const decision = supersede(read.plan, decisionInput(today, by, reference, preconditions));
   if (isRefusal(decision)) {
     throw new Refusal(supersessionRefusalReason(decision, preconditions), `${decision.detail}\n  Nothing was written; the plan is unchanged.`);
   }
-  write(`step: plan ${rel} — phase=${read.plan.phase} successor=${by}\n`);
+  const named = reference === 'unparsed' ? by : successorName(reference);
+  const unverified = foreign ? ` (unverified${here === null ? `; this repository's owner/repo could not be read from origin, so ${reference.repo} is taken as another repository` : ''})` : '';
+  write(`step: plan ${rel} — phase=${read.plan.phase} successor=${named}${unverified}\n`);
   if (decision.alreadyRecorded) {
     const summary = 'summary: phase=already record=already index=untouched push=none';
     write(`step: nothing to do — ${slug} is already Superseded (${decision.record})\n`);
@@ -367,7 +409,7 @@ const perform = async (ctx: Context, args: SupersedeArgs, write: Printer): Promi
   }
   let keepBranch = false;
   try {
-    const booking: SupersessionBooking = { rel, slug, by, today, dirs, successorElsewhere };
+    const booking: SupersessionBooking = { rel, slug, by, reference, today, dirs, successorElsewhere };
     const first = await bookSupersession(ctx, tmpwt, booking);
     if ('refused' in first) throw new Refusal(first.reason, `${first.refused}\n  Nothing was pushed.`);
     let report: SupersessionReport = first;
@@ -382,7 +424,7 @@ const perform = async (ctx: Context, args: SupersedeArgs, write: Printer): Promi
       bookbr,
       main,
       who,
-      `plot: supersede ${slug} by ${by}`,
+      `plot: supersede ${slug} by ${named}`,
       'supersession',
       `nothing to commit — ${slug} is already Superseded on ${main}`,
       reapply,
@@ -394,7 +436,7 @@ const perform = async (ctx: Context, args: SupersedeArgs, write: Printer): Promi
       write(`summary: phase=${report.phase} record=${report.record} index=${report.index} push=rejected\n`);
       throw new Refusal('push-rejected', `the supersession is committed on '${bookbr}' but could not reach ${main}.\n  Land '${bookbr}' by hand, or re-run this command once the push works.`);
     }
-    const summary = `summary: phase=${report.phase} record=${report.record} index=${report.index} push=${landed.pushed}`;
+    const summary = `summary: phase=${report.phase} record=${report.record} index=${report.index} push=${landed.pushed}${foreign ? ' successor=unverified' : ''}`;
     write(`${summary}\n`);
     return { outcome: 'superseded', summary };
   } finally {
