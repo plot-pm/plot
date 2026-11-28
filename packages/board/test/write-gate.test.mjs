@@ -124,6 +124,11 @@ const WRITE_ROUTES = [
   { path: '/api/release-approve', body: { pr: 1, sha: 'abcdef1' } },
   { path: '/api/passkey/challenge', body: { action: 'release-approve', pr: 1, sha: 'abcdef1' } },
   { path: '/api/passkey/register', body: { credentialId: 'x', publicKey: 'y', alg: -7 } },
+  // Release-hold and its lift write a person's act to the release hold
+  // record, which holds every merge into the default branch, so neither may
+  // answer a request that arrives off loopback.
+  { path: '/api/release-hold', body: { sha: 'abcdef1' } },
+  { path: '/api/release-hold-lift', body: { sha: 'abcdef1' } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */
