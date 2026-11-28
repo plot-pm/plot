@@ -431,8 +431,8 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
     if (admitted === undefined && readings.releaseHold !== undefined && !RELEASE_BRANCH.test(pr.head)) {
       const name = readings.defaultBranchName;
       const held = releasePersonHold(readings.releaseHold.rows, readings.releaseHold.record, name, input.now, input.checksWaitMs);
-      if (held.holds && held.pr !== input.pr) {
-        return no('release-waiting', `release #${held.pr} holds merges into ${name ?? 'the default branch'} until ${holdClock(held.end)} while a person approves it. Merge after the release, or lift the hold; nothing was merged.`);
+      if (held.holds) {
+        return no('release-waiting', `release #${held.pr} holds merges into ${String(name)} until ${holdClock(held.end)} while a person approves it. Merge after the release, or lift the hold; nothing was merged.`);
       }
     }
   } else {

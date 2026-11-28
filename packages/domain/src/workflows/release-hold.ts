@@ -48,6 +48,9 @@ const no = (reason: ReleaseHoldRefusal, detail: string): ReleaseHoldResult => ({
 
 const short = (sha: string | undefined): string => (sha === undefined || sha === '' ? 'none' : sha.slice(0, 12));
 
+const changesOf = (ports: ReleaseHoldPorts, sha: string): Promise<ReleaseHeadReading | null> =>
+  ports.headChanges === undefined ? Promise.resolve(null) : ports.headChanges(sha);
+
 const UNATTENDED = 'an unattended caller does not hold or lift merges. The hold is a person\'s act, and this caller is no person.';
 
 /**
@@ -68,7 +71,8 @@ export const releaseHoldAt = async (ports: ReleaseHoldPorts, sha: string): Promi
   if (!rows.ok) return no('unaskable', 'the PR index could not be read. Nothing was written.');
   const name = await ports.defaultBranchName();
   if (!name.ok) return no('unaskable', 'the default branch\'s name could not be read. Nothing was written.');
-  const row = releaseRowOf(rows.value ?? [], name.value);
+  const list = rows.value ?? [];
+  const row = releaseRowOf(list, name.value);
   if (row === null) return no('no-release-pr', `the PR index holds no open release PR into ${name.value}. Nothing was written.`);
   if (row.headSha === undefined || !sameCommit(row.headSha, sha)) {
     return no('head-moved', `the head of release PR #${row.number} is ${short(row.headSha)}; the caller read ${short(sha)}. Read the new head, then ask again.`);
@@ -76,11 +80,11 @@ export const releaseHoldAt = async (ports: ReleaseHoldPorts, sha: string): Promi
   const record = await ports.store.read();
   if (!record.ok) return no('unaskable', 'the person hold file could not be read. Nothing was written.');
   const now = ports.now();
-  const held = releasePersonHold(rows.value ?? [], record.value, name.value, now, ports.checksWaitMs);
+  const held = releasePersonHold(list, record.value, name.value, now, ports.checksWaitMs);
   if (held.holds) {
     return no('already-held', `release #${held.pr} already holds merges until ${holdClock(held.end)}. A second hold does not extend it.`);
   }
-  const changes = ports.headChanges === undefined ? null : await ports.headChanges(row.headSha);
+  const changes = await changesOf(ports, row.headSha);
   const holdable = releaseHoldable(row, changes, name.value);
   if (holdable !== 'holdable') {
     return no(holdable, `release PR #${row.number} at ${short(row.headSha)} is not holdable: ${holdable}. Nothing was written.`);

@@ -362,6 +362,10 @@ describe('merge and the person hold', () => {
     expect(reason(readings({ releaseHold: undefined }))).toBe('decided');
   });
 
+  it('merges a PR into main where the record is a lift', () => {
+    expect(reason(readings({ releaseHold: { rows: [releaseRow()], record: hold({ act: 'lift' }) } }))).toBe('decided');
+  });
+
   it('merges a PR into sprint/x while the hold holds', () => {
     expect(reason(readings({ pr: pr({ base: 'sprint/x' }) }))).toBe('decided');
   });
@@ -410,6 +414,14 @@ describe('merge and the person hold', () => {
       const { p, calls } = ports('sprint/x', hold());
       expect(await mergeAt(p, 3738, SLICE_HEAD)).toMatchObject({ merged: true });
       expect(calls).toHaveLength(1);
+    });
+
+    it('merges where the hold file or the index rows cannot be read', async () => {
+      const { p } = ports('main', hold());
+      const brokenRecord = { ...p, releaseHold: { ...p.releaseHold!, record: { read: async () => failed(), write: async () => answered(undefined) } } } as MergePorts;
+      expect(await mergeAt(brokenRecord, 3738, SLICE_HEAD)).toMatchObject({ merged: true });
+      const brokenRows = { ...p, releaseHold: { ...p.releaseHold!, rows: async () => failed() } } as MergePorts;
+      expect(await mergeAt(brokenRows, 3738, SLICE_HEAD)).toMatchObject({ merged: true });
     });
 
     it('merges where the file holds no record', async () => {
@@ -497,6 +509,37 @@ describe('the hold and lift controllers', () => {
     const broken: ReleaseHoldPersonStore = { read: async () => failed(), write: async () => answered(undefined) };
     expect(await releaseHoldAt(ports(broken), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
   });
+
+  it('refuses unaskable where the index, the branch name or a write fails, and writes nothing', async () => {
+    const m = memory();
+    expect(await releaseHoldAt(ports(m.store, { rows: async () => failed() }), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
+    expect(await releaseHoldAt(ports(m.store, { defaultBranchName: async () => failed() }), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
+    expect(m.writes).toEqual([]);
+    const unwritable: ReleaseHoldPersonStore = { read: async () => answered(null), write: async () => failed() };
+    expect(await releaseHoldAt(ports(unwritable), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
+    const heldUnwritable: ReleaseHoldPersonStore = { read: async () => answered(hold()), write: async () => failed() };
+    expect(await releaseHoldLiftAt(ports(heldUnwritable), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
+    const unreadable: ReleaseHoldPersonStore = { read: async () => failed(), write: async () => answered(undefined) };
+    expect(await releaseHoldLiftAt(ports(unreadable), RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'unaskable' });
+  });
+
+  it('refuses head-moved where the release row carries no head', async () => {
+    const m = memory();
+    const headless = ports(m.store, { rows: async () => answered([releaseRow({ headSha: undefined })]) });
+    expect(await releaseHoldAt(headless, RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'head-moved' });
+    expect(m.writes).toEqual([]);
+  });
+
+  it('reads the head\'s changes and refuses a head that changes more than the version step writes', async () => {
+    const m = memory();
+    const asked: string[] = [];
+    const foreign = ports(m.store, {
+      headChanges: async (sha) => { asked.push(sha); return [{ path: 'src/x.ts', added: ['x'], removed: [] }] as never; },
+    });
+    expect(await releaseHoldAt(foreign, RELEASE_HEAD)).toMatchObject({ ok: false, reason: 'release-head-foreign' });
+    expect(asked).toEqual([RELEASE_HEAD]);
+    expect(m.writes).toEqual([]);
+  });
 });
 
 describe('the person hold file', () => {
@@ -529,5 +572,6 @@ describe('the hold buttons\' click text', () => {
     expect(releaseHoldMessage({ ok: false, reason: 'already-held', detail: 'release #3719 already holds merges' }))
       .toBe('refused: already-held: release #3719 already holds merges');
     expect(releaseHoldMessage(null)).toBe('refused: the board sent no answer this reads');
+    expect(releaseHoldMessage({ ok: true, act: 'hold', pr: 3719, head: 'a'.repeat(40), at: '2026-11-27T20:31:00.000Z' })).toBe('merges held');
   });
 });

@@ -571,7 +571,9 @@ describe('a browser test that stubs its own state starts no board', () => {
 // and starts no board.
 // 100 → 101 on 2026-11-21: `row-menu-column.browser.test.ts`, for every Delivery row's Do cell sitting last at one x in every
 // section, light and dark, and no horizontal scroll at 320 px. It serves its state through the catalogue and starts no board.
-const EXPECTED_FILES = 101;
+// 101 → 102 on 2026-11-28: `release-hold.browser.test.ts`, for the release row's person-hold line, the disabled Hold with its
+// reason and the enabled Lift. It serves its state through the catalogue and starts no board.
+const EXPECTED_FILES = 102;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -976,7 +978,8 @@ const EXPECTED_FILES = 101;
 // 756 → 758 on 2026-11-22: the two `it(` added to `release-delivery-fold.browser.test.ts` for an opened plan row's slice lines: each line's ⋯ cell starts at the plan row's ⋯ cell, the merged line's empty cell included, and Start work in a line's ⋯ posts that line's branch. Added, not moved.
 // 758 → 762 on 2026-11-23: `fleet-settings.browser.test.ts` replaces the two `it(` that held the switches in the Fleet heading with two that hold them in the switch row at the top of the open section, and gains three: no switch outside `[data-section="fleet"]`, the switch row above a stopped fleet's empty frame, and a folded Fleet section that shows no switch and opens from a held group's link with `#fleet-controls` in view. `a-fleet-row-shows-its-role-chip.browser.test.ts` gains one, for one state pill after the spinner slot in each agent row's Doing now cell. Four added, two replaced.
 // 762 → 763 on 2026-11-27: one `it(` added to `plan-card-grammar.browser.test.ts`: the Supersede dialog posts a trimmed `owner/repo:slug`, holds its submit for `owner/repo:`, and a superseded card shows `superseded by owner/repo:next · unverified`. Added, not moved.
-const EXPECTED_TESTS = 763;
+// 763 → 764 on 2026-11-28: the one `it(` in the new `release-hold.browser.test.ts` (101 → 102 files): the release row shows the hold line, the disabled Hold with its reason and the enabled Lift. Added, not moved.
+const EXPECTED_TESTS = 764;
 // 560 → 564 AND 62 → 63 FILES ON 2026-10-13: `spike-card-states.browser.test.ts`,
 // the three spike card states and the confirm control. Added, not moved.
 // 564 → 566 on 2026-10-13: one `it(` in `agents-tab.browser.test.ts`, for an
