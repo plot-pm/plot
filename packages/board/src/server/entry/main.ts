@@ -28,6 +28,7 @@ import { planGateAnswer, planGateAskFrom } from './plangate.js';
 import { licensedSpike } from '@plot-pm/domain/rules/spike';
 import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
 import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/registry';
+import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 
 /**
  * The `node` entry point a skill runs.
@@ -44,6 +45,7 @@ import { deskLiveness, resolveManifestDirAsync } from '@plot-pm/fleet/shared/reg
  * node skills/plot/scripts/board/plot-ask.mjs spike <slug> [<plan-file>]
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
+ * node skills/plot/scripts/board/plot-ask.mjs desk-quiet <desk>...
  * node skills/plot/scripts/board/plot-ask.mjs metrics [--weeks N]
  * <GET /api/board body> | node skills/plot/scripts/board/plot-ask.mjs spawner --from-board [--lines]
  * <plan-meta JSON> | node skills/plot/scripts/board/plot-ask.mjs plangate --slug <slug> --default-branch <main> [--source <text>] [--ref-resolved] [--allow-local]
@@ -514,6 +516,21 @@ export const run = async (
     return 0;
   }
 
+  if (argv[0] === 'desk-quiet') {
+    // Seconds since each desk's newest live signal, for `plot-fleetctl.sh
+    // --status`: one line `<desk>\t<seconds>` per argument, in order, and an
+    // empty second field where the rule answers `null` or the read fails.
+    const { opts } = contextFrom(here);
+    const trees = treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+    const desks = argv.slice(1);
+    const readings = await Promise.all(desks.map((desk) => trees.logQuietSeconds?.(desk)));
+    for (const [i, desk] of desks.entries()) {
+      const reading = readings[i];
+      write(`${desk}\t${reading?.ok && reading.value !== null ? reading.value : ''}\n`);
+    }
+    return 0;
+  }
+
   if (argv[0] === 'plangate') {
     // The dispatch phase and `Impl:` gate, read from the plan-meta record on
     // stdin. Exit 0 lets the fan-out go on; 1 prints the rule's detail and the
@@ -533,7 +550,7 @@ export const run = async (
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write(
-      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spike <slug> [<plan-file>] | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | plangate --slug <slug> --default-branch <main> | metrics [--weeks N]\n',
+      'usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file> | release-claim <branch> | merge <pr> <sha> | spike <slug> [<plan-file>] | spawner [pid] [--lines] | spawner --from-board [--lines] | desk-states <desk>... | desk-quiet <desk>... | plangate --slug <slug> --default-branch <main> | metrics [--weeks N]\n',
     );
     return 2;
   }
