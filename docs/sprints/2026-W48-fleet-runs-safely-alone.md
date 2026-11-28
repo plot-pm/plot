@@ -38,7 +38,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 ### Should Have
 - [x] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
-- [ ] [a-stale-pending-review-is-asked-again] A stale pending review is asked again <!-- pr: #3740, branch: bug/a-held-stale-review-names-its-reason -->
+- [x] [a-stale-pending-review-is-asked-again] A stale pending review is asked again <!-- pr: #3740, branch: bug/a-held-stale-review-names-its-reason -->
 - [x] [a-desk-reads-quiet-from-its-live-signals] A desk reads quiet from its live signals (#3745) <!-- pr: #3747, branch: bug/a-desk-reads-quiet-from-its-live-signals -->
 
 <!-- add items here -->
