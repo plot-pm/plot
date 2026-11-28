@@ -20,6 +20,7 @@ import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
 import { planIsFinished } from '../rules/plan-names-branch.js';
 import type { CrossRepoReference } from '../rules/cross-repo-reference.js';
+import { foreignPrMemo, type ForeignPrMemo } from './plan-walk-cache.js';
 import { repoOfRemote, sliceForeignReference, sliceForeignRepo } from '../rules/slice-foreign-repo.js';
 
 /** How many merge commits the subject lookup walks, as the shell scan caps it. */
@@ -98,6 +99,16 @@ export interface BranchStageInput {
    * the asks. Absent or false, the list alone answers.
    */
   askAbsent?: boolean;
+  /**
+   * Foreign PR answers held across walks. Where given, the stage asks the host
+   * of another repository for the PR a foreign slice line's arrow names even
+   * without `askAbsent`, once per `owner/repo#N` per hold (see
+   * {@link ForeignPrMemo}); `offline` and a backend of `none` still ask nothing.
+   * Absent, a foreign PR is asked only under `askAbsent`, once per walk.
+   */
+  foreignPrs?: ForeignPrMemo;
+  /** The wall clock in epoch milliseconds that {@link foreignPrs} is read at; defaults to `Date.now()`. */
+  nowMs?: number;
   /** Under `askAbsent`, asks every name the list omits even where the list is complete. */
   askAlways?: boolean;
   /**
@@ -440,16 +451,19 @@ export const readBranchReadings = async (
       }
     }
   }
-  const foreignAskable = (branch: string): boolean => mayAsk && (foreignOf.get(branch)?.reference ?? null) !== null;
-  const foreignAsked = new Map<string, PrReading>();
+  const mayAskForeign = mayAsk || (input.foreignPrs !== undefined && !offline && backend !== 'none');
+  const foreignAskable = (branch: string): boolean => mayAskForeign && (foreignOf.get(branch)?.reference ?? null) !== null;
+  const foreignAsked = input.foreignPrs ?? foreignPrMemo(Number.POSITIVE_INFINITY);
+  const nowMs = input.nowMs ?? Date.now();
   const foreignPrFor = async (branch: string): Promise<PrReading> => {
     const reference = foreignOf.get(branch)?.reference ?? null;
-    if (reference === null || !mayAsk) return 'unreadable';
-    const known = foreignAsked.get(branch);
+    if (reference === null || !mayAskForeign) return 'unreadable';
+    const key = `${reference.repo.toLowerCase()}#${reference.number}`;
+    const known = foreignAsked.get(key, nowMs);
     if (known !== undefined) return known;
     const answer = await host.prState(reference.number, { repo: reference.repo });
     const reading: PrReading = answer.ok ? readingOfPr(answer.value) : 'unreadable';
-    foreignAsked.set(branch, reading);
+    foreignAsked.set(key, reading, nowMs);
     return reading;
   };
 
