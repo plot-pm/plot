@@ -66,7 +66,9 @@ export const BRANCH_LIFECYCLE: readonly BranchState[] = [
  *
  * `foreign` is reachable from every unfinished state and reaches `open` and
  * `deferred`: like `deferred`, it is the plan's statement, here that the
- * branch lives in another repository, and it moves only by editing the plan.
+ * branch lives in another repository, and it moves to those only by editing the
+ * plan. It reaches `merged` where that repository's host merged the PR the
+ * slice line names, and `unknown` where that host could not answer.
  *
  * `unknown` reaches every state a reading can produce: it is the absence of an
  * answer, and any answer replaces it.
@@ -80,7 +82,7 @@ const NEXT: Readonly<Record<BranchState, readonly BranchState[]>> = {
   deferred: [],
   waiting: ['open', 'claimed', 'wip', 'merged', 'deferred', 'foreign'],
   blocked: ['open', 'deferred', 'foreign'],
-  foreign: ['open', 'deferred'],
+  foreign: ['open', 'deferred', 'merged', 'unknown'],
 };
 
 /**

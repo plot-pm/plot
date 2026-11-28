@@ -1899,6 +1899,22 @@ describe('dispatchReadingFor — a dispatch that names its branch', () => {
     expect(dispatchReadingFor(r, 'p')).toEqual({ kind: 'branch', branch: 'feature/here' });
   });
 
+  it('refuses a foreign branch as branch-foreign in every state its own host can give it, and never offers it (#3762)', () => {
+    for (const state of ['merged', 'unknown', 'open'] as const) {
+      const r = FleetReadingSchema.parse({
+        main: 'main', head: 'abc1234',
+        plans: [{ file: '2026-11-02-p.md', phase: 'approved', slices: [{ name: 'w', verdict: 'eligible', branches: [
+          { branch: 'feature/skill', state, foreign_repo: 'other/repo', waits_on: [], held: false, deferred: false, claimed: '', ref_held: false },
+        ] }] }],
+        summary: { plans: 1, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      });
+      expect(dispatchReadingFor(r, 'p', 'feature/skill')).toEqual(
+        refusal('branch-foreign', 'feature/skill', 'feature/skill is not startable here: it lives in other/repo'),
+      );
+      expect(startableBranches(r, 'p', new Set())).toEqual([]);
+    }
+  });
+
   it('names another repository where the foreign row carries none, and a foreign prerequisite by its repository', () => {
     const r = FleetReadingSchema.parse({
       main: 'main', head: 'abc1234',

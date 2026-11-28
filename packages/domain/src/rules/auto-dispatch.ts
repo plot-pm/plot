@@ -274,7 +274,9 @@ const refBlocksClaim = (branch: Branch): boolean => {
  * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
  */
 const dispatchable = (branch: Branch): boolean => {
-  return isStartable(branch.state) && !refBlocksClaim(branch);
+  // A branch its plan places in another repository is never started here, in
+  // whatever state that repository's host leaves it.
+  return isStartable(branch.state) && !refBlocksClaim(branch) && branch.foreign_repo === undefined;
 };
 
 export interface PlanAutoDispatchInput {
@@ -695,14 +697,15 @@ const waitName = (b: Branch, name: string): string => {
   return repo === undefined ? name : `${name} in ${repo}`;
 };
 
-/** Why a branch of an eligible slice is not startable, or `null` where it is. */
+/**
+ * Why a branch of an eligible slice is not startable, or `null` where it is.
+ * The caller refuses a foreign branch before it asks, so no case reads `foreign`.
+ */
 const branchHold = (b: Branch): string | null => {
   switch (b.state) {
     case 'waiting':
     case 'blocked':
       return `it is held on ${joinNames(b.waits_on.map((name) => waitName(b, name)))}`;
-    case 'foreign':
-      return `it lives in ${b.foreign_repo ?? 'another repository'}`;
     case 'claimed':
     case 'merged':
     case 'deferred':
@@ -745,8 +748,10 @@ export const dispatchReadingFor = (
   const slice = plan.slices.find((s) => s.branches.some((b) => b.branch === branch));
   const found = slice?.branches.find((b) => b.branch === branch);
   if (slice === undefined || found === undefined) return refuse('branch-not-in-plan', `${branch} is not a branch of plan ${slug}`);
-  if (found.state === 'foreign') {
-    return refuse('branch-foreign', `${branch} is not startable here: ${branchHold(found)}`);
+  // A FOREIGN BRANCH IS REFUSED IN EVERY STATE: its own host may read it
+  // `merged` or `unknown`, and neither makes it work for this repository.
+  if (found.state === 'foreign' || found.foreign_repo !== undefined) {
+    return refuse('branch-foreign', `${branch} is not startable here: it lives in ${found.foreign_repo ?? 'another repository'}`);
   }
   const why = slice.verdict === 'eligible' ? branchHold(found) : `its slice "${slice.name}" is ${slice.verdict}`;
   if (why !== null) return refuse('branch-not-startable', `${branch} is not startable: ${why}`);

@@ -19,6 +19,8 @@ import { mergeDetectOf, mergedBySubject, type MergeDetect } from '../rules/merge
 import { ownerOfRemote } from '../rules/remote-owner.js';
 import type { Estate } from './plan-walk-estate.js';
 import { planIsFinished } from '../rules/plan-names-branch.js';
+import type { CrossRepoReference } from '../rules/cross-repo-reference.js';
+import { foreignPrMemo, type ForeignPrMemo } from './plan-walk-cache.js';
 import { repoOfRemote, sliceForeignReference, sliceForeignRepo } from '../rules/slice-foreign-repo.js';
 
 /** How many merge commits the subject lookup walks, as the shell scan caps it. */
@@ -97,6 +99,16 @@ export interface BranchStageInput {
    * the asks. Absent or false, the list alone answers.
    */
   askAbsent?: boolean;
+  /**
+   * Foreign PR answers held across walks. Where given, the stage asks the host
+   * of another repository for the PR a foreign slice line's arrow names even
+   * without `askAbsent`, once per `owner/repo#N` per hold (see
+   * {@link ForeignPrMemo}); `offline` and a backend of `none` still ask nothing.
+   * Absent, a foreign PR is asked only under `askAbsent`, once per walk.
+   */
+  foreignPrs?: ForeignPrMemo;
+  /** The wall clock in epoch milliseconds that {@link foreignPrs} is read at; defaults to `Date.now()`. */
+  nowMs?: number;
   /** Under `askAbsent`, asks every name the list omits even where the list is complete. */
   askAlways?: boolean;
   /**
@@ -168,13 +180,6 @@ export interface BranchReading {
   subjectPredatesPlan?: boolean;
   /** The PR row the list held for the branch; present only under `input.loose`. */
   prDetail?: PrDetail;
-  /**
-   * Whether the host merged the branch's PR in the repository `foreignRepo`
-   * names; true only for a foreign branch whose line names `→ owner/repo#N`
-   * and whose host answered `merged`. Absent or false is *not known to be
-   * merged*, never *not merged*.
-   */
-  foreignMerged?: boolean;
 }
 
 /** What the branch stage reads: one entry per branch line of every live plan. */
@@ -431,29 +436,34 @@ export const readBranchReadings = async (
   };
 
   // A FOREIGN BRANCH IS ASKED OF ITS OWN REPOSITORY, never of this one: by
-  // `prMerged(branch, { repo })`, and only where its line names the foreign PR.
-  // A line with no arrow puts no question, and its answer stays `unreadable`;
-  // so does every foreign branch where the stage may put no per-name question.
+  // `prState(N, { repo })` for the PR its arrow `→ owner/repo#N` names, the
+  // question `deliverabilityOf` asks, and once per scan. A line with no arrow
+  // puts no question, and neither does a stage that may put no per-name
+  // question: `foreignAskable` is false, and a waiter reads `unreadable`.
   const thisRepo = repoOfRemote(origin);
-  const foreignOf = new Map<string, { repo: string; arrow: boolean }>();
+  const foreignOf = new Map<string, { repo: string; reference: CrossRepoReference | null }>();
   for (const { record } of estate.plans) {
     for (const slice of record.slices) {
       for (const b of slice.branches) {
         const repo = b.line === undefined ? null : sliceForeignRepo(b.line, thisRepo);
         if (repo === null || foreignOf.has(b.branch)) continue;
-        foreignOf.set(b.branch, { repo, arrow: sliceForeignReference(b.line!, thisRepo) !== null });
+        foreignOf.set(b.branch, { repo, reference: sliceForeignReference(b.line!, thisRepo) });
       }
     }
   }
-  const foreignAsked = new Map<string, PrReading>();
+  const mayAskForeign = mayAsk || (input.foreignPrs !== undefined && !offline && backend !== 'none');
+  const foreignAskable = (branch: string): boolean => mayAskForeign && (foreignOf.get(branch)?.reference ?? null) !== null;
+  const foreignAsked = input.foreignPrs ?? foreignPrMemo(Number.POSITIVE_INFINITY);
+  const nowMs = input.nowMs ?? Date.now();
   const foreignPrFor = async (branch: string): Promise<PrReading> => {
-    const foreign = foreignOf.get(branch);
-    if (foreign === undefined || !foreign.arrow || !mayAsk) return 'unreadable';
-    const known = foreignAsked.get(branch);
+    const reference = foreignOf.get(branch)?.reference ?? null;
+    if (reference === null || !mayAskForeign) return 'unreadable';
+    const key = `${reference.repo.toLowerCase()}#${reference.number}`;
+    const known = foreignAsked.get(key, nowMs);
     if (known !== undefined) return known;
-    const answer = await host.prMerged(branch, { repo: foreign.repo });
-    const reading: PrReading = answer.ok && answer.value === 'merged' ? 'MERGED' : 'unreadable';
-    foreignAsked.set(branch, reading);
+    const answer = await host.prState(reference.number, { repo: reference.repo });
+    const reading: PrReading = answer.ok ? readingOfPr(answer.value) : 'unreadable';
+    foreignAsked.set(key, reading, nowMs);
     return reading;
   };
 
@@ -571,6 +581,7 @@ export const readBranchReadings = async (
           readings: {
             deferredByPlan: line.deferred,
             foreignRepo,
+            ...(foreignRepo !== null && foreignAskable(line.branch) ? { foreignPr: await foreignPrFor(line.branch) } : {}),
             refTip,
             mainTip: noMain ? null : mainTip,
             mergeSubjectFound: refTip === null && (proven || commitsLanded),
@@ -586,7 +597,6 @@ export const readBranchReadings = async (
           localAhead,
           subjectPredatesPlan: predates,
           ...(input.loose === true ? { prDetail: detailOf(line.branch) } : {}),
-          ...(foreignRepo === null ? {} : { foreignMerged: (await foreignPrFor(line.branch)) === 'MERGED' }),
         });
       }
     }
@@ -598,10 +608,10 @@ export const readBranchReadings = async (
     // confirm a landing.
     if (record.phase === 'approved' && listed && mayAsk) {
       const own = branches.slice(planStart);
-      const candidate = own.every((b) => b.readings.deferredByPlan || b.foreignMerged === true || branchState({ ...b.readings, waits: [] }) === 'merged');
+      const candidate = own.every((b) => b.readings.deferredByPlan || branchState({ ...b.readings, waits: [] }) === 'merged');
       for (let i = planStart; candidate && i < branches.length; i += 1) {
         const b = branches[i]!;
-        if (!b.readings.mergeSubjectFound || b.readings.pr === 'MERGED') continue;
+        if (!b.readings.mergeSubjectFound || b.readings.pr === 'MERGED' || b.readings.foreignRepo !== null) continue;
         branches[i] = { ...b, readings: { ...b.readings, pr: await askHost(b.branch) } };
       }
     }

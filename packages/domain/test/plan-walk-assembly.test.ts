@@ -162,6 +162,21 @@ describe('assemblePlanWalk', () => {
       exit: 1,
     });
   });
+
+  it('counts a foreign branch its host could not answer as taken, so a blocked slice of it waits for nothing (#3762)', () => {
+    const estate = estateOf(planOf('p.md', 'approved', [[{ branch: 'feature/a' }], [{ branch: 'feature/skill' }]]));
+    const claimed = open({ commitsAhead: 1, realCommitsAhead: 0 });
+    const foreign = walk(estate, branchesOf(
+      ['p.md', 'feature/a', claimed],
+      ['p.md', 'feature/skill', open({ foreignRepo: 'other/repo', foreignPr: 'unreadable' })],
+    ));
+    const local = walk(estate, branchesOf(['p.md', 'feature/a', claimed], ['p.md', 'feature/skill', open()]));
+    if (!foreign.ok || !local.ok) throw new Error('failed');
+    expect(foreign.value.plans[0]!.slices.map((s) => s.verdict)).toEqual(['eligible', 'blocked']);
+    expect(foreign.value.plans[0]!.slices[1]!.branches[0]!.state).toBe('unknown');
+    expect(whyNothingText(foreign.value)).toBe('none\n');
+    expect(whyNothingText(local.value)).toBe('not-yet\tfeature/a\n');
+  });
 });
 
 describe('sliceNamesOf', () => {

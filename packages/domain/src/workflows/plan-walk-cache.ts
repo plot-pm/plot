@@ -1,5 +1,6 @@
 import { answered, type PortResult } from '../port-result.js';
 import type { PlanBlobRef, PlanRecord, PlanStore } from '../ports/plan-store.js';
+import type { PrReading } from '../rules/branch-state.js';
 import type {
   BranchTip,
   CommitSubject,
@@ -88,6 +89,49 @@ export interface WalkCacheStats {
 }
 
 /**
+ * How long the walk holds a foreign PR's answer that can still change: `OPEN`,
+ * `CLOSED`, `none` and `unreadable`. A `MERGED` answer is held for the life of
+ * the process, because a merge does not change. Sixty seconds is the PR
+ * listing's own refresh (`LISTING_REFRESH_MS` in `fleet-scan.ts`).
+ */
+export const FOREIGN_PR_REFRESH_MS = 60_000;
+
+/**
+ * The answers a walk holds about PRs in other repositories, keyed `owner/repo#N`.
+ *
+ * NOT oid-keyed, so it is the one kind outside `begin` and `sweep`: no object
+ * id names a PR in another repository. Only `MERGED` is held for good; every
+ * other answer is held for {@link FOREIGN_PR_REFRESH_MS} and then asked again,
+ * so a host that failed costs one question per interval, not one per beat.
+ */
+export interface ForeignPrMemo {
+  /** The answer held for `key` at `nowMs`, or `undefined` where none is held or it expired. */
+  get(key: string, nowMs: number): PrReading | undefined;
+  /** Holds `reading` for `key`, read at `nowMs`. */
+  set(key: string, reading: PrReading, nowMs: number): void;
+}
+
+/**
+ * An empty foreign PR memo.
+ *
+ * @param refreshMs - how long an answer other than `MERGED` is held.
+ * @returns the memo.
+ */
+export const foreignPrMemo = (refreshMs: number = FOREIGN_PR_REFRESH_MS): ForeignPrMemo => {
+  const held = new Map<string, { reading: PrReading; atMs: number }>();
+  return {
+    get: (key, nowMs) => {
+      const entry = held.get(key);
+      if (entry === undefined) return undefined;
+      return entry.reading === 'MERGED' || nowMs - entry.atMs < refreshMs ? entry.reading : undefined;
+    },
+    set: (key, reading, nowMs) => {
+      held.set(key, { reading, atMs: nowMs });
+    },
+  };
+};
+
+/**
  * The oid-keyed answers the plan walk keeps between beats.
  *
  * Holds no `unknown` and no failed read, no ref name in any key, and nothing
@@ -123,6 +167,8 @@ export interface WalkCache {
   countBehind: OidCache<number | null>;
   /** The default branch's name, keyed by the snapshot digest and the checked-out branch. */
   defaultBranch: OidCache<string>;
+  /** Foreign PR answers, keyed `owner/repo#N`; see {@link ForeignPrMemo}. */
+  foreignPrs: ForeignPrMemo;
   /** The beat counters. */
   stats: WalkCacheStats;
   /** The previous beat's snapshot digest, or `null` before the first. */
@@ -160,6 +206,7 @@ export const freshWalkCache = (): WalkCache => {
   const all = Object.values(kinds) as Array<OidCache<unknown>>;
   return {
     ...kinds,
+    foreignPrs: foreignPrMemo(),
     stats: { beats: 0, changedBeats: 0, hits: 0, misses: 0 },
     lastSnapshot: null,
     size: () => all.reduce((n, c) => n + c.size(), 0),

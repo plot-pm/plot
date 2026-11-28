@@ -16,7 +16,7 @@ import { readBranchPlans, readDeliveredInputs, readSprints, readStories } from '
 import { resolveRecordRef, type RecordSource } from '@plot-pm/domain/workflows/record-listing';
 import { STORY_LEGACY_ISSUE_KEY } from '@plot-pm/domain/adapters/story-front-matter';
 import type { PortResult } from '@plot-pm/domain';
-import { cachedPlans, cachedRefs, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
+import { cachedPlans, cachedRefs, foreignPrMemo, freshWalkCache, readRefSnapshot, type WalkCache } from '@plot-pm/domain/workflows/plan-walk-cache';
 import { assemblePlanWalk, fleetReading } from '@plot-pm/domain/workflows/plan-walk-assembly';
 import { branchAgesOf, walkValueOf, type WalkHeader } from '@plot-pm/domain/workflows/board-view';
 import { readReleaseVersions, readUnmerged } from '@plot-pm/domain/workflows/board-reads';
@@ -886,7 +886,13 @@ export const walkOnce = async (
     });
   }
   const branches = estate.ok
-    ? await readBranchReadings(refs, walk.host, estate.value, { mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }) })
+    ? await readBranchReadings(refs, walk.host, estate.value, {
+      mainBranch, planDir, prs, indexMerged, ...(indexOpen === undefined ? {} : { indexOpen }),
+      // A FOREIGN SLICE IS ASKED OF ITS OWN HOST HERE TOO (#3762): the board
+      // and fleetd read their cards from this walk, and without the question a
+      // merged foreign slice never settles its wave. The memo bounds the spend.
+      foreignPrs: cache?.foreignPrs ?? foreignPrMemo(),
+    })
     : estate;
   const desks = branches.ok
     ? await readDeskReadings(

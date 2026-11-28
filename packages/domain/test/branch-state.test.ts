@@ -151,6 +151,26 @@ describe('a slice placed in another repository reads foreign (#3735)', () => {
     expect(branchState(reading({ refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
   });
 
+  it('answers merged where the foreign host merged the PR the arrow names (#3762)', () => {
+    expect(branchState(reading({ ...foreign, foreignPr: 'MERGED' }))).toBe('merged');
+    expect(branchState(reading({ ...foreign, foreignPr: 'MERGED', refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('merged');
+  });
+
+  it('answers foreign where the foreign PR is open, closed or absent, or was not asked (#3762)', () => {
+    for (const foreignPr of ['OPEN', 'CLOSED', 'none', undefined] as const) {
+      expect(branchState(reading({ ...foreign, foreignPr }))).toBe('foreign');
+    }
+  });
+
+  it('answers unknown where the foreign host was asked and could not answer (#3762)', () => {
+    expect(branchState(reading({ ...foreign, foreignPr: 'unreadable' }))).toBe('unknown');
+  });
+
+  it('reads deferred over a merged foreign PR, and ignores foreignPr on a branch of this repository', () => {
+    expect(branchState(reading({ ...foreign, foreignPr: 'MERGED', deferredByPlan: true }))).toBe('deferred');
+    expect(branchState(reading({ foreignRepo: null, foreignPr: 'MERGED', refTip: 'bbb', commitsAhead: 1, realCommitsAhead: 0 }))).toBe('claimed');
+  });
+
   it('keeps a waiter on an unanswered foreign prerequisite waiting', () => {
     const waits = [{ branch: 'feature/foreign', pr: 'unreadable' as const, namedSlice: true, ...foreign }];
     expect(branchState(reading({ waits }))).toBe('waiting');

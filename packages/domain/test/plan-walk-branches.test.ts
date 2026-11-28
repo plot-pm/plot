@@ -11,6 +11,7 @@ import { branchState } from '../src/rules/branch-state.js';
 import { allSlicesConfirmed, deliveryLanding } from '../src/rules/deliverable.js';
 import { FleetReadingSchema } from '../src/entities/fleet.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
+import { foreignPrMemo } from '../src/workflows/plan-walk-cache.js';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import { assemblePlanWalk, fleetReading } from '../src/workflows/plan-walk-assembly.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
@@ -932,12 +933,31 @@ describe('readBranchReadings — a slice placed in another repository reads fore
     indexes: [],
     dangling: [],
   });
-  const asking = (merged: string[] = []) => {
-    const asked: Array<{ branch: string; repo: string | undefined }> = [];
-    const inner = hostFixture({ backend: 'github', merged });
+  const foreignPr = (number: number, state: 'OPEN' | 'MERGED' | 'CLOSED') =>
+    ({
+      number, repo: 'other/repo', head: 'some/other-name', base: 'main', state, mergedAt: state === 'MERGED' ? '2026-11-27T10:00:00Z' : null,
+      mergeCommit: '', draft: false, mergeable: 'unknown', review: 'none', checks: 'none', failingChecks: [], url: '', author: '',
+    }) as never;
+  // The foreign host answers by the NUMBER the arrow names, in the repository it names;
+  // `merged` lists the arrowed numbers whose PR merged, `open` the ones still open, and
+  // `failing` makes every foreign question fail. Any other number has no PR.
+  const asking = (merged: number[] = [], over: { open?: number[]; failing?: boolean } = {}) => {
+    const asked: Array<{ ref: string | number; repo: string | undefined }> = [];
+    const inner = hostFixture({ backend: 'github' });
     const host: Host = {
       ...inner,
-      prMerged: async (branch, opts) => (asked.push({ branch, repo: opts?.repo }), inner.prMerged(branch, opts)),
+      prState: async (ref, opts) => {
+        if (opts?.repo === undefined) return inner.prState(ref, opts);
+        asked.push({ ref, repo: opts.repo });
+        if (over.failing === true) return failed();
+        if (merged.includes(Number(ref))) return answered(foreignPr(Number(ref), 'MERGED'));
+        if ((over.open ?? []).includes(Number(ref))) return answered(foreignPr(Number(ref), 'OPEN'));
+        return answered(null);
+      },
+      prMerged: async (branch, opts) => {
+        if (opts?.repo !== undefined) throw new Error(`a foreign branch is asked by the PR its arrow names, not by ${branch}`);
+        return inner.prMerged(branch, opts);
+      },
     };
     return { host, asked };
   };
@@ -973,7 +993,7 @@ describe('readBranchReadings — a slice placed in another repository reads fore
     const { stage } = await walk(refs, host, twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next')));
     expect(stage.branches[0]!.readings.foreignRepo).toBe('other/repo');
     expect(branchState(stage.branches[0]!.readings)).toBe('foreign');
-    expect(asked).toEqual([{ branch: FOREIGN, repo: 'other/repo' }]);
+    expect(asked).toEqual([{ ref: 12, repo: 'other/repo' }]);
   });
 
   it('reads a line that names this repository as its own state', async () => {
@@ -985,7 +1005,7 @@ describe('readBranchReadings — a slice placed in another repository reads fore
 
   it('opens the next wave where the foreign PR merged, and holds it where it did not', async () => {
     const estate = () => twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next', { waitsOn: [FOREIGN] }));
-    const done = await walk(world({ merges: [] }), asking([FOREIGN]).host, estate());
+    const done = await walk(world({ merges: [] }), asking([12]).host, estate());
     expect(done.pulse.plans[0]!.slices.map((s) => s.verdict)).toEqual(['complete', 'eligible']);
     expect(done.pulse.plans[0]!.slices[1]!.branches[0]!.state).toBe('open');
     const open = await walk(world({ merges: [] }), asking().host, estate());
@@ -994,7 +1014,7 @@ describe('readBranchReadings — a slice placed in another repository reads fore
   });
 
   it('keeps a waiter on a foreign branch with no arrow waiting, and names the repository', async () => {
-    const { host, asked } = asking([FOREIGN]);
+    const { host, asked } = asking([12]);
     const { stage, assembled, pulse } = await walk(
       world({ merges: [] }),
       host,
@@ -1010,5 +1030,78 @@ describe('readBranchReadings — a slice placed in another repository reads fore
     expect(planReport(assembled.plans[0]!, header, false)).toContain(
       `feature/next — waiting on ${FOREIGN} (in quatico-solutions/agent-skills)`,
     );
+  });
+
+  it('reads a foreign branch merged where its own host merged the PR the arrow names, and completes its wave (#3762)', async () => {
+    const { host, asked } = asking([12]);
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next'));
+    const { stage, assembled, pulse } = await walk(world({ merges: [] }), host, estate);
+    expect(stage.branches[0]!.readings.foreignPr).toBe('MERGED');
+    expect(pulse.plans[0]!.slices[0]!.branches[0]).toMatchObject({ state: 'merged', foreign_repo: 'other/repo' });
+    expect(pulse.plans[0]!.slices.map((s) => s.verdict)).toEqual(['complete', 'eligible']);
+    expect(assembled.claimable).toEqual(['feature/next']);
+    expect(asked).toEqual([{ ref: 12, repo: 'other/repo' }]);
+    const header = { planDir: 'docs/plans/', host: 'ok' } as never;
+    expect(planReport(assembled.plans[0]!, header, false)).toContain(`${FOREIGN} — merged\n`);
+  });
+
+  it('keeps a foreign branch whose PR is open foreign and unclaimable, and its wave eligible (#3762)', async () => {
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next'));
+    const { stage, assembled, pulse } = await walk(world({ merges: [] }), asking([], { open: [12] }).host, estate);
+    expect(stage.branches[0]!.readings.foreignPr).toBe('OPEN');
+    expect(pulse.plans[0]!.slices[0]!.branches[0]).toMatchObject({ state: 'foreign', foreign_repo: 'other/repo' });
+    expect(assembled.plans[0]!.slices[0]!.branches[0]!.claimable).toBe(false);
+    expect(pulse.plans[0]!.slices.map((s) => s.verdict)).toEqual(['eligible', 'blocked']);
+    expect(assembled.claimable).toEqual([]);
+  });
+
+  it('reads a foreign branch unknown where its own host cannot answer, never merged and never claimable (#3762)', async () => {
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next'));
+    const { stage, assembled, pulse } = await walk(world({ merges: [] }), asking([], { failing: true }).host, estate);
+    expect(stage.branches[0]!.readings.foreignPr).toBe('unreadable');
+    expect(pulse.plans[0]!.slices[0]!.branches[0]).toMatchObject({ state: 'unknown', foreign_repo: 'other/repo' });
+    expect(assembled.plans[0]!.slices[0]!.branches[0]!.claimable).toBe(false);
+    expect(pulse.plans[0]!.slices.map((s) => s.verdict)).toEqual(['eligible', 'blocked']);
+    expect(assembled.claimable).toEqual([]);
+    const header = { planDir: 'docs/plans/', host: 'ok' } as never;
+    expect(planReport(assembled.plans[0]!, header, false)).toContain(`${FOREIGN} — unknown — its PR in other/repo could not be read`);
+  });
+
+  it('asks no foreign host for a line with no arrow, and keeps it foreign (#3762)', async () => {
+    const { host, asked } = asking([12]);
+    const { stage, pulse } = await walk(world({ merges: [] }), host, twoSlices(line(FOREIGN, { line: prefixed }), line('feature/next')));
+    expect(asked).toEqual([]);
+    expect(stage.branches[0]!.readings.foreignPr).toBeUndefined();
+    expect(pulse.plans[0]!.slices[0]!.branches[0]!.state).toBe('foreign');
+  });
+
+  it('asks a foreign host through a held memo without askAbsent, and never offline or with no host (#3762)', async () => {
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next'));
+    const stageOf = async (host: Host, over: Partial<BranchStageInput>) => {
+      const answer = await readBranchReadings(world({ merges: [] }), host, estate, { ...INPUT, ...over });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.branches[0]!.readings;
+    };
+    const held = asking([12]);
+    const memo = foreignPrMemo();
+    expect((await stageOf(held.host, { foreignPrs: memo, nowMs: 1 })).foreignPr).toBe('MERGED');
+    expect((await stageOf(held.host, { foreignPrs: memo, nowMs: 2 })).foreignPr).toBe('MERGED');
+    expect(held.asked).toEqual([{ ref: 12, repo: 'other/repo' }]);
+    const offline = asking([12]);
+    expect((await stageOf(offline.host, { foreignPrs: foreignPrMemo(), offline: true })).foreignPr).toBeUndefined();
+    const none = asking([12]);
+    expect((await stageOf({ ...none.host, backend: async () => answered('none' as never) }, { foreignPrs: foreignPrMemo() })).foreignPr).toBeUndefined();
+    expect([...offline.asked, ...none.asked]).toEqual([]);
+    const unlicensed = asking([12]);
+    expect((await stageOf(unlicensed.host, {})).foreignPr).toBeUndefined();
+    expect(unlicensed.asked).toEqual([]);
+  });
+
+  it('asks the foreign host once per scan for a branch and the waiter that names it (#3762)', async () => {
+    const { host, asked } = asking([12]);
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next', { waitsOn: [FOREIGN] }));
+    const { pulse } = await walk(world({ merges: [] }), host, estate);
+    expect(asked).toEqual([{ ref: 12, repo: 'other/repo' }]);
+    expect(pulse.plans[0]!.slices[1]!.branches[0]!.state).toBe('open');
   });
 });

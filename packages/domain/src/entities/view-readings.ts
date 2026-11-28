@@ -40,6 +40,8 @@ const WalkBranchSchema = z.object({
     deferredByPlan: z.boolean(),
     /** The repository the slice line places the branch in, where that is not this one; `null` or absent for a branch of this one. */
     foreignRepo: z.string().nullable().optional(),
+    /** What the foreign repository's host said about the PR the slice line's arrow names; absent where no question was put. */
+    foreignPr: PrReadingSchema.optional(),
     refTip: z.string().nullable(),
     mainTip: z.string().nullable(),
     mergeSubjectFound: z.boolean(),
@@ -62,8 +64,6 @@ const WalkBranchSchema = z.object({
       z.object({ state: PrRowStateSchema, checks: z.string(), draft: z.boolean() }),
     ])
     .optional(),
-  /** Whether the host merged the foreign branch's PR in its own repository; absent for a branch of this one. */
-  foreignMerged: z.boolean().optional(),
 });
 
 /** One desk's git readings beside its desk files and worker: what `readDeskReadings` adds. */
