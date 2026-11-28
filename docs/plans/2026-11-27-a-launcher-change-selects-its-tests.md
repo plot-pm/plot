@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** fleet-runs-safely-alone
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-bundle-names-its-input-sources`
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-launcher-names-the-bundle-it-runs`
+- **Delivered:** 2026-11-28
 
 ## Changelog
 
