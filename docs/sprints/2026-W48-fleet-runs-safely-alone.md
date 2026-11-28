@@ -31,7 +31,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
 - [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
 - [ ] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
-- [ ] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
+- [x] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
 - [ ] [a-release-holds-merges-while-it-waits] A release holds merges while it waits <!-- pr: #3740, branch: bug/a-waiting-release-holds-merges -->
 - [ ] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
 - [x] [the-release-head-is-reviewed-before-its-scope-is-delivered] The release head is reviewed before its scope is delivered (#3752) <!-- pr: #3753, branch: bug/the-release-head-is-reviewed-while-its-scope-waits -->
