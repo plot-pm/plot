@@ -1317,7 +1317,7 @@ if [ "$mode" = "stop" ]; then
     echo "  $n_detached free agent(s) hold no branch and are LEFT RUNNING:"
     printf '%s' "$detached"
     echo "  plot-dispatch --stop takes a branch and refuses to guess. Stop one by pid,"
-    echo "  or let the eight-hour Worker bound end it."
+    echo "  or let the Worker bound (default eight hours) end it."
   fi
 
   still="" stopped_ok=""

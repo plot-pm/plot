@@ -92,9 +92,9 @@ agent cannot be named to `plot-dispatch --stop`, which takes a branch and
 refuses to guess.
 
 `--stop` therefore **reports them and leaves them running**, rather than
-inventing the second stop rule the whole design refuses. The eight-hour `Worker
-bound` ends an idle agent on its own, so the population is bounded even when
-nobody stops it.
+inventing the second stop rule the whole design refuses. The `Worker bound`
+(default eight hours) ends an idle agent on its own, so the population is
+bounded even when nobody stops it.
 
 Fixing this properly means teaching `plot-dispatch --stop` to take a worktree or
 a pid — which is a change to the one stop rule, and belongs in its own slice

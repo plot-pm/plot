@@ -493,7 +493,8 @@ and that refusal exists to describe a tree whose dispatched branch was never
 checked out, which a free desk is not.
 
 **An idle agent dies on the existing bound.** `Worker bound` caps a worker at
-eight hours and an agent handed nothing lives under the same number. There is no
+its configured number of seconds, 28800 (eight hours) where the key is absent,
+and an agent handed nothing lives under the same number. There is no
 idle-specific bound, because *how long is too long to wait* has no measurement
 behind it yet.
 

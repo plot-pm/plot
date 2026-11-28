@@ -31,12 +31,18 @@
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Worker prompt template | Main branch | Board command
 #   Worktree root       the desk root; see its entry under the agent keys below.
-#   Worker bound        seconds a single prompt run may take in the worker loop
-#                       before it is ended and the worker exits (no hop). Read by
-#                       plot-worker-loop.sh; default 3600 (~1h), `0` disables it.
-#                       Non-numeric or empty falls back to the default. It bounds
-#                       a HUNG agent — one whose CLI crashed without exiting — so
-#                       one dead worker cannot hold a slot for hours.
+#   Worker bound        seconds one prompt run, and one wait for work, may
+#                       take in the worker loop before the loop ends it and
+#                       the worker exits (no hop). Default 28800 (eight
+#                       hours). `0` turns the limit off in the worker loop. An
+#                       absent, empty or non-numeric value gives the default.
+#                       `PLOT_WORKER_BOUND` in the environment overrides the
+#                       key. The limit is the floor under the worker monitor's
+#                       idle reading: a worker that stops working ends
+#                       earlier, and at 28800 no honest run reaches the floor.
+#                       The same key bounds a free agent's wait for work and
+#                       the automatic verify and design runs, which read `0`
+#                       as the default.
 #   Temp sweep after    hours before `plot-reap.sh --sweep-temp` removes an
 #                       owned `$TMPDIR/plot-*` entry or a dead pid's budget
 #                       memo that a SIGKILL left behind. Default 24; a value
@@ -158,7 +164,7 @@
 #                       Absent = command.
 #   Agent models        `role = model` list (`worker = sonnet`); a charter wins.
 #   Agent max turns     turns one SDK run may take. Absent = 150.
-#   Slice max runs      SDK runs one slice may start. Absent = 12.
+#   Slice max runs      runs one slice may start, on either runner. Absent = 12.
 #   Agent context window  an SDK run's `autoCompactWindow`. Absent = 200000.
 #   Agent max spend     dollars one SDK run may spend (`maxBudgetUsd`); the run
 #                       then ends `spend-limit`. `$` and `USD` read, e.g. `$20`.
