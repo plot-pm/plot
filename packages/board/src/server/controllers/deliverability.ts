@@ -2,6 +2,7 @@ import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
 import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 import { carriedWorkOf } from '@plot-pm/domain/rules/claim-only-slice';
 import { commitVerdict, isForeignCommit } from '@plot-pm/domain/rules/commit-evidence';
+import { crossRepoMergeState } from '@plot-pm/domain/rules/cross-repo-merge-state';
 import { crossRepoReferences, type CrossRepoReference } from '@plot-pm/domain/rules/cross-repo-reference';
 import { mergedRowByHead } from '@plot-pm/domain/rules/merged-row';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
@@ -201,18 +202,12 @@ const mergedBranches = async (
     // still open rather than a branch name that six repositories share.
     if (prRefs.length > 0) {
       const answers = await Promise.all(
-        prRefs.map((ref) => ports.host.prState(ref.number, { repo: ref.repo })),
+        prRefs.map(async (reference) => ({ reference, answer: await ports.host.prState(reference.number, { repo: reference.repo }) })),
       );
-      const refStates = answers.map((answer): BranchMergeState => {
-        if (!answer.ok) return 'unknown';
-        return answer.value !== null && answer.value.state === 'MERGED' ? 'merged' : 'not-merged';
-      });
-      const state = refStates.includes('unknown') ? 'unknown' : refStates.includes('not-merged') ? 'not-merged' : 'merged';
+      const { state, held } = crossRepoMergeState(answers);
       states.set(branch, {
         state,
-        names: state === 'merged'
-          ? [branch]
-          : prRefs.filter((_, i) => refStates[i] === state).map((ref) => `${ref.repo}#${ref.number} (${branch})`),
+        names: state === 'merged' ? [branch] : held.map((ref) => `${ref.repo}#${ref.number} (${branch})`),
       });
       continue;
     }

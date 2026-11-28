@@ -1,4 +1,5 @@
 import type { BranchState } from '../entities/fleet.js';
+import type { CrossRepoMergeState } from './cross-repo-merge-state.js';
 
 /*
  * THE ONE PLACE A BRANCH'S STATE IS DECIDED.
@@ -135,6 +136,12 @@ export interface BranchReadings {
    * repository. A statement of the plan, and it outranks every git reading.
    */
   foreignRepo?: string | null;
+  /**
+   * What `crossRepoMergeState` answered for the PRs a foreign branch's slice
+   * line names (`→ owner/repo#N`). Absent for a branch of this repository, for
+   * a foreign line that names no PR, and where the walk put no host question.
+   */
+  foreignPr?: CrossRepoMergeState;
   /** The remote ref's object id, or `null` when no remote ref exists. */
   refTip: string | null;
   /** The default branch's remote object id, or `null` when it cannot be read. */
@@ -383,7 +390,8 @@ const ownState = (readings: BranchReadings): BranchState => {
  *    branch up. It is a decision, not a measurement, and no merge state
  *    overturns it.
  * 2. **A slice line placing the branch in another repository** reads
- *    `foreign`. No ref, claim or PR of this repository is about it.
+ *    `merged` where `foreignPr` is `merged`, and `foreign` otherwise. No ref,
+ *    claim or PR of this repository is about it.
  * 3. **The branch's own readings**, in the order {@link ownState} states: the
  *    ref before the merge subject, the claim count before the work count, the
  *    tip comparison before the host's answer.
@@ -401,7 +409,9 @@ const ownState = (readings: BranchReadings): BranchState => {
  */
 export const branchState = (readings: BranchReadings): BranchState => {
   if (readings.deferredByPlan) return 'deferred';
-  if (readings.foreignRepo !== undefined && readings.foreignRepo !== null) return 'foreign';
+  if (readings.foreignRepo !== undefined && readings.foreignRepo !== null) {
+    return readings.foreignPr === 'merged' ? 'merged' : 'foreign';
+  }
 
   const own = ownState(readings);
 

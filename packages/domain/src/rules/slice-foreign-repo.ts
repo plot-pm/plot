@@ -24,20 +24,29 @@ export const repoOfRemote = (url: string): string | null => {
 };
 
 /**
- * The PR in another repository that a claim line's arrow names.
+ * Every PR in another repository that a claim line's arrows name.
  *
  * Reads `→ owner/repo#N` and `PR: owner/repo#N`. A line that also names a PR of
- * this repository — `→ #N`, or `→ <thisRepo>#N` — is claimed here, and answers `null`.
+ * this repository — `→ #N`, or `→ <thisRepo>#N` — is claimed here, and answers no reference.
  *
  * @param line - one claim line of a plan, verbatim.
  * @param thisRepo - this repository as `owner/repo`, or `null` where it is unread.
- * @returns the first foreign reference, or `null`.
+ * @returns the foreign references in line order; empty where the line names none or names a PR of this repository.
  */
-export const sliceForeignReference = (line: string, thisRepo: string | null): CrossRepoReference | null => {
+export const sliceForeignReferences = (line: string, thisRepo: string | null): readonly CrossRepoReference[] => {
   const refs = [...line.matchAll(REFERENCE)].map((m) => ({ repo: m[1] ?? '', number: Number(m[2]) }));
-  if (refs.some((r) => r.repo === '' || same(r.repo, thisRepo))) return null;
-  return refs[0] ?? null;
+  return refs.some((r) => r.repo === '' || same(r.repo, thisRepo)) ? [] : refs;
 };
+
+/**
+ * The first PR in another repository that a claim line's arrow names.
+ *
+ * @param line - one claim line of a plan, verbatim.
+ * @param thisRepo - this repository as `owner/repo`, or `null` where it is unread.
+ * @returns the first of {@link sliceForeignReferences}, or `null`.
+ */
+export const sliceForeignReference = (line: string, thisRepo: string | null): CrossRepoReference | null =>
+  sliceForeignReferences(line, thisRepo)[0] ?? null;
 
 /**
  * The repository a slice line places its branch in, where that is not this one.

@@ -64,7 +64,9 @@ const branchNote = (branch: AssembledBranch, hostWord: string): string => {
     case 'waiting':
       return `waiting on ${waits}`;
     case 'foreign':
-      return `foreign — lives in ${branch.foreignRepo}, not claimed here`;
+      return `foreign — lives in ${branch.foreignRepo}, not claimed here${
+        branch.foreignUnread.length === 0 ? '' : ` (PR ${branch.foreignUnread.join(', ')} read unknown)`
+      }`;
     case 'blocked':
       return `blocked — no PR found for ${waits}`;
     case 'deferred':

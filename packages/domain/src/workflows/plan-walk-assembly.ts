@@ -89,6 +89,8 @@ export interface AssembledBranch {
   foreignRepo: string;
   /** Each prerequisite the plan places in another repository, mapped to that repository. */
   waitsForeign: Readonly<Record<string, string>>;
+  /** The foreign PRs, `owner/repo#N`, whose host read failed; empty otherwise. */
+  foreignUnread: readonly string[];
 }
 
 /** One slice with its verdict. */
@@ -321,15 +323,13 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       return branchState({ ...f!.readings, waits });
     });
 
-    // A FOREIGN BRANCH SETTLES ITS SLICE ONLY ON A MERGE ITS OWN HOST ANSWERED.
-    const foreignSettled = (i: number): boolean => states[i] === 'foreign' && found[i]!.foreignMerged === true;
     const candidate = record.phase === 'approved'
-      && lines.every(({ line }, i) => line.deferred || states[i] === 'merged' || foreignSettled(i));
+      && lines.every(({ line }, i) => line.deferred || states[i] === 'merged');
     const degraded: string[][] = record.slices.map(() => []);
     const outstandingPerSlice = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
       return own.filter((i) => {
-        if (states[i] === 'deferred' || states[i] === 'merged' || foreignSettled(i)) return false;
+        if (states[i] === 'deferred' || states[i] === 'merged') return false;
         if (states[i] !== 'wip' || input.loose === undefined || !input.loose.verifiable) return true;
         const readiness = looseReadiness(found[i]!.prDetail);
         if (readiness.ready) return false;
@@ -372,6 +372,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
           changedPaths: f.changedPaths,
           localAhead: f.localAhead ?? 0,
           foreignRepo: f.readings.foreignRepo ?? '',
+          foreignUnread: f.foreignUnread ?? [],
           waitsForeign: Object.fromEntries(
             f.readings.waits.flatMap((w) => (w.foreignRepo === undefined ? [] : [[w.branch, w.foreignRepo] as const])),
           ),
