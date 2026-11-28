@@ -7,6 +7,7 @@ import { agentLoop, type AgentLoopReadings } from '../src/workflows/agent-loop.j
 import { killedWorkerEnding } from '../src/rules/ending-action.js';
 import { deskFs } from '../src/adapters/desk/desk-fs.js';
 import type { Trees } from '../src/ports/trees.js';
+import type { Ending } from '../src/entities/ending.js';
 
 const BRANCH = 'feature/the-merged-slice';
 const roots: string[] = [];
@@ -26,28 +27,47 @@ const freeWaitRanOut: AgentLoopReadings = {
   worktree: '/estate/.worktrees/free-04e1f562', session: 'free-04e1f562',
 };
 
-/**
- * The desk files a free desk whose wait ran out holds, produced by the real
- * writers: `agentLoop` ROW 2 names the exit and writes no ending, the wrapper
- * records that exit code, and the supervisor's `killedWorkerEnding` is written
- * through the desk adapter.
- */
-const freeWaitDesk = async (): Promise<{ ending: EndingReading; exit: string }> => {
-  const decision = agentLoop(freeWaitRanOut);
-  expect(decision.writes).toEqual([]);
-  const exit = String(decision.detail.exitCode);
+const noMainCheckout = { list: async () => ({ ok: false, why: 'failed' }) } as unknown as Trees;
+
+/** Writes `ending` and `exit` into a fresh desk through the desk adapter and reads both back. */
+const deskHolding = async (ending: Ending, exit: string): Promise<{ ending: EndingReading; exit: string }> => {
   const desk = mkdtempSync(join(tmpdir(), 'plot-ended-desk-'));
   roots.push(desk);
   writeFileSync(join(desk, '.plot-worker.exit'), exit);
-  const ending = killedWorkerEnding({ ending: { read: 'absent' }, exit, loopAlive: false, branch: BRANCH });
-  expect(ending).not.toBeNull();
-  const noMainCheckout = { list: async () => ({ ok: false, why: 'failed' }) } as unknown as Trees;
-  const written = await deskFs(noMainCheckout).writeEnding(desk, ending!);
+  const written = await deskFs(noMainCheckout).writeEnding(desk, ending);
   expect(written.ok).toBe(true);
   return {
     ending: readEnding(readFileSync(join(desk, '.plot-worker.ending.json'), 'utf8')),
     exit: readFileSync(join(desk, '.plot-worker.exit'), 'utf8'),
   };
+};
+
+/**
+ * The desk files a free desk whose wait ran out holds, produced by the real
+ * writers: `agentLoop` ROW 2 writes its `loop-end` `free-wait-expired` and
+ * names exit 124, the wrapper records that exit code, and the supervisor's
+ * `killedWorkerEnding` composes nothing for a desk that holds an ending.
+ */
+const freeWaitDesk = async (): Promise<{ ending: EndingReading; exit: string }> => {
+  const decision = agentLoop(freeWaitRanOut);
+  const loopEnd = decision.writes.find((w) => w.kind === 'loop-end');
+  expect(loopEnd).toMatchObject({ reason: 'free-wait-expired', actor: 'agent', branch: '', exitCode: 124 });
+  const parsed = readEnding(JSON.stringify(loopEnd));
+  if (parsed.read !== 'ended') throw new Error('the loop-end write did not parse as an ending');
+  const desk = await deskHolding(parsed.ending, String(decision.detail.exitCode));
+  expect(killedWorkerEnding({ ending: desk.ending, exit: desk.exit, loopAlive: false, branch: BRANCH })).toBeNull();
+  return desk;
+};
+
+/**
+ * The desk files an expired free wait left before `free-wait-expired`
+ * existed: no ending from the loop, exit 124, and the supervisor's
+ * `unreadable` record. Endings already on disk still carry this pair.
+ */
+const legacyFreeWaitDesk = async (): Promise<{ ending: EndingReading; exit: string }> => {
+  const ending = killedWorkerEnding({ ending: { read: 'absent' }, exit: '124', loopAlive: false, branch: BRANCH });
+  expect(ending).toMatchObject({ reason: 'unreadable', actor: 'supervisor' });
+  return deskHolding(ending!, '124');
 };
 
 const clean = (desk: { ending: EndingReading; exit: string }, over: Partial<EndedDeskReadings> = {}): EndedDeskReadings => ({
@@ -91,6 +111,25 @@ describe('endedDeskPlacement', () => {
     });
   });
 
+  it('releases a clean desk whose ending predates `free-wait-expired`: unreadable, supervisor, exit 124', async () => {
+    const desk = await legacyFreeWaitDesk();
+    expect(freeWaitEnded(desk.ending, desk.exit)).toBe(true);
+    expect(endedDeskPlacement(clean(desk)).section).toBe('quiet');
+    expect(endedDeskPlacement(clean(desk, { dirty: true }))).toEqual({
+      section: 'waiting-on-you',
+      owesPerson: true,
+      note: "ended a free wait with its last slice still checked out — the work left behind is the prior slice's, not this wait's",
+    });
+  });
+
+  it('reads `free-wait-expired` as the free-wait end only with actor `agent`', async () => {
+    const desk = await freeWaitDesk();
+    if (desk.ending.read !== 'ended') throw new Error('expected an ending');
+    expect(freeWaitEnded(desk.ending, null)).toBe(true);
+    const supervisor: EndingReading = { read: 'ended', ending: { ...desk.ending.ending, actor: 'supervisor' } };
+    expect(freeWaitEnded(supervisor, '124')).toBe(false);
+  });
+
   it('keeps a desk with no ending record with a person — absent is not clean', async () => {
     const desk = await freeWaitDesk();
     expect(endedDeskPlacement(clean(desk, { ending: { read: 'absent' } }))).toEqual({
@@ -101,7 +140,7 @@ describe('endedDeskPlacement', () => {
   });
 
   it('keeps a supervisor record for any exit other than 124 with a person', async () => {
-    const desk = await freeWaitDesk();
+    const desk = await legacyFreeWaitDesk();
     expect(endedDeskPlacement(clean(desk, { exit: '137' })).owesPerson).toBe(true);
     expect(endedDeskPlacement(clean(desk, { exit: null })).owesPerson).toBe(true);
   });
@@ -162,8 +201,8 @@ describe('endedDeskPlacement', () => {
       clean(desk, { blockedQuestion: true }),
       clean(desk, { merged: false }),
       clean(desk, { ending: { read: 'absent' } }),
-      clean(desk, { exit: '137' }),
-      clean(desk, { exit: null }),
+      clean(await legacyFreeWaitDesk(), { exit: '137' }),
+      clean(await legacyFreeWaitDesk(), { exit: null }),
       { ending: { read: 'unreadable', why: 'not JSON' }, exit: '124', merged: true, dirty: false, unlanded: false, blockedQuestion: false, boundSeconds: null },
     ];
     for (const reading of readings) {

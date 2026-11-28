@@ -41,6 +41,19 @@ describe('endingAction', () => {
     expect(endingAction(readings())).toBe('release-claim');
   });
 
+  it.each([
+    ['an open PR', { prOpen: true }],
+    ['an unpushed commit', { unpushedCommits: 'some' as const, commitBeyondClaim: 'yes' as const }],
+    ['a dirty tree', { dirtyTree: 'yes' as const }],
+    ['a commit beyond the claim and no merge', { commitBeyondClaim: 'yes' as const, prMerged: 'not-merged' as const }],
+    ['a freeWait reading of false', { freeWait: false }],
+  ])('leaves a free-wait-expired desk holding %s — the work is the prior slice\'s (#1917)', (_name, over) => {
+    const desk = readings({ ending: 'free-wait-expired', branch: '', ...over });
+    expect(endingAction(desk)).toBe('leave');
+    expect(isBoundEnding('free-wait-expired')).toBe(false);
+    expect(boundWorkDecides(desk)).toBe(false);
+  });
+
   it('leaves a manifest-named desk alone, whatever the ending says', () => {
     expect(endingAction(readings({ hasManifest: true }))).toBe('leave');
   });

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Page } from 'playwright';
 import { agentLoop, type AgentLoopReadings } from '@plot-pm/domain/workflows/agent-loop';
 import { killedWorkerEnding } from '@plot-pm/domain/rules/ending-action';
+import { readEnding } from '@plot-pm/domain/entities/ending';
 import { deskFs } from '@plot-pm/domain/adapters/desk/desk-fs';
 import type { Trees } from '@plot-pm/domain/ports/trees';
 import { expandAgentFolds } from '../helpers.mjs';
@@ -38,21 +39,23 @@ const FREE_WAIT_RAN_OUT = {
 
 /**
  * A desk directory holding what a free desk whose wait ran out holds: the
- * loop's exit code as the wrapper records it, and the supervisor's ending as
- * the desk adapter writes it — the same shape `ended-desks.test.ts`'s
- * `freeWaitDesk()` builds, reused here so this file's `ended` fixture comes
- * from `withEndedDesks` rather than a hand-built object.
+ * loop's own `free-wait-expired` ending as the desk adapter writes it, and the
+ * loop's exit code as the wrapper records it — the same shape
+ * `ended-desks.test.ts`'s `freeWaitDesk()` builds, reused here so this file's
+ * `ended` fixture comes from `withEndedDesks` rather than a hand-built object.
+ * The supervisor composes no ending for a desk that holds one.
  */
 const freeWaitDesk = async (): Promise<string> => {
   const desk = mkdtempSync(join(tmpdir(), 'plot-row-placement-'));
   deskRoots.push(desk);
   const decision = agentLoop({ ...FREE_WAIT_RAN_OUT, worktree: desk });
-  expect(decision.writes).toEqual([]);
+  const ending = decision.writes.find((w) => w.kind === 'loop-end');
+  expect(ending).toMatchObject({ reason: 'free-wait-expired', actor: 'agent', branch: '', exitCode: 124 });
   const exit = String(decision.detail.exitCode);
   writeFileSync(join(desk, '.plot-worker.exit'), exit);
-  const ending = killedWorkerEnding({ ending: { read: 'absent' }, exit, loopAlive: false, branch: BRANCH });
   const noMainCheckout = { list: async () => ({ ok: false, why: 'failed' }) } as unknown as Trees;
-  expect((await deskFs(noMainCheckout).writeEnding(desk, ending!)).ok).toBe(true);
+  expect((await deskFs(noMainCheckout).writeEnding(desk, ending as never)).ok).toBe(true);
+  expect(killedWorkerEnding({ ending: readEnding(readFileSync(join(desk, '.plot-worker.ending.json'), 'utf8')), exit, loopAlive: false, branch: BRANCH })).toBeNull();
   return desk;
 };
 

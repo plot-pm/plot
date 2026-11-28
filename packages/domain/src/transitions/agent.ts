@@ -465,12 +465,13 @@ export const endingIsAttributable = (
     input.reason !== 'run-limit' &&
     input.reason !== 'spend-limit' &&
     input.reason !== 'nothing-done' &&
-    input.reason !== 'permission-denied'
+    input.reason !== 'permission-denied' &&
+    input.reason !== 'free-wait-expired'
   ) {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit', 'spend-limit', 'nothing-done' or 'permission-denied' ending names the agent, because no watcher produces those.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted', 'limited', 'unregistered', 'holding-work', 'blocked', 'checks-unanswered', 'corrections-spent', 'turn-limit', 'run-limit', 'spend-limit', 'nothing-done', 'permission-denied' or 'free-wait-expired' ending names the agent, because no watcher produces those.`,
     );
   }
 

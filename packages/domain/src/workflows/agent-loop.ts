@@ -638,19 +638,14 @@ export const agentLoop = (readings: AgentLoopReadings): Decision<AgentLoopDetail
       return end(worktree, '', 'unregistered', 'agent', 'the manifest that named this loop is gone', 124);
     }
 
-    // ROW 2 — the free wait reached `Worker bound`. No NEW slice was
-    // assigned, so there is no watcher to name and the table's own "none,
-    // 124" applies to the ending column — but the desk still holds whatever
-    // its LAST slice left checked out (a declared `ok`, an open PR, a
-    // dirty tree), which is a different desk's question than this ending's.
-    // The exit code lives in `detail.exitCode` rather than in a `loop-end`
-    // write, because no ending reason applies here.
+    // ROW 2 — the free wait reached `Worker bound`. The loop writes its own
+    // `loop-end` `free-wait-expired`, actor `agent`, branch `''`: no slice was
+    // assigned, so no watcher acted and the loop held no branch. It exits 124
+    // so the wrapper's `.plot-worker.exit` and the worker log read as before.
+    // Whatever the desk still holds (a declared `ok`, an open PR, a dirty
+    // tree) belongs to the slice it held before the wait began.
     if (readings.boundSeconds > 0 && readings.waitedSeconds >= readings.boundSeconds) {
-      return decide('agent-loop', [], {
-        branch: '',
-        exitCode: 124,
-        note: `the free wait exceeded the ${readings.boundSeconds}s bound`,
-      });
+      return end(worktree, '', 'free-wait-expired', 'agent', `the free wait exceeded the ${readings.boundSeconds}s bound`, 124);
     }
 
     // ROW 1 — still inside the bound, nothing assigned yet.
