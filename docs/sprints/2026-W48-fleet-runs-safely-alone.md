@@ -30,19 +30,20 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
 - [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
 - [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
-- [ ] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
-- [ ] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
+- [x] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
+- [x] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
 - [ ] [a-release-holds-merges-while-it-waits] A release holds merges while it waits <!-- pr: #3740, branch: bug/a-waiting-release-holds-merges -->
-- [ ] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
-- [ ] [the-release-head-is-reviewed-before-its-scope-is-delivered] The release head is reviewed before its scope is delivered (#3752) <!-- pr: #3753, branch: bug/the-release-head-is-reviewed-while-its-scope-waits -->
+- [x] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->
+- [x] [the-release-head-is-reviewed-before-its-scope-is-delivered] The release head is reviewed before its scope is delivered (#3752) <!-- pr: #3753, branch: bug/the-release-head-is-reviewed-while-its-scope-waits -->
 
 ### Should Have
-- [ ] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
+- [x] [supersede-names-a-plan-in-another-repository] Supersede names a plan in another repository (#3710) <!-- pr: #3740, branch: feature/supersede-takes-a-foreign-successor -->
 - [ ] [a-stale-pending-review-is-asked-again] A stale pending review is asked again <!-- pr: #3740, branch: bug/a-held-stale-review-names-its-reason -->
-- [ ] [a-desk-reads-quiet-from-its-live-signals] A desk reads quiet from its live signals (#3745) <!-- pr: #3747, branch: bug/a-desk-reads-quiet-from-its-live-signals -->
+- [x] [a-desk-reads-quiet-from-its-live-signals] A desk reads quiet from its live signals (#3745) <!-- pr: #3747, branch: bug/a-desk-reads-quiet-from-its-live-signals -->
 
 <!-- add items here -->
 - [ ] [#3750](https://github.com/plot-pm/plot/issues/3750) A release can be approved on a board reached through its tailnet origin, or the button says why not
+- [ ] [a-foreign-slice-reads-its-own-pr] A foreign slice reads its own PR (#3762) <!-- pr: #3763, branch: bug/a-foreign-slice-reads-its-own-pr -->
 
 ### Could Have
 
@@ -67,6 +68,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - 2026-11-27: added issue #3750 as a Should Have, from the panel on a-release-holds-merges-while-it-waits.
 - 2026-11-27: added the five Must Haves of Max Albrecht (#3631, #3633, #3634, #3635, #3637) from plot-describes-itself.
 - 2026-11-27: added issue #3745 as a Should Have: the status read three working agents as quiet for 2 h.
+- 2026-11-28: Added [a-foreign-slice-reads-its-own-pr] to Should — the plan for issue #3762
 <!-- Format: - YYYY-MM-DD: Added/Moved/Removed [slug] reason -->
 
 <!-- Session log, decisions, links -->

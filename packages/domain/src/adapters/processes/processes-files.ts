@@ -24,6 +24,7 @@ import { processesShell } from './processes-shell.js';
 import { processesTable, type TableRead } from './processes-table.js';
 import { livenessTokenFifo } from '../liveness-token/liveness-token-fifo.js';
 import { monitorTime } from '../../rules/worker-ending.js';
+import { AGENT_FINDINGS_FILE, DESK_LOG_FILE } from '../../rules/desk-quiet.js';
 import {
   PASS_FILE,
   RELEASED_WITH_NO_EXIT,
@@ -381,10 +382,6 @@ export const processReadingOf = (gathered: GatheredReadings, hasPr: boolean): Pr
   };
 };
 
-/** The AgentMonitor's findings file inside a desk. */
-const AGENT_FINDINGS_FILE = '.plot-worker.monitor.agent.jsonl';
-/** The desk log. */
-const DESK_LOG_FILE = '.plot-worker.log';
 
 /**
  * Writes one line to the desk log and one `WorkerMonitor` `gone` line to the

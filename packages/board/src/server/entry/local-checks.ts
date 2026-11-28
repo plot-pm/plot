@@ -23,13 +23,16 @@ import {
   entryInputs,
   globRoot,
   globToRegExp,
+  launcherBundles,
   localChecks,
   parseList,
   parseBundleInputs,
   parseLocalChecks,
   testsNaming,
   type BundleInputs,
+  type LauncherMap,
   type LocalChecksAnswer,
+  type ScriptFile,
   type TestFile,
 } from '@plot-pm/domain/rules/local-checks';
 import { ciSuiteRefusal } from '@plot-pm/domain/rules/ci-suite';
@@ -126,6 +129,39 @@ export const readBundleInputs = (repoRoot: string): { bundles: readonly BundleIn
     bundles: entryInputs(BOARD_BUNDLE_ENTRIES),
     fallback: `# bundle inputs: ${BUNDLE_INPUTS_FILE} is ${reason}; selecting by bundle entry sources (BOARD_BUNDLE_ENTRIES) — run pnpm build:board for the full map`,
   };
+};
+
+/** The directory whose shell files are read as launchers, relative to the repository root. */
+export const LAUNCHER_ROOT = 'skills';
+
+/**
+ * Reads the launchers of each bundle from the shell files tracked at `HEAD`
+ * under {@link LAUNCHER_ROOT}, plus the changed `.sh` paths under it. A file
+ * that cannot be read is left out, and a listing that fails reads no file, so
+ * the map holds fewer launchers and the selection continues.
+ *
+ * @param refs - the git adapter.
+ * @param repoRoot - the repository root.
+ * @param changed - the changed paths.
+ * @returns the launcher map.
+ */
+export const readLaunchers = async (
+  refs: Pick<ReturnType<typeof refsGit>, 'listBlobs'>,
+  repoRoot: string,
+  changed: readonly string[],
+): Promise<LauncherMap> => {
+  const blobs = await refs.listBlobs('HEAD', LAUNCHER_ROOT);
+  const paths = [...(blobs.ok ? blobs.value.map((blob) => blob.path) : []), ...changed].filter(
+    (file) => file.startsWith(`${LAUNCHER_ROOT}/`) && file.endsWith('.sh'),
+  );
+  const scripts = [...new Set(paths)].flatMap((file): ScriptFile[] => {
+    try {
+      return [{ path: file, text: readFileSync(path.join(repoRoot, file), 'utf8') }];
+    } catch {
+      return [];
+    }
+  });
+  return launcherBundles(scripts);
 };
 
 /** The exit codes the caller reads. */
@@ -316,6 +352,7 @@ export const run = async (
 
   const corpus = corpusGlobs(rawPlans.ok ? rawPlans.value : '', rawSprints.ok ? rawSprints.value : '');
   const { bundles, fallback } = readBundleInputs(repoRoot);
+  const launchers = await readLaunchers(refs, repoRoot, changed);
 
   if (ci) {
     const selection = ciSelection({
@@ -334,6 +371,7 @@ export const run = async (
       },
       root: repoRoot,
       bundles,
+      launchers,
     });
     if (fallback !== null) warn(`${fallback}\n`);
     write(`${JSON.stringify(selection)}\n`);
@@ -354,6 +392,7 @@ export const run = async (
         corpus,
         tests,
         bundles,
+        launchers,
         checks,
         limit: Number.isFinite(limit) && limit >= 0 ? limit : DEFAULT_LOCAL_CHECKS_LIMIT,
         root: repoRoot,

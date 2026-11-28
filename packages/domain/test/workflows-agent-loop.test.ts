@@ -134,11 +134,30 @@ describe('agentLoop — row 1: no assignment, inside Worker bound', () => {
 });
 
 describe('agentLoop — row 2: no assignment, Worker bound reached', () => {
-  it('ends the free wait with no ending reason, exit 124', () => {
+  it('ends the free wait with its own free-wait-expired ending, actor agent, branch empty, exit 124', () => {
     const result = agentLoop({ ...freeLoop, waitedSeconds: 28800, boundSeconds: 28800 });
-    expect(result.writes).toEqual([]);
+    expect(result.writes).toHaveLength(1);
+    expect(endWrite(result.writes)).toMatchObject({
+      reason: 'free-wait-expired',
+      actor: 'agent',
+      branch: '',
+      exitCode: 124,
+      detail: 'the free wait exceeded the 28800s bound',
+    });
     expect(result.detail.exitCode).toBe(124);
-    expect(endWrite(result.writes)).toBeUndefined();
+    expect(result.detail.branch).toBe('');
+  });
+
+  it('still waits one second under the bound, with no writes', () => {
+    const result = agentLoop({ ...freeLoop, waitedSeconds: 28799, boundSeconds: 28800 });
+    expect(result.writes).toEqual([]);
+    expect(result.detail.exitCode).toBeNull();
+  });
+
+  it('endingIsAttributable accepts actor agent for free-wait-expired', () => {
+    expect(
+      isDecision(endingIsAttributable(SESSION, { actor: 'agent', reason: 'free-wait-expired' })),
+    ).toBe(true);
   });
 });
 

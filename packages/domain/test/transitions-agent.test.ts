@@ -304,6 +304,15 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     }))).toBe(true);
   });
 
+  it('accepts actor agent on free-wait-expired, the free wait the loop ended itself', () => {
+    // A free loop that waited `Worker bound` with no slice offered ran no
+    // prompt and held no branch, so no watcher fired.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'free-wait-expired',
+    }))).toBe(true);
+  });
+
   it('accepts actor agent on holding-work, the desk the loop found undone itself', () => {
     // #1246: after a prompt exits `ran`, the loop asks `desk_reset_refusal`
     // about its own desk. No clock expired and no monitor published anything —

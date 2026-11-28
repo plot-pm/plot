@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
 | 3. Cross-check Notes | Frontier (orchestrator) + Small (subagents) | Orchestrator compares; small subagents can gather commit messages and plan changelogs in parallel. A merged spike's changeset pairs with its Design plan |
 | 4-5. Hand-off, RC cleanup | Small | Template list, no-ops; step 5's rename is a mechanical `git mv` of any `vnext-checklist.md` |
-| 5b. Record the Release in the Plans | Small | The finish also books Delivered plans outside the sprint that a shipped changeset names, and names the other Delivered plans it left; read those lines back, and read `.plot/state/release-finish/v<version>.json` for the last finish's outcome and refusal reason. The release is approved on the board with a passkey (`POST /api/release-approve`); `plot-ask.mjs release-approve` refuses `person-unproven`. `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
+| 5b. Record the Release in the Plans | Small | The finish also books Delivered plans outside the sprint that a shipped changeset names or whose slice merges first shipped in the tag, and names the other Delivered plans it left with a reason: a slice after the tag, a squash or rebase merge with no merge subject, or a slice in another repository; read those lines back, and read `.plot/state/release-finish/v<version>.json` for the last finish's outcome and refusal reason. The release is approved on the board with a passkey (`POST /api/release-approve`); `plot-ask.mjs release-approve` refuses `person-unproven`. `release-approve` already tells the tracker for each plan it books, as part of booking it Released. This step covers what that pass missed: one `plot-deliver.sh --release` call per plan still at `State: Delivered` (or `POST /api/release` where a board runs); the script resolves the version, writes the record, and tells the plan's tracker in the same call. Mechanical read-back of each call's own outcome — exit code + `summary:` line, or `GET /api/release/<slug>` polled to a terminal state — prints one line per plan that did not release. Gate on the sweep's real footer |
 | 5c. Sprint Override Record | Small | One line into `## Notes`, from facts step 0 already collected |
 | 6. Summary | Small | Formatting |
 
@@ -440,10 +440,17 @@ process and nothing came back afterwards.
 
 **`release-approve` already runs this for every plan it books.** It books the
 sprint's scope plans and any Delivered plan outside the sprint that a changeset
-shipped under the tag names on its `plan:` line. It names every other Delivered
+shipped under the tag names on its `plan:` line. It also books every Delivered plan whose slices first shipped in the tag: each slice's `→ #N` PR has a merge commit on the default branch or on an `origin/sprint/*` branch whose subject is the host's merge subject for that PR, and the tag is the first release tag that contains every such merge. That reading uses local git only and makes no host call. Its first note names every booked plan with its source: `sprint`, `changeset` or `tag`. It names every other Delivered
 plan outside the sprint and every named plan it skipped (not Delivered, or no
 file), and prints `shipped-unread` where it could not read the release merge's
-changesets. Run `plot-deliver.sh --release` for a plan it named and you accept.
+changesets and `range-unread` where it could not read the slice merges. The note `in the tag and not booked` names each plan the tag touched and left, with its reason:
+
+- `slice-after-tag`: a slice merged after the tag, so the next release books the plan.
+- `no-merge-subject`: a slice has no `→ #N` PR, or its PR was squash- or rebase-merged and left no merge subject.
+- `slice-foreign`: a slice shipped in another repository.
+- `not-delivered` or `already-released`: the plan's state excludes it.
+
+Run `plot-deliver.sh --release` for a plan it named and you accept.
 The sprint booking pass tells the plan's tracker as part of booking it Released, the same
 `plot-issue-status.sh` / `plot-plan-state.sh --phase released` pair this step
 runs by hand below. This step is the repair path: a plan still sitting at

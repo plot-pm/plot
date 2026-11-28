@@ -173,14 +173,18 @@ export interface Trees {
   quietSeconds(path: string): Promise<PortResult<number | null>>;
 
   /**
-   * Seconds since the desk's worker log `.plot-worker.log` was last written.
+   * Seconds since the newest of the desk's live signals changed: the pass
+   * file `.plot-worker.pass`, the AgentMonitor file
+   * `.plot-worker.monitor.agent.jsonl`, the HEAD commit, and the worker log
+   * `.plot-worker.log`.
    *
-   * The one record {@link quietSeconds} leaves out, read on its own: a worker
-   * inside a long test run writes no tracked file while its log still moves.
+   * These are records {@link quietSeconds} leaves out: a worker inside a long
+   * prompt run or test run writes no tracked file while its loop and monitor
+   * still move.
    *
    * @param path - the worktree's absolute path.
-   * @returns the seconds, never negative; null where the log does not exist
-   *   or cannot be read.
+   * @returns the seconds, never negative; null where none of the four signals
+   *   exists or can be read.
    */
   logQuietSeconds?(path: string): Promise<PortResult<number | null>>;
 

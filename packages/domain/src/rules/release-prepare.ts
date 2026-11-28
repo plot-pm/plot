@@ -237,11 +237,64 @@ export const releaseStage = (readings: ReleasePrepareReadings): ReleaseStage => 
 };
 
 /**
+ * The hold a release head's changes put on a review start.
+ *
+ * @param headChanges - what the head changes against its merge base; `null` where the host has no release workflows.
+ * @returns `release-head-foreign` for a change the version step does not write, `unaskable` for a failed or empty read,
+ *   and `null` for a clean head or a `null` reading.
+ */
+const releaseHeadHold = (headChanges: ReleaseHeadReading | null): ReleasePrepareStep | null => {
+  if (headChanges === null) return null;
+  const read = releaseHeadVerdict(headChanges).read;
+  if (read === 'clean') return null;
+  return { step: 'hold', reason: read === 'foreign' ? 'release-head-foreign' : 'unaskable' };
+};
+
+/**
+ * Whether fleetd starts a review on the release head now.
+ *
+ * Reads, in order: the head's changes, the required workflow's runs, whether
+ * `plot/review` was asked, whether its writer is trusted, a live run on the
+ * head, whether the review is absent, errored, on another head or pending past
+ * `reviewBoundMs`, and last {@link reviewStartAllowed}. It reads neither the
+ * scope, the changesets nor the run log.
+ *
+ * @param readings - everything read of the release; `checks`, `headChanges`, `reviewRun`, `reviewStarts`, `config` and `now` are read.
+ * @param pr - the release PR's open row.
+ * @param head - the row's `headSha`.
+ * @returns `review` where every check passes; `hold` with `release-head-foreign`, `unaskable` or
+ *   `review-writer-unchecked` where a reading failed or forbids a start; otherwise `none` naming the check that stopped it.
+ */
+const releaseReviewStep = (readings: ReleasePrepareReadings, pr: PrIndexRow, head: string): ReleasePrepareStep => {
+  const { config, now } = readings;
+  const held = releaseHeadHold(readings.headChanges);
+  if (held !== null) return held;
+  const checks = requiredChecks(readings.checks, config.requiredWorkflow);
+  if (checks === 'unknown') return { step: 'hold', reason: 'unaskable' };
+  if (checks !== 'green') return none(`checks-${checks}`);
+  if (pr.plotReview === undefined) return none('not-asked');
+  const trusted = trustedReview(pr);
+  if (trusted === 'unchecked') return { step: 'hold', reason: 'review-writer-unchecked' };
+  if (readings.reviewRun !== null && readings.reviewRun.live && readings.reviewRun.head === head) {
+    return none('review-in-flight');
+  }
+  const startedAt = pr.plotReviewAt === undefined ? Number.NaN : Date.parse(pr.plotReviewAt);
+  const onHead = pr.plotReviewSha === head;
+  const stalePending = trusted === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
+  const needs = trusted === 'absent' || trusted === 'error' || !onHead || stalePending;
+  if (!needs) return none('review-pending');
+  const allowed = reviewStartAllowed(readings.reviewStarts, head, config.startBudget, now);
+  return allowed === 'ok' ? { step: 'review', head } : none(allowed);
+};
+
+/**
  * The next step on the release PR.
  *
  * A second rule beside `slicePrNext`, for exactly one PR. It holds while the
- * scope is unread, empty or not wholly Delivered; starts a review for a head
- * whose required checks passed and whose `plot/review` is not a pass on it;
+ * scope is unread, empty or not wholly Delivered, except that a read scope
+ * with read phases and an open PR still starts a review where
+ * {@link releaseReviewStep} answers one; starts a review for a head whose
+ * required checks passed and whose `plot/review` is not a pass on it;
  * and notifies once the head can be approved, on the first head and after
  * that only where the head's changeset list differs from the last
  * notification's. Outside work is listed and never holds the release.
@@ -262,10 +315,18 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
   if (stage === 'merged' || stage === 'publishing' || stage === 'released' || stage === 'failed') return none(stage);
   if (stage === 'release-head-foreign') return { step: 'hold', reason: 'release-head-foreign' };
   if (stage === 'waiting-scope') {
-    const unread = readings.scope.read === 'scope' && readings.phases === 'unaskable';
-    return { step: 'hold', reason: unread ? 'unaskable' : 'waiting-scope' };
+    const { scope, phases, pr } = readings;
+    if (scope.read === 'scope' && phases === 'unaskable') return { step: 'hold', reason: 'unaskable' };
+    const waiting: ReleasePrepareStep = { step: 'hold', reason: 'waiting-scope' };
+    if (scope.read !== 'scope' || pr === 'none' || pr === 'unaskable' || pr.state !== 'OPEN' || pr.headSha === undefined) {
+      return waiting;
+    }
+    const held = releaseHeadHold(readings.headChanges);
+    if (held !== null) return held;
+    const step = releaseReviewStep(readings, pr, pr.headSha);
+    return step.step === 'review' ? step : waiting;
   }
-  const { pr, scope, config, now } = readings;
+  const { pr, scope } = readings;
   if (pr === 'unaskable' || readings.changesets === 'unaskable' || readings.log === 'unaskable') {
     return { step: 'hold', reason: 'unaskable' };
   }
@@ -273,27 +334,7 @@ export const releasePrepareNext = (readings: ReleasePrepareReadings): ReleasePre
   if (pr.headSha === undefined) return { step: 'hold', reason: 'unaskable' };
   const head = pr.headSha;
 
-  if (stage === 'preparing') {
-    if (readings.headChanges !== null && releaseHeadVerdict(readings.headChanges).read !== 'clean') {
-      return { step: 'hold', reason: 'unaskable' };
-    }
-    const checks = requiredChecks(readings.checks, config.requiredWorkflow);
-    if (checks === 'unknown') return { step: 'hold', reason: 'unaskable' };
-    if (checks !== 'green') return none(`checks-${checks}`);
-    if (pr.plotReview === undefined) return none('not-asked');
-    const trusted = trustedReview(pr);
-    if (trusted === 'unchecked') return { step: 'hold', reason: 'review-writer-unchecked' };
-    if (readings.reviewRun !== null && readings.reviewRun.live && readings.reviewRun.head === head) {
-      return none('review-in-flight');
-    }
-    const startedAt = pr.plotReviewAt === undefined ? Number.NaN : Date.parse(pr.plotReviewAt);
-    const onHead = pr.plotReviewSha === head;
-    const stalePending = trusted === 'pending' && onHead && now - startedAt > config.reviewBoundMs;
-    const needs = trusted === 'absent' || trusted === 'error' || !onHead || stalePending;
-    if (!needs) return none('review-pending');
-    const allowed = reviewStartAllowed(readings.reviewStarts, head, config.startBudget, now);
-    return allowed === 'ok' ? { step: 'review', head } : none(allowed);
-  }
+  if (stage === 'preparing') return releaseReviewStep(readings, pr, head);
 
   // `releaseStage` returned `waiting-scope` above for every scope but a read one.
   const groups = groupChangesets(readings.changesets, (scope as Extract<SprintScope, { read: 'scope' }>).slugs);

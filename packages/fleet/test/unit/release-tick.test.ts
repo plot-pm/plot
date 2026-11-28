@@ -89,6 +89,7 @@ const owing: ReleaseUnbookedReadings = {
   sprints: [{ slug: 'w47', state: 'Closed', start: '2026-11-11', release: '2.36.0', slugs: ['x'] }],
   plans: [{ slug: 'x', file: 'docs/plans/2026-11-01-x.md', phase: 'delivered', releasedRecord: '' }],
   shipped: [],
+  tagSlices: new Map(),
 };
 
 const start = () => ({

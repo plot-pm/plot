@@ -84,14 +84,16 @@ describe('the subject rule has named callers', () => {
   });
 
   // THE RULE ITSELF. Reached by the bundle that answers for the scan, by
-  // the supervisor's queue world, and by the plan walk's branch stage, which
-  // gathers the evidence and decides nothing.
+  // the supervisor's queue world, by the plan walk's branch stage, which
+  // gathers the evidence and decides nothing, and by the release scope's tag
+  // reading, which finds each slice PR's merge commit without a host call.
   it('names `mergedBySubject` only where the rule is asked', () => {
     expect(callersOf('mergedBySubject')).toEqual([
       'packages/board/src/server/entry/merge-subject.ts',
       'packages/domain/src/rules/merge-subject.ts',
       'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
+      'packages/fleet/src/shared/release-tag-slices.ts',
     ]);
   });
 
@@ -102,6 +104,7 @@ describe('the subject rule has named callers', () => {
       'packages/domain/src/rules/remote-owner.ts',
       'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
+      'packages/fleet/src/shared/release-tag-slices.ts',
     ]);
   });
 
@@ -114,7 +117,7 @@ describe('the subject rule has named callers', () => {
     ]);
   });
 
-  it('names `mergeSubjects` only in the refs port, its adapters, the walk cache and the queue world', () => {
+  it('names `mergeSubjects` only in the refs port, its adapters, the walk cache, the queue world and the tag reading', () => {
     expect(callersOf('mergeSubjects')).toEqual([
       'packages/domain/src/adapters/refs/refs-fixture.ts',
       'packages/domain/src/adapters/refs/refs-git.ts',
@@ -122,6 +125,7 @@ describe('the subject rule has named callers', () => {
       'packages/domain/src/workflows/plan-walk-branches.ts',
       'packages/domain/src/workflows/plan-walk-cache.ts',
       'packages/fleet/src/server/entry/registryd-main.ts',
+      'packages/fleet/src/shared/release-tag-slices.ts',
     ]);
   });
 
@@ -142,13 +146,15 @@ describe('the subject rule has named callers', () => {
     expect(source).not.toContain('mergeSubjects');
   });
 
-  // THE RELEASE CHAIN'S READING. A subject proves that a merge carried a PR
-  // the host already reports as merged; it locates the release tag and
-  // decides no landing (docs/domain/merge-subject.md).
-  it('names `carriesMergeOf` only in the rule and the release-chain walk', () => {
+  // THE RELEASE READINGS. In the release-chain walk a subject proves that a
+  // merge carried a PR the host already reports as merged; in the tag reading
+  // it names a slice PR's merge commit. Both locate a release tag and decide
+  // no landing (docs/domain/merge-subject.md).
+  it('names `carriesMergeOf` only in the rule, the release-chain walk and the tag reading', () => {
     expect(callersOf('carriesMergeOf')).toEqual([
       'packages/board/src/server/entry/release-chain-walk.ts',
       'packages/domain/src/rules/merge-subject.ts',
+      'packages/fleet/src/shared/release-tag-slices.ts',
     ]);
   });
 

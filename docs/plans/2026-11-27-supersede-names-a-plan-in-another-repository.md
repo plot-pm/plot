@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** fleet-runs-safely-alone
 - **Issue:** #3710
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
 - **Started:** 2026-11-27, Jan Wloka, `feature/supersede-takes-a-foreign-successor`
 - **Started:** 2026-11-27, Jan Wloka, `feature/the-supersede-dialog-takes-a-foreign-successor`
+- **Delivered:** 2026-11-28
 
 ## Changelog
 

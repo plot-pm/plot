@@ -120,12 +120,17 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   The stop keeps the desk and the claim, and the supervisor's tick leaves
  *   the desk alone: the person who stopped it decides what happens next. Its
  *   actor is `operator`.
+ * - `free-wait-expired` — a FREE loop waited `Worker bound` with no slice
+ *   offered and ended itself. No prompt ran and the loop held no branch, so no
+ *   clock cut work short: this is a planned end, not `bound`. The loop exits
+ *   124 and writes this ending with branch `''` and actor `agent`. Whatever
+ *   the desk still holds belongs to the slice it held before the wait began.
  *
  * `unstarted`, `limited`, `unregistered`, `holding-work`, `blocked`,
  * `checks-unanswered`, `corrections-spent`, `turn-limit`, `run-limit`,
- * `spend-limit`, `nothing-done` AND `permission-denied` ARE THE REASONS NO
- * WATCHER PRODUCED. The other four are the floor firing or the monitor
- * publishing; these twelve are the agent's own loop reporting what it found,
+ * `spend-limit`, `nothing-done`, `permission-denied` AND `free-wait-expired`
+ * ARE THE REASONS NO WATCHER PRODUCED. The other four are the floor firing or
+ * the monitor publishing; these thirteen are the agent's own loop reporting what it found,
  * which is why their actor is `agent`. `stopped` is a person's act, written by
  * `plot-dispatch.sh --stop` with actor `operator`.
  *
@@ -161,6 +166,7 @@ export const EndingReasonSchema = z.enum([
   'nothing-done',
   'permission-denied',
   'stopped',
+  'free-wait-expired',
 ]);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 

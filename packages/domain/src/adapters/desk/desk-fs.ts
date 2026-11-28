@@ -19,6 +19,7 @@ import type { Trees } from '../../ports/trees.js';
 import type { Finding } from '../../entities/finding.js';
 import { findingsInText, MAX_LOG_BYTES, MONITOR_LOGS } from '../../rules/monitor-log.js';
 import { FREE_WAIT_FILENAME } from '../../rules/desk-loop-alive.js';
+import { AGENT_FINDINGS_FILE, DESK_LOG_FILE } from '../../rules/desk-quiet.js';
 
 /** `.plot-worker.ending.json`, matching `entities/ending.ts`'s own constant. */
 const ENDING_FILE = '.plot-worker.ending.json';
@@ -47,11 +48,6 @@ const FINDINGS_FILE = '.plot-worker.monitor.worker.jsonl';
 /** The desk's BuildMonitor log: the file `plot-build-monitor.sh` used to write and `findings.ts` reads. */
 const BUILD_FINDINGS_FILE = '.plot-worker.monitor.build.jsonl';
 
-/** The desk's AgentMonitor log, which fleetd and the worker wrapper write. */
-const AGENT_FINDINGS_FILE = '.plot-worker.monitor.agent.jsonl';
-
-/** The desk log. */
-const DESK_LOG_FILE = '.plot-worker.log';
 
 /** Appends `text` to a file; `failed` where the append throws. */
 const appendTo = (file: string, text: string): PortResult<void> => {

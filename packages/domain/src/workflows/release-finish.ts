@@ -8,6 +8,7 @@ import {
   sprintClosed,
   type ReleaseScopePlan,
   type ReleaseScopeSprint,
+  type ReleaseTagSlices,
 } from '../rules/release-scope.js';
 import type { ReleaseChangeset } from '../rules/release-prepare.js';
 import { type Caller, type Outcome, decide, refuse } from './decision.js';
@@ -64,6 +65,8 @@ export interface ReleaseFinishReadings {
   readonly shipped: readonly ReleaseChangeset[] | 'unaskable';
   /** Every sprint file, active or closed. */
   readonly sprints: readonly FinishSprint[];
+  /** The slice merges of each plan, read locally for the tag arm, or `'unaskable'` where the read failed. */
+  readonly tagSlices: ReleaseTagSlices;
 }
 
 /** What the finish was asked to record. */
@@ -93,9 +96,10 @@ export interface ReleaseFinishDetail {
   /** The sprint this run closes, or `null` where none closes. */
   readonly closeSprint: FinishSprintClose | null;
   /**
-   * Lines naming what the finish did not book: Delivered plans outside the sprint that no
-   * shipped changeset names, named plans that are not Delivered, an open sprint that names
-   * another version while no sprint is in scope, and `shipped-unread`.
+   * Lines naming each booked plan with its source (`sprint`, `changeset`, `tag`), and what
+   * the finish did not book: named plans that are not Delivered, tag candidates with their
+   * reason, Delivered plans outside every source, an open sprint that names another version
+   * while no sprint is in scope, `shipped-unread` and `range-unread`.
    */
   readonly notes: readonly string[];
 }
@@ -105,7 +109,8 @@ export interface ReleaseFinishDetail {
  *
  * The scope is {@link releaseScope} over every sprint file: each sprint whose
  * `Release:` names the version, active or closed, and each plan a shipped
- * changeset names. Refuses `unattended` first, then `tag-absent`, then
+ * changeset names, and each Delivered plan the tag arm places wholly in the
+ * version's tag. Refuses `unattended` first, then `tag-absent`, then
  * `sprint-ambiguous` when more than one open sprint is in scope, then
  * `plan-unbookable` for a sprint plan whose file is absent or whose phase is
  * neither `delivered` nor `released`. Where no sprint is in scope, the scope is
@@ -116,7 +121,8 @@ export interface ReleaseFinishDetail {
  * booked are {@link releaseOwed}'s. A named plan that is not Delivered or has
  * no file, and a Delivered plan nothing in scope names, is named in `notes`;
  * none of them refuses. `shipped` of `'unaskable'` books the sprint scope only
- * and adds a `shipped-unread` note. When nothing remains to book and no sprint
+ * and adds a `shipped-unread` note; `tagSlices` of `'unaskable'` books the
+ * sprint and changeset scope and adds a `range-unread` note. When nothing remains to book and no sprint
  * closes, refuses `shipped-unread` where `shipped` is `'unaskable'` and no
  * sprint is in scope, and `already-released` otherwise. Otherwise one commit and one push book
  * every owed plan, and the commit names the sprint file and its active index
@@ -138,7 +144,7 @@ export const releaseFinish = (
   if (!readings.tagExists) {
     return no('tag-absent', `tag ${version} does not exist yet. Nothing is written; run the finish again once publish has tagged it.`);
   }
-  const scope = releaseScope(version, readings.tagDate, readings.sprints, readings.shipped);
+  const scope = releaseScope(version, readings.tagDate, readings.sprints, readings.shipped, readings.tagSlices, readings.plans);
   const openInScope = scope.sprints.filter((s) => !sprintClosed(s));
   if (openInScope.length > 1) {
     const named = openInScope.map((s) => s.link || s.file).join(', ');
@@ -173,12 +179,21 @@ export const releaseFinish = (
       });
     if (skipped.length > 0) notes.push(`named by a shipped changeset and not booked: ${skipped.join(', ')}.`);
   }
+  if (readings.tagSlices === 'unaskable') {
+    notes.push('range-unread: the tag\'s slice merges could not be read, so only the sprint and changeset scope is booked');
+  } else if (scope.tagSkipped.length > 0) {
+    notes.push(`in the tag and not booked: ${scope.tagSkipped.map((s) => `${s.slug} (${s.reason})`).join(', ')}.`);
+  }
   const owed = releaseOwed(scope, readings.plans);
-  const inScope = new Set([...scope.sprintSlugs, ...scope.named]);
+  const inScope = new Set([...scope.sprintSlugs, ...scope.named, ...scope.tagged, ...scope.tagSkipped.map((s) => s.slug)]);
   const unbooked = readings.plans
     .filter((p) => p.file !== '' && p.phase === 'delivered' && p.releasedRecord.trim() === '' && !inScope.has(p.slug))
     .map((p) => p.slug);
-  if (unbooked.length > 0) notes.push(`Delivered outside the sprint, named by no shipped changeset, not booked: ${unbooked.join(', ')}.`);
+  if (unbooked.length > 0) notes.push(`Delivered outside the sprint, named by no shipped changeset, not in the tag, not booked: ${unbooked.join(', ')}.`);
+  const sprintSet = new Set(scope.sprintSlugs);
+  const namedSet = new Set(scope.named);
+  const source = (slug: string): string => (sprintSet.has(slug) ? 'sprint' : namedSet.has(slug) ? 'changeset' : 'tag');
+  if (owed.length > 0) notes.unshift(`booked: ${owed.map((slug) => `${slug} (${source(slug)})`).join(', ')}.`);
   const pending = owed.map((slug) => bySlug.get(slug)!);
   const open = openInScope[0] ?? null;
   let closeSprint: FinishSprintClose | null = null;

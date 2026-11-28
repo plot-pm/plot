@@ -84,6 +84,30 @@ describe('POST /api/supersede', () => {
     expect(git(origin, 'ls-tree', '-r', '--name-only', 'main')).toContain('docs/plans/delivered/old.md');
   }, 60_000);
 
+  it('answers 200 for owner/repo:slug and records the successor typed, trimmed, as unverified', async () => {
+    const { repo, origin } = setup();
+    const answer = await post(repo, { slug: 'old', by: '  other-owner/other-repo:new-elsewhere  ' });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(200);
+    expect(answer.body.by).toBe('other-owner/other-repo:new-elsewhere');
+    expect(git(origin, 'show', `main:${OLD}`)).toMatch(/- \*\*Superseded:\*\* \d{4}-\d{2}-\d{2}, by `other-owner\/other-repo:new-elsewhere` \(unverified\)/);
+  }, 60_000);
+
+  it('answers 422 with successor-unparsed for a malformed reference and writes nothing', async () => {
+    const { repo, origin } = setup();
+    const before = tipOf(origin);
+    const answer = await post(repo, { slug: 'old', by: ' owner/:x ' });
+    expect(answer.status, JSON.stringify(answer.body)).toBe(422);
+    expect(answer.body.reason).toBe('successor-unparsed');
+    expect(answer.body.by).toBe('owner/:x');
+    expect(tipOf(origin)).toBe(before);
+  }, 60_000);
+
+  it('answers 400 for a successor that is not a string', async () => {
+    const { repo } = setup();
+    const answer = await post(repo, { slug: 'old', by: 7 });
+    expect(answer.status).toBe(400);
+  }, 60_000);
+
   it('answers 422 with successor-not-found and writes nothing', async () => {
     const { repo, origin } = setup();
     const before = tipOf(origin);

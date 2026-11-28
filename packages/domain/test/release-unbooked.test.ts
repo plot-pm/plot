@@ -51,6 +51,7 @@ const fixture = (over: Partial<ReleaseUnbookedReadings> = {}): ReleaseUnbookedRe
   sprints: fixtureSprints(),
   plans: fixturePlans(),
   shipped: fixtureShipped(),
+  tagSlices: new Map(),
   ...over,
 });
 
@@ -98,6 +99,7 @@ describe('releaseUnbooked — the 2.36.0 release', () => {
       sprints: [sprint({ slugs: ['a'] }), sprint({ slug: 'w48', state: 'Active', release: '2.36.1', slugs: ['b'] })],
       plans: [plan('a'), plan('b')],
       shipped: [],
+      tagSlices: new Map(),
     });
     expect(out).toEqual({ version: 'v2.36.0', plans: ['a'], sprintOpen: null });
   });
@@ -108,6 +110,7 @@ describe('releaseUnbooked — the 2.36.0 release', () => {
       sprints: [sprint({ slugs: [] })],
       plans: [{ ...plan('docs-only'), type: 'docs' } as ReleaseScopePlan],
       shipped: [{ file: 'docs-only.md', plan: 'docs/plans/2026-11-01-docs-only.md' }],
+      tagSlices: new Map(),
     });
     expect(out).toEqual({ version: 'v2.36.0', plans: ['docs-only'], sprintOpen: null });
   });
@@ -130,6 +133,7 @@ describe('releaseUnbooked — the 2.36.0 release', () => {
       sprints: [sprint({ state: 'Active', slugs: [] })],
       plans: [],
       shipped: [],
+      tagSlices: new Map(),
     });
     expect(out).toEqual({ version: 'v2.36.0', plans: [], sprintOpen: 'w47' });
   });
@@ -151,10 +155,42 @@ describe('releaseUnbooked — the 2.37.0 release', () => {
       sprints: [releaseScopeSprintOf(`docs/sprints/${SPRINT}`, readFileSync(join(AT, SPRINT), 'utf8'))],
       plans: JSON.parse(readFileSync(join(AT, 'plans.json'), 'utf8')),
       shipped: JSON.parse(readFileSync(join(AT, 'changesets.json'), 'utf8')),
+      tagSlices: new Map(),
     });
     if (typeof answer === 'string') throw new Error(answer);
     expect(answer.plans).toHaveLength(10);
     expect(answer.sprintOpen).toBeNull();
+  });
+});
+
+describe('releaseUnbooked — the tag arm', () => {
+  const HELD = 'a-held-board-shows-the-indexed-tickets';
+  const AT = join(import.meta.dirname, 'fixtures', 'release-2-37-0');
+  const held: ReleaseScopePlan = { slug: HELD, file: `docs/plans/2026-11-25-${HELD}.md`, phase: 'delivered', releasedRecord: '' };
+  const inTag = {
+    references: [{ reference: { repo: '', number: 3709 }, deferred: false }],
+    merges: [{ number: 3709, mergeCommit: 'm3709', mergedAt: '2026-11-26T10:00:00Z', containingTags: ['v2.37.0'] }],
+    foreignCommit: false,
+  };
+  const at = (tagSlices: ReleaseUnbookedReadings['tagSlices']): ReleaseUnbookedReadings => ({
+    tag: { tag: 'v2.37.0', date: '2026-11-27' },
+    sprints: [],
+    plans: [...JSON.parse(readFileSync(join(AT, 'plans.json'), 'utf8')), held],
+    shipped: JSON.parse(readFileSync(join(AT, 'changesets.json'), 'utf8')),
+    tagSlices,
+  });
+
+  it('names the #3709 plan that no changeset names, last', () => {
+    const answer = releaseUnbooked(at(new Map([[HELD, inTag]])));
+    if (typeof answer === 'string') throw new Error(answer);
+    expect(answer.plans).toHaveLength(11);
+    expect(answer.plans.at(-1)).toBe(HELD);
+  });
+
+  it('answers the changeset scope, not unaskable, where the tag reading failed', () => {
+    const answer = releaseUnbooked(at('unaskable'));
+    if (typeof answer === 'string') throw new Error(answer);
+    expect(answer.plans).toHaveLength(10);
   });
 });
 
@@ -169,7 +205,7 @@ describe('releaseUnbooked and releaseFinish — one scope', () => {
       link: s.state === 'Closed' ? '' : `docs/sprints/active/${s.slug}.md`,
     }));
     const finish = releaseFinish(
-      { caller: 'person', version: '2.36.0', tagExists: true, tagDate: '2026-11-23', plans: fixturePlans(), shipped: fixtureShipped(), sprints },
+      { caller: 'person', version: '2.36.0', tagExists: true, tagDate: '2026-11-23', plans: fixturePlans(), shipped: fixtureShipped(), sprints, tagSlices: new Map() },
       { on: '2026-11-24' },
     );
     if (finish.outcome === 'refused') throw new Error(finish.detail);
@@ -216,7 +252,7 @@ describe('releaseScope — the sprints and plans of a release', () => {
       sprint({ slug: 'after', state: 'Active', release: '', start: '2026-11-30' }),
       sprint({ slug: 'closed', state: 'Closed', release: '', start: '2026-11-01' }),
     ];
-    const scope = releaseScope('v2.36.0', '2026-11-23T09:00:00Z', sprints, []);
+    const scope = releaseScope('v2.36.0', '2026-11-23T09:00:00Z', sprints, [], new Map(), []);
     expect(scope.sprints.map((s) => s.slug)).toEqual(['no-start', 'before', 'on']);
   });
 

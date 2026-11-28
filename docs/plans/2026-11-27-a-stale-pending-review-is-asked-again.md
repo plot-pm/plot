@@ -49,7 +49,7 @@ The fleet's records from 2026-11-22 do not survive: `.plot/state/review-starts.j
 
 ### Held Reason
 
-- `bug/a-held-stale-review-names-its-reason` — the review pass logs one line per PR and head where a stale pending is not re-asked <!-- waits: bug/a-review-run-past-its-bound-is-dead --> <!-- builds: the stale-pending reason line --> <!-- tests: a stale pending out of scope writes one line naming out-of-scope; a second pass on the same head writes no second line; a pending under the bound writes nothing -->
+- `bug/a-held-stale-review-names-its-reason` — the review pass logs one line per PR and head where a stale pending is not re-asked <!-- waits: bug/a-review-run-past-its-bound-is-dead --> <!-- builds: the stale-pending reason line --> <!-- tests: a stale pending out of scope writes one line naming out-of-scope; a second pass on the same head writes no second line; a pending under the bound writes nothing --> → #3760
 
 ## Notes
 

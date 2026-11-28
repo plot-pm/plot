@@ -107,28 +107,36 @@ export const run = async (
   return EXIT.ok;
 };
 
+/**
+ * Reads the rule's answer and the plan records over `origin/<branch>`, from local git only.
+ *
+ * @param context - the repository root and the script directory.
+ * @param branch - the default branch's name.
+ * @returns the answer and the plan records it was read from.
+ */
+export const readUnbooked = async (context: { repoRoot: string; scriptDir: string }, branch: string): Promise<UnbookedReading> => {
+  const config = scriptsShell(context);
+  const [planDir, sprintDir] = await Promise.all([
+    config.config('Plan directory', 'docs/plans/'),
+    config.config('Sprint directory', 'docs/sprints/'),
+  ]);
+  const refs = refsGit(context);
+  const ref = `origin/${branch}`;
+  const plans = keeping(
+    planStoreRef(refs, context, ref, (planDir.ok ? planDir.value.trim() : 'docs/plans/').replace(/\/+$/, '')),
+  );
+  const readings = await releaseUnbookedReadingsFor({
+    refs,
+    plans: plans.store,
+    ref,
+    sprintDir: sprintDir.ok ? sprintDir.value.trim() : null,
+  });
+  return { answer: releaseUnbooked(readings), plans: plans.kept() };
+};
+
 // Only when RUN, never when imported.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const scriptDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const context = { repoRoot: process.cwd(), scriptDir };
-  const read = async (branch: string): Promise<UnbookedReading> => {
-    const config = scriptsShell(context);
-    const [planDir, sprintDir] = await Promise.all([
-      config.config('Plan directory', 'docs/plans/'),
-      config.config('Sprint directory', 'docs/sprints/'),
-    ]);
-    const refs = refsGit(context);
-    const ref = `origin/${branch}`;
-    const plans = keeping(
-      planStoreRef(refs, context, ref, (planDir.ok ? planDir.value.trim() : 'docs/plans/').replace(/\/+$/, '')),
-    );
-    const readings = await releaseUnbookedReadingsFor({
-      refs,
-      plans: plans.store,
-      ref,
-      sprintDir: sprintDir.ok ? sprintDir.value.trim() : null,
-    });
-    return { answer: releaseUnbooked(readings), plans: plans.kept() };
-  };
-  void endEntry(await run(process.argv.slice(2), read, (s) => process.stdout.write(s)));
+  void endEntry(await run(process.argv.slice(2), (branch) => readUnbooked(context, branch), (s) => process.stdout.write(s)));
 }

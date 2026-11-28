@@ -189,6 +189,10 @@ export { ticketRecordFile, ticketRecordPath } from './ticket-record/ticket-recor
 // the machine, written by `plot-fleetd` only.
 export { baseRepairFile, repairRecordFile, repairRecordPath } from './repair-record/repair-record-file.js';
 
+// THE RELEASE HOLD RECORD'S FILE ADAPTER. One file under `.plot/state/`, local
+// to the machine; fleetd writes `head` and `since`.
+export { releaseHoldAt, releaseHoldFile, releaseHoldPath } from './release-hold/release-hold-file.js';
+
 // THE RELEASE-FINISH RECORD'S FILE ADAPTER. One file per version under
 // `.plot/state/release-finish/`, local to the machine, written by the finish.
 export { releaseFinishRecordFile, releaseFinishRecordPath } from './release-finish-record/release-finish-record-file.js';

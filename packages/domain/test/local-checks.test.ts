@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ciSelection,
   corpusGlobs,
@@ -14,6 +17,7 @@ import {
   type BundleInputs,
   entryInputs,
   parseBundleInputs,
+  launcherBundles,
   type LocalChecksReadings,
   type SelectionReadings,
   type TestFile,
@@ -420,5 +424,103 @@ describe('parseBundleInputs', () => {
     expect(parseBundleInputs(JSON.stringify([{ shipped: 'a.mjs' }]))).toBeNull();
     expect(parseBundleInputs(JSON.stringify([{ shipped: 'a.mjs', inputs: [1] }]))).toBeNull();
     expect(parseBundleInputs(JSON.stringify([null]))).toBeNull();
+  });
+});
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+
+const shippedScripts = (dir = 'skills'): { path: string; text: string }[] =>
+  readdirSync(path.join(REPO, dir), { withFileTypes: true }).flatMap((entry) => {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return entry.name === 'board' ? [] : shippedScripts(rel);
+    return entry.name.endsWith('.sh') ? [{ path: rel, text: readFileSync(path.join(REPO, rel), 'utf8') }] : [];
+  });
+
+describe('launcherBundles', () => {
+  const GATE_LAUNCHERS = [
+    'plot-brief-name-gate.sh',
+    'plot-bundle-commit-gate.sh',
+    'plot-controller-gate.sh',
+    'plot-gates.sh',
+    'plot-phase-gate.sh',
+    'plot-state-gate.sh',
+  ];
+
+  it('maps the approve launcher to plot-approve.mjs', () => {
+    const map = launcherBundles(shippedScripts());
+    expect(map.get('plot-approve.mjs')).toEqual(['plot-approve.sh']);
+  });
+
+  it('reads the $here form', () => {
+    expect(launcherBundles(shippedScripts()).get('plot-agent-settings.mjs')).toEqual(['plot-agent-settings.sh']);
+    expect(launcherBundles(shippedScripts()).get('plot-scan-walk.mjs')).toEqual(['plot-fleet-scan.sh']);
+  });
+
+  it('maps a bundle to every launcher that assigns it', () => {
+    expect(launcherBundles(shippedScripts()).get('plot-gate.mjs')).toEqual(GATE_LAUNCHERS);
+  });
+
+  it('a launcher with no bundle= line, a comment and a mid-script mention map to nothing', () => {
+    const map = launcherBundles([
+      { path: 'skills/a.sh', text: 'exec node "$script_dir/board/plot-a.mjs"\n' },
+      { path: 'skills/b.sh', text: '# bundle="$script_dir/board/plot-b.mjs"\n' },
+      { path: 'skills/c.sh', text: '  x=1; bundle="$script_dir/board/plot-c.mjs"\n' },
+      { path: 'skills/d.sh', text: 'start_bundle="$script_dir/board/plot-d.mjs"\n' },
+      { path: 'skills/e.sh', text: 'bundle="$repo_root/board/plot-e.mjs"\n' },
+    ]);
+    expect([...map]).toEqual([]);
+  });
+
+  it('none of the shipped mention-only scripts is a launcher', () => {
+    const map = launcherBundles(shippedScripts());
+    const launchers = new Set([...map.values()].flat());
+    for (const name of ['plot-dispatch.sh', 'plot-reconcile-scan.sh', 'plot-host.sh', 'plot-fleetctl.sh', 'plot-desk-root.sh']) {
+      expect(launchers.has(name), name).toBe(false);
+    }
+    expect(launchers.size).toBe(21);
+  });
+
+  it('an empty reading maps nothing', () => {
+    expect([...launcherBundles([])]).toEqual([]);
+  });
+});
+
+describe('launcher selection', () => {
+  const WORKFLOW = 'packages/domain/src/workflows/approve.ts';
+  const ENTRY = 'packages/board/src/server/entry/approve.ts';
+  const APPROVE: BundleInputs = { shipped: 'skills/plot/scripts/board/plot-approve.mjs', inputs: [ENTRY, WORKFLOW] };
+  const GATE: BundleInputs = { shipped: 'skills/plot/scripts/board/plot-gate.mjs', inputs: ['packages/domain/src/rules/gate.ts'] };
+  const BATCH: TestFile = {
+    path: 'test/reconcile/approve-batch.test.mjs',
+    text: readFileSync(path.join(REPO, 'test/reconcile/approve-batch.test.mjs'), 'utf8'),
+  };
+  const BOARD_CHECKS = parseLocalChecks('test/reconcile/*.test.mjs = node --test {tests}; packages/domain/** = vitest related --run {changed}');
+  const sync = { planDir: 'docs/plans/', activeIndex: 'docs/plans/active/', deliveredIndex: 'docs/plans/delivered/', sprintDir: 'docs/sprints/', releaseDir: 'docs/releases/' };
+  const launchers = launcherBundles(shippedScripts());
+
+  it('the approve test names the launcher and not the bundle', () => {
+    expect(BATCH.text).toContain('plot-approve.sh');
+    expect(BATCH.text).not.toContain('plot-approve.mjs');
+  });
+
+  it('adds the launcher of each bundle holding the path to the search terms', () => {
+    expect(searchTerms(WORKFLOW, [APPROVE], launchers)).toEqual(['approve.ts', 'approve.js', 'plot-approve.mjs', 'plot-approve.sh']);
+  });
+
+  it('adds all six launchers of a bundle with six', () => {
+    const terms = searchTerms('packages/domain/src/rules/gate.ts', [GATE], launchers);
+    expect(terms.filter((term) => term.endsWith('.sh'))).toHaveLength(6);
+  });
+
+  it('a workflow the approve bundle imports, with no entry change, selects the launcher test', () => {
+    const selection = ciSelection({ changed: [WORKFLOW], generated: [], checks: BOARD_CHECKS, tests: [BATCH], corpus: [], corpusFiles: [], sync, bundles: [APPROVE], launchers });
+    expect(selection.tests).toEqual([BATCH.path]);
+    const local = localChecks({ ...readings({ changed: [WORKFLOW], checks: BOARD_CHECKS }), tests: [BATCH], bundles: [APPROVE], launchers });
+    expect(local.tests).toEqual([BATCH.path]);
+  });
+
+  it('with no launcher map the launcher test is not selected', () => {
+    const selection = ciSelection({ changed: [WORKFLOW], generated: [], checks: BOARD_CHECKS, tests: [BATCH], corpus: [], corpusFiles: [], sync, bundles: [APPROVE] });
+    expect(selection.tests).toEqual([]);
   });
 });

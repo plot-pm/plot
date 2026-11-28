@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import type { ReleaseChangeset } from '../src/rules/release-prepare.js';
-import { releaseScopeSprintOf } from '../src/rules/release-scope.js';
+import { releaseScopeSprintOf, type ReleaseTagPlanReading, type ReleaseTagSlices } from '../src/rules/release-scope.js';
 import { releaseFinish, type FinishSprint, type ReleaseFinishReadings, type ScopePlan } from '../src/workflows/release-finish.js';
 
 const plan = (slug: string, over: Partial<ScopePlan> = {}): ScopePlan => ({
@@ -37,6 +37,7 @@ const readings = (over: Over = {}): ReleaseFinishReadings => {
     tagExists: true,
     tagDate: '',
     shipped: [],
+    tagSlices: new Map(),
     ...rest,
     plans: rest.plans ?? [...scope, ...outside],
     sprints,
@@ -219,6 +220,36 @@ describe('releaseFinish — books a release in one commit', () => {
   });
 });
 
+describe('releaseFinish — the three sources', () => {
+  const inTag = (n: number): ReleaseTagPlanReading => ({
+    references: [{ reference: { repo: '', number: n }, deferred: false }],
+    merges: [{ number: n, mergeCommit: `m${n}`, mergedAt: '2026-10-29T10:00:00Z', containingTags: ['v2.30.0'] }],
+    foreignCommit: false,
+  });
+
+  it('books a sprint-named release\'s sprint, changeset and tag plans once each, under the first source', () => {
+    const tagSlices = new Map([['a', inTag(1)], ['x', inTag(2)], ['t', inTag(3)]]);
+    const r = readings({
+      sprints: [sprint({ release: '2.30.0' })],
+      outside: [plan('x'), plan('t')],
+      shipped: [{ file: 'a.md', plan: 'docs/plans/2026-10-01-a.md' }, { file: 'x.md', plan: 'docs/plans/2026-10-01-x.md' }],
+      tagSlices,
+    });
+    const out = releaseFinish(r, input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['a', 'b', 'c', 'x', 't']);
+    expect(out.detail.notes[0]).toBe('booked: a (sprint), b (sprint), c (sprint), x (changeset), t (tag).');
+    expect(out.detail.closeSprint?.slug).toBe('w44');
+  });
+
+  it('closes no sprint on the tag arm alone', () => {
+    const out = releaseFinish(readings({ scope: [], sprints: [], outside: [plan('t')], tagSlices: new Map([['t', inTag(3)]]) }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(['t']);
+    expect(out.detail.closeSprint).toBeNull();
+  });
+});
+
 describe('releaseFinish — plans outside the sprint', () => {
   const named = (slug: string) => ({ file: `${slug}.md`, plan: `docs/plans/2026-10-01-${slug}.md` });
   const notesOf = (r: ReleaseFinishReadings): readonly string[] => {
@@ -231,7 +262,7 @@ describe('releaseFinish — plans outside the sprint', () => {
     const out = releaseFinish(readings({ outside: [plan('x')], shipped: [named('x')] }), input);
     if (out.outcome === 'refused') throw new Error(out.detail);
     expect(out.detail.booked).toEqual(['a', 'b', 'c', 'x']);
-    expect(out.detail.notes).toEqual([]);
+    expect(out.detail.notes).toEqual(['booked: a (sprint), b (sprint), c (sprint), x (changeset).']);
     expect(out.writes.filter((w) => w.kind === 'plan-phase').map((w) => w.file)).toContain('docs/plans/2026-10-01-x.md');
   });
 
@@ -261,7 +292,7 @@ describe('releaseFinish — plans outside the sprint', () => {
     const out = releaseFinish(r, input);
     if (out.outcome === 'refused') throw new Error(out.detail);
     expect(out.detail.booked).toEqual(['a', 'b', 'c']);
-    expect(out.detail.notes).toEqual([]);
+    expect(out.detail.notes).toEqual(['booked: a (sprint), b (sprint), c (sprint).']);
   });
 
   it('books the scope and names shipped-unread where the changesets are unaskable', () => {
@@ -321,8 +352,8 @@ describe('releaseFinish — a closed sprint names the version', () => {
       if (out.outcome === 'refused') throw new Error(out.detail);
       return out.detail.notes;
     };
-    expect(notesFor(closed({ release: '2.31.0' }))).toEqual([]);
-    expect(notesFor(sprint({ release: '2.31.0' }))).toEqual(['open sprint w44 names 2.31.0; left open']);
+    expect(notesFor(closed({ release: '2.31.0' })).filter((n) => !n.startsWith('booked:'))).toEqual([]);
+    expect(notesFor(sprint({ release: '2.31.0' })).filter((n) => !n.startsWith('booked:'))).toEqual(['open sprint w44 names 2.31.0; left open']);
   });
 });
 
@@ -349,6 +380,7 @@ describe('releaseFinish — no sprint names the version (the 2.37.0 fixture)', (
     plans: plans(),
     shipped: shipped(),
     sprints: sprints(),
+    tagSlices: new Map(),
     ...over,
   });
   const NAMED = [
@@ -393,6 +425,44 @@ describe('releaseFinish — no sprint names the version (the 2.37.0 fixture)', (
     const planless = shipped().map((c) => ({ ...c, plan: '' }));
     expect(reasonOf(at237({ shipped: planless }))).toBe('already-released');
     expect(reasonOf(at237({ shipped: planless, sprints: [] }))).toBe('already-released');
+  });
+
+  // #3709 shipped in v2.37.0 with no changeset; the tag arm books its plan.
+  const HELD = 'a-held-board-shows-the-indexed-tickets';
+  const held = (): ScopePlan => ({ slug: HELD, file: `docs/plans/2026-11-25-${HELD}.md`, type: 'feature', phase: 'delivered', releasedRecord: '' });
+  const inTag = (n: number): ReleaseTagPlanReading => ({
+    references: [{ reference: { repo: '', number: n }, deferred: false }],
+    merges: [{ number: n, mergeCommit: `m${n}`, mergedAt: '2026-11-26T10:00:00Z', containingTags: ['v2.37.0'] }],
+    foreignCommit: false,
+  });
+  const allInTag = (): ReleaseTagSlices => new Map([...NAMED.map((slug, i) => [slug, inTag(3700 + i)] as const), [HELD, inTag(3709)]]);
+
+  it('books the 11 Delivered plans, the 10 named first and the #3709 plan from the tag, each with its source', () => {
+    const out = releaseFinish(at237({ plans: [...plans(), held()], tagSlices: allInTag() }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual([...NAMED, HELD]);
+    expect(out.detail.notes[0]).toBe(`booked: ${NAMED.map((s) => `${s} (changeset)`).join(', ')}, ${HELD} (tag).`);
+    expect(out.detail.notes.join('\n')).not.toContain('not in the tag, not booked');
+  });
+
+  it('notes range-unread and books the changeset scope where the tag reading failed', () => {
+    const out = releaseFinish(at237({ plans: [...plans(), held()], tagSlices: 'unaskable' }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(NAMED);
+    expect(out.detail.notes).toContain('range-unread: the tag\'s slice merges could not be read, so only the sprint and changeset scope is booked');
+    expect(out.detail.notes.join('\n')).toContain(`not in the tag, not booked: ${HELD}.`);
+  });
+
+  it('names a tag candidate with a slice after the tag and does not book it', () => {
+    const after: ReleaseTagPlanReading = {
+      ...inTag(3709),
+      references: [{ reference: { repo: '', number: 3709 }, deferred: false }, { reference: { repo: '', number: 3760 }, deferred: false }],
+      merges: [...inTag(3709).merges, { number: 3760, mergeCommit: 'm3760', mergedAt: '2026-11-28T10:00:00Z', containingTags: [] }],
+    };
+    const out = releaseFinish(at237({ plans: [...plans(), held()], tagSlices: new Map([[HELD, after]]) }), input);
+    if (out.outcome === 'refused') throw new Error(out.detail);
+    expect(out.detail.booked).toEqual(NAMED);
+    expect(out.detail.notes).toContain(`in the tag and not booked: ${HELD} (slice-after-tag).`);
   });
 
   it('refuses shipped-unread where the changesets are unaskable and no sprint is in scope', () => {

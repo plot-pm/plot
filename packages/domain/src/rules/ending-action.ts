@@ -332,6 +332,12 @@ const takeUpRefused = (refusedAssignment: string, branch: string): boolean =>
  * this ending. `'unanswerable'` takes the same arm as `true`: a desk the
  * records cannot clear of holding a slice must not be assumed clear of one.
  *
+ * **`free-wait-expired` ANSWERS `leave` FOR EVERY READING.** The loop wrote it
+ * for a free wait that reached `Worker bound`, so the desk holds no slice of
+ * its own. An open PR, a commit beyond the claim or a dirty tree belongs to
+ * the slice the desk held before the wait began (#1917), and the row never
+ * reaches {@link boundBranchHoldsWork}.
+ *
  * **A MARKER KEEPS THE QUESTION WITH A PERSON.** A `bound`/`unreadable`/`quiet`
  * desk whose {@link EndingActionReadings.blockedMarker} is true answers
  * `leave`, never `start-fresh` or `release-claim`: a fresh session would
@@ -383,6 +389,7 @@ export const claimOnlyOnLocalEvidence = (readings: EndingActionReadings): boolea
 /** The table {@link endingAction} answers from, before the already-asked guard. */
 const endingTableAnswer = (readings: EndingActionReadings): EndingActionVerdict => {
   if (readings.hasManifest) return 'leave';
+  if (readings.ending === 'free-wait-expired') return 'leave';
   if (readings.ending === 'holding-work') {
     if (takeUpRefused(readings.refusedAssignment, readings.branch)) return 'release-claim';
     if (readings.prMerged === 'merged' && readings.dirtyTree === 'no') {

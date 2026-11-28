@@ -60,7 +60,7 @@ const world = (repo: string, over: Partial<ReleaseWorld> = {}): ReleaseWorld =>
     refs: refsGit({ repoRoot: repo, scriptDir: SCRIPT_DIR }),
     plans: {
       listPlans: async () => ({ ok: true, value: ['docs/plans/2026-11-01-a.md'] }),
-      readPlans: async () => ({ ok: true, value: [{ file: 'docs/plans/2026-11-01-a.md', phase: 'Delivered', releasedRaw: '' }] }),
+      readPlans: async () => ({ ok: true, value: [{ file: 'docs/plans/2026-11-01-a.md', phase: 'Delivered', releasedRaw: '', slices: [] }] }),
     },
     ref: 'main',
     sprintDir: 'docs/sprints/',

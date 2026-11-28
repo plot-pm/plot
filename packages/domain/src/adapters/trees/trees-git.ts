@@ -8,7 +8,9 @@ import type { Trees } from '../../ports/trees.js';
 import type { ContinueLockReading } from '../../rules/continue-lock.js';
 import type { TreePresence } from '../../rules/reapable.js';
 import { bundlePathsOf, deskDirtFilter } from '../../rules/desk-dirt-filter.js';
+import { AGENT_FINDINGS_FILE, DESK_LOG_FILE, deskQuietSeconds } from '../../rules/desk-quiet.js';
 import { realCommits, type CommitReading as ClaimCommit } from '../../rules/empty-claim.js';
+import { PASS_FILE } from '../../rules/worker-liveness.js';
 import type { CommitReading } from '../../rules/sample.js';
 import { processAnswers, type FixedAnswers } from '../git-dirs/git-dirs.js';
 import { refFilesFs, type RefFiles } from '../refs/ref-files-fs.js';
@@ -458,12 +460,27 @@ export const treesGit = (
     },
 
     logQuietSeconds: async (path) => {
-      try {
-        const seconds = Math.floor(statSync(join(path, '.plot-worker.log')).mtimeMs / 1000);
-        return answered<number | null>(Math.max(0, Math.floor(Date.now() / 1000) - seconds));
-      } catch {
-        return answered<number | null>(null);
+      if (path === '') return answered<number | null>(null);
+      const mtimeOf = (name: string): number | null => {
+        try {
+          return statSync(join(path, name)).mtimeMs;
+        } catch {
+          return null;
+        }
+      };
+      let headMs: number | null = null;
+      if (existsSync(path)) {
+        const head = await runProcess('git', ['-C', path, 'log', '-1', '--format=%ct'], inRepo);
+        const text = head.stdout.trim();
+        headMs = head.code === 0 && /^\d+$/.test(text) ? Number(text) * 1000 : null;
       }
+      const readings = {
+        passMs: mtimeOf(PASS_FILE),
+        monitorMs: mtimeOf(AGENT_FINDINGS_FILE),
+        headMs,
+        logMs: mtimeOf(DESK_LOG_FILE),
+      };
+      return answered<number | null>(deskQuietSeconds(readings, Date.now()));
     },
 
     // THE SHELL'S `plot_worker_has_commits`. The `-- .` pathspec keeps only

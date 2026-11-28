@@ -4,7 +4,9 @@ import type { MergePorts } from '@plot-pm/domain/workflows/merge';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PrIndexRow } from '@plot-pm/domain/entities/pr-index';
 import { runLogFixture } from '@plot-pm/domain/adapters';
-import { type ConversationHolds, mergeTick, type MergeRefusals } from '../../src/shared/auto-merge.js';
+import type { ReleaseHoldRecord } from '@plot-pm/domain/entities/release-hold';
+import type { ReleaseHoldStore } from '@plot-pm/domain/ports/release-hold';
+import { type ConversationHolds, mergeTick, type MergeRefusals, releaseHoldReading } from '../../src/shared/auto-merge.js';
 
 const TIP = 'c'.repeat(40);
 const NOW = Date.parse('2026-10-30T12:00:00Z');
@@ -511,5 +513,71 @@ describe('mergeTick — a PR held for an unanswered human comment', () => {
     await tick([stamp(3, T0)], {}, ports, new Map(), holds);
     expect(asked).toEqual([3]);
     expect(holds.get(3)).toEqual({ head: head(3), at: new Date(T0).toISOString(), reason: 'human-comment-unread' });
+  });
+});
+
+describe('the release hold on the merge tick', () => {
+  const RELEASE_HEAD = 'e'.repeat(40);
+  const release = (over: Partial<PrIndexRow> = {}): PrIndexRow =>
+    row(9, {
+      head: 'changeset-release/main',
+      base: 'main',
+      headSha: RELEASE_HEAD,
+      checksSha: RELEASE_HEAD,
+      plotReview: 'pending',
+      plotReviewSha: RELEASE_HEAD,
+      plotReviewJudged: undefined,
+      plotReviewCheckedSha: undefined,
+      ...over,
+    });
+  const memory = (initial: ReleaseHoldRecord | null = null, write: 'ok' | 'fail' = 'ok') => {
+    let held = initial;
+    const writes: ReleaseHoldRecord[] = [];
+    const store: ReleaseHoldStore = {
+      read: async () => ({ ok: true, value: held }),
+      write: async (record) => {
+        if (write === 'fail') return { ok: false };
+        writes.push(record);
+        held = record;
+        return { ok: true, value: undefined };
+      },
+    };
+    return { store, writes, held: () => held };
+  };
+
+  it('holds a slice PR into main as release-waiting and merges nothing', async () => {
+    const { store } = memory();
+    const held = await releaseHoldReading([row(3), release()], 'main', store, NOW, WAIT);
+    const { ports, calls } = portsFor('answered');
+    const out = await tick([row(3, { base: 'main' }), release()], { releaseHold: held, defaultBranchName: 'main' }, ports);
+    expect(calls).toEqual([]);
+    expect(out.steps).toContainEqual({ pr: 3, step: { step: 'hold', reason: 'release-waiting' } });
+  });
+
+  it('writes the record once per head: two ticks leave since unchanged', async () => {
+    const mem = memory();
+    await releaseHoldReading([release()], 'main', mem.store, NOW, WAIT);
+    const second = await releaseHoldReading([release()], 'main', mem.store, NOW + 60_000, WAIT);
+    expect(mem.writes).toEqual([{ v: 1, head: RELEASE_HEAD, since: new Date(NOW).toISOString() }]);
+    expect(second).toMatchObject({ verdict: 'holds', since: new Date(NOW).toISOString() });
+  });
+
+  it('writes a new record for a new head', async () => {
+    const mem = memory({ v: 1, head: 'f'.repeat(40), since: '2026-10-01T00:00:00Z', liftedBy: 'jwloka' });
+    await releaseHoldReading([release()], 'main', mem.store, NOW, WAIT);
+    expect(mem.held()).toEqual({ v: 1, head: RELEASE_HEAD, since: new Date(NOW).toISOString() });
+  });
+
+  it('writes nothing where the head does not hold', async () => {
+    const mem = memory();
+    expect(await releaseHoldReading([release({ ciChecks: 'pending' })], 'main', mem.store, NOW, WAIT)).toMatchObject({ verdict: 'none' });
+    expect(await releaseHoldReading([row(3)], 'main', mem.store, NOW, WAIT)).toEqual({ verdict: 'none', reason: 'no-release' });
+    expect(mem.writes).toEqual([]);
+  });
+
+  it('holds nothing where the record does not read or the write fails', async () => {
+    const unread: ReleaseHoldStore = { read: async () => ({ ok: false }), write: async () => ({ ok: true, value: undefined }) };
+    expect(await releaseHoldReading([release()], 'main', unread, NOW, WAIT)).toBeUndefined();
+    expect(await releaseHoldReading([release()], 'main', memory(null, 'fail').store, NOW, WAIT)).toBeUndefined();
   });
 });
