@@ -41,6 +41,7 @@ const WalkBranchSchema = z.object({
     /** The repository the slice line places the branch in, where that is not this one; `null` or absent for a branch of this one. */
     foreignRepo: z.string().nullable().optional(),
     /** What the foreign branch's PRs answered, folded; absent for a branch of this one, a line naming no PR, or a walk that asked no host. */
+    // plot-state: reading — the foreign hosts' answers at one walk; the next walk asks again.
     foreignPr: z.enum(['merged', 'not-merged', 'unknown']).optional(),
     refTip: z.string().nullable(),
     mainTip: z.string().nullable(),
