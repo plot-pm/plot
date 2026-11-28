@@ -15,6 +15,7 @@ export const ReleaseHoldPersonRecordSchema = z
     /** The release PR's number. */
     pr: z.number().int().positive(),
     /** `hold` starts a hold; `lift` ends the hold on `head`. */
+    // plot-state: classification — a person may hold after a lift and lift after a hold; each act replaces the last whole.
     act: z.enum(['hold', 'lift']),
     /** The release PR head commit the act names. */
     head: z.string().min(1),
@@ -53,6 +54,7 @@ export const decodeReleaseHoldPerson = (text: string): ReleaseHoldPersonRecord |
 export const encodeReleaseHoldPerson = (record: ReleaseHoldPersonRecord): string => `${JSON.stringify(record, null, 2)}\n`;
 
 /** Why a person hold holds nothing now, as the board's payload carries it. */
+// plot-state: reading — the reason at one board build; `releaseHoldView` re-reads it on every build.
 export const ReleaseHoldNoneSchema = z.enum([
   'no-record',
   'lifted',
@@ -65,6 +67,7 @@ export const ReleaseHoldNoneSchema = z.enum([
 ]);
 
 /** Whether the release PR is holdable, or `no-row` where no open release PR into the default branch exists. */
+// plot-state: reading — the release row's word at one board build; `releaseHoldView` re-reads it on every build.
 export const ReleaseHoldableWordSchema = z.enum([
   'no-row',
   'holdable',
