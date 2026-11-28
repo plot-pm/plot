@@ -10,18 +10,24 @@ import {
   type ReleaseUnbookedReadings,
   type RunLog,
 } from '@plot-pm/domain';
-import { releaseScopeSprintOf, type ReleaseScopePlan, type ReleaseScopeSprint } from '@plot-pm/domain/rules/release-scope';
+import {
+  releaseScopeSprintOf,
+  type ReleaseScopePlan,
+  type ReleaseScopeSprint,
+  type ReleaseTagSlices,
+} from '@plot-pm/domain/rules/release-scope';
 import { sprintScopeRef } from '@plot-pm/domain/adapters/sprint-scope-ref';
 import { parseChangeset } from '@plot-pm/domain/rules/changeset';
 import type { BuildPort } from '@plot-pm/domain/ports/build';
 import type { Host } from '@plot-pm/domain/ports/host';
 import type { Notifier } from '@plot-pm/domain/ports/notifier';
-import type { PlanStore } from '@plot-pm/domain/ports/plan-store';
+import type { PlanRecord, PlanStore } from '@plot-pm/domain/ports/plan-store';
 import type { PrIndexStore } from '@plot-pm/domain/ports/pr-index';
 import type { Refs } from '@plot-pm/domain/ports/refs';
 import type { Scripts } from '@plot-pm/domain/ports/scripts';
 
 import type { ReleaseTickPorts } from './release-tick.js';
+import { readTagSlices, type TagSlicesPlan } from './release-tag-slices.js';
 
 /** The adapters one release tick reads and writes through. */
 export interface ReleaseWorld {
@@ -55,9 +61,11 @@ const changesetPaths = (files: readonly string[]): readonly string[] =>
  *
  * The tag is the newest `vN.N.N` tag merged into the ref. The sprints are every
  * sprint file at the ref outside `active/`. The changesets are the files the
- * tag's merge removed, each read at `<tag>^1`. An empty plan list answers
- * `unaskable`: the fleet's plan store answers no plans where the default
- * branch did not read.
+ * tag's merge removed, each read at `<tag>^1`. The tag reading covers the
+ * Delivered plans with no `Released:` record, through {@link readTagSlices}
+ * over the ref; it is an empty map where no release tag exists. An empty plan
+ * list answers `unaskable`: the fleet's plan store answers no plans where the
+ * default branch did not read.
  *
  * @param world - the adapters.
  * @returns the readings, each `unaskable` where its read failed.
@@ -82,17 +90,34 @@ export const releaseUnbookedReadingsFor = async (
     return files.map((b) => releaseScopeSprintOf(b.path, texts.value.get(b.sha) ?? ''));
   };
 
-  const plans = async (): Promise<readonly ReleaseScopePlan[] | 'unaskable'> => {
+  const records = async (): Promise<readonly PlanRecord[] | 'unaskable'> => {
     const files = await world.plans.listPlans();
     if (!files.ok || files.value.length === 0) return 'unaskable';
-    const records = await world.plans.readPlans(files.value);
-    if (!records.ok) return 'unaskable';
-    return records.value.map((r) => ({
-      slug: planSlug(basename(r.file)),
-      file: r.error === undefined ? r.file : '',
-      phase: r.phase.toLowerCase(),
-      releasedRecord: r.releasedRaw,
-    }));
+    const read = await world.plans.readPlans(files.value);
+    return read.ok ? read.value : 'unaskable';
+  };
+
+  const plans = (read: readonly PlanRecord[] | 'unaskable'): readonly ReleaseScopePlan[] | 'unaskable' =>
+    read === 'unaskable'
+      ? 'unaskable'
+      : read.map((r) => ({
+          slug: planSlug(basename(r.file)),
+          file: r.error === undefined ? r.file : '',
+          phase: r.phase.toLowerCase(),
+          releasedRecord: r.releasedRaw,
+        }));
+
+  // Only a Delivered plan with no Released record can be booked, so only those are read.
+  const tagSlices = async (read: readonly PlanRecord[] | 'unaskable'): Promise<ReleaseTagSlices> => {
+    if (read === 'unaskable') return 'unaskable';
+    const owing = read.filter((r) => r.error === undefined && r.phase.toLowerCase() === 'delivered' && r.releasedRaw.trim() === '');
+    const asked: TagSlicesPlan[] = [];
+    for (const r of owing) {
+      const text = await world.refs.showFile(world.ref, r.file);
+      if (!text.ok) return 'unaskable';
+      asked.push({ slug: planSlug(basename(r.file)), text: text.value, branches: r.slices.flatMap((s) => s.branches) });
+    }
+    return readTagSlices(world.refs, asked, world.ref);
   };
 
   const shipped = async (): Promise<readonly ReleaseChangeset[] | 'unaskable'> => {
@@ -108,8 +133,8 @@ export const releaseUnbookedReadingsFor = async (
     return out;
   };
 
-  const [s, p, c] = await Promise.all([sprints(), plans(), shipped()]);
-  return { tag, sprints: s, plans: p, shipped: c };
+  const [s, r, c] = await Promise.all([sprints(), records(), shipped()]);
+  return { tag, sprints: s, plans: plans(r), shipped: c, tagSlices: typeof tag === 'object' ? await tagSlices(r) : new Map() };
 };
 
 /** The `plan:` line of a changeset's trailing comment block, or `''`. */

@@ -7,6 +7,7 @@ import {
   sprintClosed,
   type ReleaseScopePlan,
   type ReleaseScopeSprint,
+  type ReleaseTagSlices,
 } from './release-scope.js';
 
 /** The newest release tag, as read; `'none'` where the repository holds no release tag. */
@@ -22,6 +23,11 @@ export interface ReleaseUnbookedReadings {
   readonly plans: readonly ReleaseScopePlan[] | 'unaskable';
   /** The changesets the tag's merge removed, with the plan each names. */
   readonly shipped: readonly ReleaseChangeset[] | 'unaskable';
+  /**
+   * The slice merges of each plan, read locally for the tag arm. `'unaskable'`
+   * leaves the answer to the sprint and changeset arms and does not make it `'unaskable'`.
+   */
+  readonly tagSlices: ReleaseTagSlices;
 }
 
 /** A release whose finish is still owed. */
@@ -41,22 +47,24 @@ export type ReleaseUnbookedAnswer = ReleaseUnbooked | 'none' | 'unaskable';
  * Names what the newest release still owes.
  *
  * The scope is {@link releaseScope}: every sprint whose `Release:` names the
- * tag's version, active or closed, and every plan a removed changeset names,
- * whatever the plan's type. A plan is owed as {@link releaseOwed} decides.
+ * tag's version, active or closed, every plan a removed changeset names,
+ * whatever the plan's type, and every Delivered plan whose slices first
+ * shipped in the tag. A plan is owed as {@link releaseOwed} decides.
  *
  * @param readings - the newest tag, the sprints, the plans and the removed changesets.
  * @returns the version, the owed plans and an open sprint of the release;
  *   `'none'` where no release tag exists, or where no plan is owed and every
- *   sprint of the release is closed; `'unaskable'` where any read failed.
+ *   sprint of the release is closed; `'unaskable'` where the tag, sprint,
+ *   plan or changeset read failed.
  */
 export const releaseUnbooked = (readings: ReleaseUnbookedReadings): ReleaseUnbookedAnswer => {
-  const { tag, sprints, plans, shipped } = readings;
+  const { tag, sprints, plans, shipped, tagSlices } = readings;
   if (tag === 'unaskable' || sprints === 'unaskable' || plans === 'unaskable' || shipped === 'unaskable') {
     return 'unaskable';
   }
   if (tag === 'none') return 'none';
   const version = normalizeVersion(tag.tag);
-  const scope = releaseScope(version, tag.date, sprints, shipped);
+  const scope = releaseScope(version, tag.date, sprints, shipped, tagSlices, plans);
   const owed = releaseOwed(scope, plans);
   const sprintOpen = scope.sprints.find((s) => !sprintClosed(s))?.slug ?? null;
   return owed.length === 0 && sprintOpen === null ? 'none' : { version, plans: owed, sprintOpen };
