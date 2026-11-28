@@ -196,6 +196,8 @@ describe('release-approve and the HTTP routes refuse with no receipt escape', ()
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
     ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
     ['release-finish', 'curl -X POST http://localhost:4000/api/release-finish'],
+    ['release-hold', 'curl -X POST http://localhost:4000/api/release-hold -d \'{"sha":"e150fd7c1"}\''],
+    ['release-hold-lift', 'curl -X POST http://localhost:4000/api/release-hold-lift -d \'{"sha":"e150fd7c1"}\''],
     // The same POST written the other ways an agent writes it. Each of these
     // passed the gate while only the bare `-X POST` form was read.
     ['a quoted URL', 'curl -X POST "http://localhost:4000/api/release"'],

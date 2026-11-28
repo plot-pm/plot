@@ -5,6 +5,8 @@ import type { HostBackend } from '../ports/host.js';
 import { baseBranchRed, defaultBranchAgeMs, holdsApply } from './default-branch.js';
 import { mergeIdentity, type MergerAppReading } from './merge-identity.js';
 import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './repair-pr.js';
+import type { ReleaseHoldPersonRecord } from '../entities/release-hold-person.js';
+import { releasePersonHold } from './release-hold-person.js';
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { fleetScope, type FleetOwner } from './fleet-scope.js';
 import { trustedReview } from './pr-index.js';
@@ -143,6 +145,11 @@ export interface SlicePrNextReadings {
    * whose record names an open row. Absent reads as no record: a red base holds every PR.
    */
   readonly baseRepairMerge?: RepairMergeReading;
+  /**
+   * The person hold: the PR index rows and `release-hold-person.json`'s record,
+   * read once per tick. Absent, or a `null` record, holds nothing.
+   */
+  readonly release?: ReleaseHoldReading;
   /** The host backend, as `Host.backend()` answers it. {@link mergeIdentity} reads this to decide an identity. */
   readonly backend: HostBackend;
   /**
@@ -153,6 +160,14 @@ export interface SlicePrNextReadings {
   readonly config: SlicePrConfig;
   /** Epoch milliseconds of the tick. */
   readonly now: number;
+}
+
+/** What the merge arm reads of the person hold. */
+export interface ReleaseHoldReading {
+  /** The PR index rows; the row the record names is read. */
+  readonly rows: readonly PrIndexRow[];
+  /** The person hold file's record, or `null` where there is none or it does not parse. */
+  readonly record: ReleaseHoldPersonRecord | null;
 }
 
 /** The readings an arm that does not read the sprint scope takes. */
@@ -172,6 +187,7 @@ export type HoldReason =
   | 'default-branch-stale'
   | 'default-branch-unread'
   | 'merge-in-flight'
+  | 'release-waiting'
   | 'conflicting'
   | 'merger-app-missing'
   | 'merger-app-invalid'
@@ -479,7 +495,9 @@ export const reviewArm = (readings: ArmReadings): SlicePrStep => {
  * a reading whose `askedAt` is older than `Checks wait` or does not parse, red
  * or green; `default-branch-red`; `default-branch-unsettled` for a settled
  * state that is not green; `merge-in-flight` for a settled commit that is not
- * the head and is not covered by {@link settledPast}, or a merged row newer than the reading; `conflicting`;
+ * the head and is not covered by {@link settledPast}, or a merged row newer than the reading; `release-waiting`
+ * while {@link releasePersonHold} holds for a release PR other than this row and no repair record admits
+ * this row; `conflicting`;
  * `merger-app-missing`, `merger-app-invalid` or `merger-app-unread` from
  * {@link mergeIdentity}. On a settled red, `readings.repairMerge` lifts
  * `default-branch-red` for the one PR {@link repairMergeVerdict} admits; the
@@ -545,6 +563,11 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
       readings.unsettled.headSha === defaultBranch.headSha);
   if (!covered || (newestMerged !== null && !(mergedAt <= askedAt))) {
     return hold('merge-in-flight');
+  }
+  if (!repairAdmitted && readings.release !== undefined) {
+    const { rows, record } = readings.release;
+    const held = releasePersonHold(rows, record, readings.defaultBranchName, now, config.checksWaitMs);
+    if (held.holds && held.pr !== row.number) return hold('release-waiting');
   }
   if (row.mergeable === MERGEABLE_CONFLICTING) return hold('conflicting');
   const identity = mergeIdentity(readings.backend, readings.mergerApp);

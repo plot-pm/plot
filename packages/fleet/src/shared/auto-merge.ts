@@ -20,6 +20,7 @@ import {
   defaultBranchFile,
   mergerAppHeld,
   prIndexFile,
+  releaseHoldPersonFile,
   repairRecordFile,
   type MergerAppReader,
 } from '@plot-pm/domain/adapters';
@@ -386,6 +387,8 @@ export const runAutoMergePass = async (
   const checksWaitMs = checksWaitMsOf(readConfig(opts, 'Checks wait', '3600'));
   const remote = refsRemoteGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
   const plotPaths = plotPathSetOf(opts);
+  const releaseHoldPerson = releaseHoldPersonFile(home);
+  const releaseRecord = await releaseHoldPerson.read();
   const ports: MergePorts = {
     host,
     scripts,
@@ -404,6 +407,14 @@ export const runAutoMergePass = async (
     checks: checkNamesOf(readConfig(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(readConfig(opts, 'Merge checks', '')),
     plotPaths,
+    // fleetd reads the person hold and never writes it.
+    releaseHold: {
+      record: releaseHoldPerson,
+      rows: async () => {
+        const fresh = await prIndexFile({ cwd: opts.repoRoot }).read(backend.value);
+        return fresh.ok ? { ok: true, value: fresh.value?.rows ?? [] } : fresh;
+      },
+    },
   };
   // Read once per tick: the line depends on the reading, not on a PR.
   const unsettled =
@@ -427,6 +438,9 @@ export const runAutoMergePass = async (
       scope,
       verdict: { read: 'absent' },
       defaultBranch,
+      ...(releaseRecord.ok && releaseRecord.value !== null
+        ? { release: { rows: store.value.rows, record: releaseRecord.value } }
+        : {}),
       desk: { dead: false, why: 'live' },
       backend: backend.value,
       mergerApp: backend.value === 'github' ? mergerApp.held(context) : undefined,

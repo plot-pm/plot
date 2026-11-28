@@ -69,6 +69,7 @@ import { LINE_TRACKS, LineLinks, LineSlice, LineState, PlanOwner, PhaseChip, Pla
 import { CleanUpMenu } from './CleanUpMenu.js';
 import { UnbookedRelease } from './UnbookedRelease.js';
 import { defaultBranchStatus } from '@plot-pm/domain/rules/default-branch';
+import { releaseHoldStatus } from '@plot-pm/domain/rules/release-hold-person';
 import { checkoutHealthStatus } from '@plot-pm/domain/rules/checkout-health';
 import {
   bundleDriftDetected,
@@ -502,6 +503,7 @@ export function AgentList({
   spawnContract,
   passkey = null,
   lastRelease = null,
+  releaseHold,
 }: AgentListProps) {
   // THE BOARD'S PLAN INDEX — every card and draft plan, keyed by file
   // basename and by slug, built once here and threaded to every row builder
@@ -1188,6 +1190,9 @@ export function AgentList({
   // nothing here.
   const defaultBranchEntry = defaultBranchStatus(defaultBranch ?? null);
   if (defaultBranchEntry) statuses.push(defaultBranchEntry);
+  // A person's hold of a release: every merge into the default branch waits on them.
+  const releaseHoldEntry = releaseHoldStatus(releaseHold);
+  if (releaseHoldEntry) statuses.push(releaseHoldEntry);
   // THE BOARD'S OWN CHECKOUT, not the repository's CI — #2311 (docs/plans/
   // 2026-10-21-fleet-work-leaves-the-main-checkout.md). `checkoutHealthStatus`
   // returns null for a clean or unreadable checkout; a behind checkout is
@@ -1301,6 +1306,7 @@ export function AgentList({
           bounds: fleet.bounds,
           checksUrlOf: (planFile: string, pr: number) => cardForPlanFile?.(planFile)?.prs.find((p) => p.number === pr)?.checksUrl ?? '',
           plans: countedPlanFactsOf(fleet.plans),
+          releaseHold,
         };
         const mapping = deliveryMapping(mappingInput);
         const cardSprintOf = (s: FleetSprint) => ({ ...s, release: s.release ?? '', end: s.end ?? '', ownerHandle: s.ownerHandle ?? '', members: s.members ?? [] });

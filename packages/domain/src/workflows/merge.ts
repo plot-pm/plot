@@ -7,6 +7,10 @@ import type { Host, PrConversationReading, PrReviewReading } from '../ports/host
 import { checkedReview, reviewPasses } from '../rules/checked-review.js';
 import type { Refs } from '../ports/refs.js';
 import type { RepairRecordStore } from '../ports/repair-record.js';
+import type { ReleaseHoldPersonStore } from '../ports/release-hold-person.js';
+import type { PrIndexRow } from '../entities/pr-index.js';
+import { holdClock, releasePersonHold } from '../rules/release-hold-person.js';
+import type { ReleaseHoldReading } from '../rules/slice-pr-next.js';
 import type { Scripts } from '../ports/scripts.js';
 import { minHexLenFor } from '../adapters/host/min-hex-len.js';
 import { baseBranchRed, declaredRuns, defaultBranchAgeMs, foldRuns, holdsApply } from '../rules/default-branch.js';
@@ -56,6 +60,7 @@ export type MergeRefusal =
   | 'human-comment-open'
   | 'human-comment-unread'
   | 'release-pr'
+  | 'release-waiting'
   | 'sync-path-outside-set'
   | 'sync-diff-unread'
   | 'sync-gate-unread'
@@ -144,6 +149,11 @@ export interface MergeReadings {
    * the gate is unread and the PR could be a sync PR.
    */
   readonly sync?: { readonly files: readonly string[] | 'unknown'; readonly set: readonly string[] } | 'unknown';
+  /**
+   * The person hold: the PR index rows and `release-hold-person.json`'s record.
+   * Absent, or a `null` record, holds nothing.
+   */
+  readonly releaseHold?: ReleaseHoldReading;
 }
 
 /** What the caller asks for. */
@@ -418,6 +428,13 @@ export const merge = (readings: MergeReadings, input: MergeInput): Outcome<Merge
         }
       }
     }
+    if (admitted === undefined && readings.releaseHold !== undefined && !RELEASE_BRANCH.test(pr.head)) {
+      const name = readings.defaultBranchName;
+      const held = releasePersonHold(readings.releaseHold.rows, readings.releaseHold.record, name, input.now, input.checksWaitMs);
+      if (held.holds) {
+        return no('release-waiting', `release #${held.pr} holds merges into ${String(name)} until ${holdClock(held.end)} while a person approves it. Merge after the release, or lift the hold; nothing was merged.`);
+      }
+    }
   } else {
     const baseReading = readings.baseReading ?? null;
     if (baseReading === 'unaskable') {
@@ -493,6 +510,14 @@ export interface MergePorts {
   /** The repair record's file. Absent reads as no record, so a red default branch admits no PR. */
   repair?: RepairRecordStore;
   /**
+   * The person hold's file and the PR index rows, read only for a PR into the
+   * default branch. Absent, a failed read or a missing file holds nothing.
+   */
+  releaseHold?: {
+    record: ReleaseHoldPersonStore;
+    rows: () => Promise<PortResult<readonly PrIndexRow[]>>;
+  };
+  /**
    * The paths Plot's own commits change: `syncPathSet` plus the generated
    * bundles. Absent, a tip past the settled commit never counts as settled.
    */
@@ -537,6 +562,21 @@ export const readRepair = async (
   if (episode !== 'open' || ports.build === undefined) return { record, episode, redRuns: 'unaskable', ...tag };
   const runs = await ports.build.runsForSha(branch, settled.sha, ports.checks ?? []);
   return { record, episode, redRuns: runs.ok ? foldRuns(declaredRuns(runs.value, ports.checks ?? [])) : 'unaskable', ...tag };
+};
+
+/**
+ * Reads the person hold's record and the PR index rows.
+ *
+ * @param ports - the hold's file and the index rows' reader.
+ * @returns the reading, or `undefined` where either read failed, which holds nothing.
+ */
+export const readReleaseHold = async (
+  ports: NonNullable<MergePorts['releaseHold']>,
+): Promise<ReleaseHoldReading | undefined> => {
+  const record = await ports.record.read();
+  if (!record.ok || record.value === null) return undefined;
+  const rows = await ports.rows();
+  return rows.ok ? { rows: rows.value, record: record.value } : undefined;
 };
 
 /** What `plot-ask.mjs merge` (and fleetd) print or hold, as one JSON line. */
@@ -658,6 +698,7 @@ export const mergeAt = async (
     ? await readRepair({ ...ports, repair: ports.baseRepair(base) }, baseReading.branch, baseReading.settled, pr, 'base')
     : undefined;
   const lookedPr = lookup.ok ? lookup.value : null;
+  const releaseHold = holds && !unread && ports.releaseHold !== undefined ? await readReleaseHold(ports.releaseHold) : undefined;
   const gate = ports.stateSync;
   const sync = gate === undefined || lookedPr === null ? undefined
     : 'unread' in gate ? (mayBeSyncPr(lookedPr, gate) ? 'unknown' as const : undefined)
@@ -679,6 +720,7 @@ export const mergeAt = async (
       conversation: conversation.ok ? conversation.value : 'unaskable',
       ...(repair ? { repair } : {}),
       ...(baseRepair ? { baseRepair } : {}),
+      ...(releaseHold ? { releaseHold } : {}),
     },
     {
       pr,

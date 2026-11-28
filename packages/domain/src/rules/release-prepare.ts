@@ -1,6 +1,7 @@
 import type { PrIndexRow } from '../entities/pr-index.js';
 import type { RunLogLine } from '../ports/run-log.js';
 import { planSlug } from './auto-dispatch.js';
+import { RELEASE_BRANCH } from './release-branch.js';
 import { ciCounted } from './release-checks-counted.js';
 import { releaseHeadVerdict, type ReleaseHeadReading } from './release-head.js';
 import { trustedReview } from './pr-index.js';
@@ -285,6 +286,53 @@ const releaseReviewStep = (readings: ReleasePrepareReadings, pr: PrIndexRow, hea
   if (!needs) return none('review-pending');
   const allowed = reviewStartAllowed(readings.reviewStarts, head, config.startBudget, now);
   return allowed === 'ok' ? { step: 'review', head } : none(allowed);
+};
+
+/** The first criterion a release head fails for a person hold, or `holdable` where it fails none. */
+export type ReleaseHoldable =
+  | 'holdable'
+  | 'not-open'
+  | 'not-release-branch'
+  | 'not-into-default-branch'
+  | 'no-head'
+  | 'checks-not-counted'
+  | 'review-failed'
+  | 'review-writer-unchecked'
+  | 'release-head-foreign';
+
+/**
+ * Whether a person may hold merges for the release head now.
+ *
+ * Reads, in order: the row's state, its branch, its base against the default
+ * branch, its `headSha`, `ciChecks` counted on `checksSha === headSha`
+ * ({@link ciCounted}), the trusted `plot/review` on the head, and last the
+ * head's changes. A review on another commit reads as absent. It reads no
+ * scope, so a release in `waiting-scope` is holdable like one in `preparing`.
+ *
+ * @param row - the release PR's index row.
+ * @param headChanges - what the head changes against its merge base; `null`, a failed or an empty read counts as unread.
+ * @param defaultBranchName - the default branch's name; an unread name holds no row as into the default branch.
+ * @returns `holdable`, or the first criterion the row fails.
+ */
+export const releaseHoldable = (
+  row: PrIndexRow,
+  headChanges: ReleaseHeadReading | null,
+  defaultBranchName: string | 'unaskable' | undefined,
+): ReleaseHoldable => {
+  if (row.state !== 'OPEN') return 'not-open';
+  if (!RELEASE_BRANCH.test(row.head)) return 'not-release-branch';
+  if (defaultBranchName === undefined || defaultBranchName === 'unaskable' || defaultBranchName === '' || row.base !== defaultBranchName) {
+    return 'not-into-default-branch';
+  }
+  if (row.headSha === undefined || row.headSha === '') return 'no-head';
+  if (!ciCounted(row.ciChecks) || row.checksSha !== row.headSha) return 'checks-not-counted';
+  if (row.plotReview !== undefined && row.plotReview !== 'absent' && row.plotReviewSha === row.headSha) {
+    const trusted = trustedReview(row);
+    if (trusted === 'unchecked') return 'review-writer-unchecked';
+    if (trusted !== undefined && trusted !== 'absent' && trusted !== 'pending' && trusted !== 'success') return 'review-failed';
+  }
+  if (headChanges !== null && releaseHeadVerdict(headChanges).read === 'foreign') return 'release-head-foreign';
+  return 'holdable';
 };
 
 /**

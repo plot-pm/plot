@@ -513,3 +513,28 @@ describe('mergeTick — a PR held for an unanswered human comment', () => {
     expect(holds.get(3)).toEqual({ head: head(3), at: new Date(T0).toISOString(), reason: 'human-comment-unread' });
   });
 });
+
+describe('mergeTick under a person hold of the release', () => {
+  const RELEASE = row(9, { head: 'changeset-release/main', base: 'main' });
+  const HOLD = { v: 1, pr: 9, act: 'hold', head: head(9), at: '2026-10-30T11:50:00.000Z', by: 'jwloka' } as const;
+  const held = { defaultBranchName: 'main', release: { rows: [RELEASE], record: HOLD } };
+
+  it('holds every PR into main release-waiting and merges nothing', async () => {
+    const { ports, calls } = portsFor('answered');
+    const out = await tick([row(3, { base: 'main' })], held, ports);
+    expect(calls).toEqual([]);
+    expect(out.steps).toEqual([{ pr: 3, step: { step: 'hold', reason: 'release-waiting' } }]);
+  });
+
+  it('merges a PR into a sprint branch', async () => {
+    const { ports, calls } = portsFor('answered');
+    await tick([row(3, { base: 'sprint/x' })], held, ports);
+    expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+  });
+
+  it('merges once the hold is lifted', async () => {
+    const { ports, calls } = portsFor('answered');
+    await tick([row(3, { base: 'main' })], { ...held, release: { rows: [RELEASE], record: { ...HOLD, act: 'lift' } } }, ports);
+    expect(calls).toEqual([['pr-merge', '3', '--match-head', head(3)]]);
+  });
+});

@@ -256,6 +256,8 @@ describe('controllerInvocation reads plot-ask.mjs and the gated HTTP routes', ()
     ['supersede', 'curl -X POST http://localhost:4000/api/supersede'],
     ['story-status', 'curl -X POST http://localhost:4000/api/story-status'],
     ['release-finish', 'curl -X POST http://localhost:4000/api/release-finish'],
+    ['release-hold', 'curl -X POST http://localhost:4000/api/release-hold'],
+    ['release-hold-lift', 'curl -X POST http://localhost:4000/api/release-hold-lift'],
   ])('answers %s for a POST to its route', (action, command) => expect(controllerInvocation(command)).toBe(action));
 
   it('answers restart for --request POST', () => {
@@ -427,6 +429,13 @@ describe('finalControllerRefusal', () => {
     expect(text).toContain(`node ${dir}/board/plot-loose-delete-command.mjs <branch>`);
     expect(text).not.toContain('plot-state-receipt.sh');
     expect(text).not.toContain('plot-restart-command');
+  });
+
+  it.each(['release-hold', 'release-hold-lift'] as const)('names the board button and plot-ask %s, with no receipt bypass', (action) => {
+    const text = finalControllerRefusal(action, dir);
+    expect(text).toContain(`POST /api/${action} {"sha"`);
+    expect(text).toContain(`node ${dir}/board/plot-ask.mjs ${action} <sha>`);
+    expect(text).not.toContain('plot-state-receipt.sh');
   });
 
   it('names the board button and the release-finish bundle for release-finish, with no receipt bypass', () => {

@@ -9,7 +9,8 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
 import type { MergePorts } from './merge.js';
 import { stateSyncGateFor } from './state-sync-gate.js';
 import { stateHomeReadOf } from '@plot-pm/domain';
-import { repairRecordIn, stateHomeFor } from '../state-home.js';
+import { releaseHoldPersonIn, repairRecordIn, stateHomeFor } from '../state-home.js';
+import { prIndexFile } from '@plot-pm/domain/adapters';
 import type { FinishContext } from './release-finish.js';
 
 /**
@@ -69,6 +70,16 @@ export const mergePortsFor = async (
     build: await buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir }, api ?? undefined),
     checks: checkNamesOf(await readConfigAsync(opts, 'Default branch checks', '')),
     mergeChecks: checkNamesOf(await readConfigAsync(opts, 'Merge checks', '')),
+    // The person hold of a release: `mergeAt` refuses `release-waiting` for a
+    // PR into the default branch while it holds.
+    releaseHold: {
+      record: releaseHoldPersonIn(home),
+      rows: async () => {
+        if (!backend.ok) return backend;
+        const held = await prIndexFile({ cwd: opts.repoRoot }).read(backend.value);
+        return held.ok ? { ok: true, value: held.value?.rows ?? [] } : held;
+      },
+    },
     // No in-process fleetd caller reaches this entrance yet — `PLOT_UNATTENDED`
     // maps to 'unattended', never to 'fleetd'.
     caller,

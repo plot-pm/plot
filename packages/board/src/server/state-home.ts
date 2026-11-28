@@ -3,6 +3,7 @@ import {
   baseRepairFile,
   defaultBranchFile,
   releaseFinishRecordFile,
+  releaseHoldPersonFile,
   repairRecordFile,
   stateHomeAtSync,
 } from '@plot-pm/domain/adapters';
@@ -10,6 +11,7 @@ import type { StateHomeAnswer } from '@plot-pm/domain';
 import { failed } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
 import type { ReleaseFinishRecordStore } from '@plot-pm/domain/ports/release-finish-record';
+import type { ReleaseHoldPersonStore } from '@plot-pm/domain/ports/release-hold-person';
 import type { RepairRecordStore } from '@plot-pm/domain/ports/repair-record';
 
 /** Where a process finds its repository, and the state home it resolved at start. */
@@ -91,3 +93,18 @@ const unreadReleaseFinishRecord: ReleaseFinishRecordStore = {
  */
 export const releaseFinishRecordIn = (answer: StateHomeAnswer): ReleaseFinishRecordStore =>
   'home' in answer ? releaseFinishRecordFile(answer.home) : unreadReleaseFinishRecord;
+
+/** A person hold store over no file: every read and write fails. */
+const unreadReleaseHoldPerson: ReleaseHoldPersonStore = {
+  read: async () => failed(),
+  write: async () => failed<void>(),
+};
+
+/**
+ * The person hold's store under a state home.
+ *
+ * @param answer - the resolved state home.
+ * @returns the file store, or a store whose reads and writes fail where the home is unread.
+ */
+export const releaseHoldPersonIn = (answer: StateHomeAnswer): ReleaseHoldPersonStore =>
+  'home' in answer ? releaseHoldPersonFile(answer.home) : unreadReleaseHoldPerson;

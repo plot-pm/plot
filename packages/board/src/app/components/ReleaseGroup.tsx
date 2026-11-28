@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SLICE_STATE_WORDS, releaseStatusLine } from '@plot-pm/domain';
 import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
+import { releaseHoldRowLine } from '@plot-pm/domain/rules/release-hold-person';
 import type { ReleaseGroupOf } from '../lib/agent-rows/delivery-readings.js';
 import { SEGMENT_CLASS } from '../lib/agent-rows/state-classes.js';
 import { readRegistration } from '../lib/passkey-client.js';
 import { artifactTuple } from '../lib/tuple-row.js';
 import { LinkTupleView } from './TupleRow.js';
 import { ReleaseApprove } from './ReleaseApprove.js';
+import { ReleaseHold } from './ReleaseHold.js';
 
 const noTicket = () => undefined;
 
 /**
  * The Delivery tab header's Release group: one title, scope line, five-state bar and legend over
- * every sprint in scope, the status line, and the "Approve release" button in a fixed slot.
+ * every sprint in scope, the status line, the hold line, and the "Approve release" and hold buttons in a fixed slot.
  *
  * Every word and count comes from `releaseGroup` and `releaseStatusLine`; this component decides
  * nothing. It holds the passkey answer, `null` until `readRegistration` answers, and reads it
@@ -20,10 +22,13 @@ const noTicket = () => undefined;
  */
 export const ReleaseGroup = ({ view }: { view: ReleaseGroupOf }) => {
   const { group, rows, prReading } = view;
+  const hold = view.hold ?? null;
+  const origin = typeof location === 'undefined' ? '' : location.origin;
   const [passkey, setPasskey] = useState<PasskeyRegistration | null>(null);
   const reread = useCallback(() => { void readRegistration().then(setPasskey); }, []);
   useEffect(reread, [reread]);
-  const line = releaseStatusLine(group, prReading, passkey);
+  const line = releaseStatusLine(group, prReading, passkey, origin);
+  const holdLine = hold === null ? null : releaseHoldRowLine(hold.hold);
   const slotRow = line.slot.rowId === null ? null : rows[line.slot.rowId] ?? null;
 
   return (
@@ -79,6 +84,7 @@ export const ReleaseGroup = ({ view }: { view: ReleaseGroupOf }) => {
           </p>
         )}
         <p data-release-status className="delivery-text-muted min-w-0 break-words">{line.text}</p>
+        {holdLine !== null && <p data-release-hold-line className="delivery-text-warn min-w-0 break-words">{holdLine}</p>}
         {line.more !== null && (
           <p data-release-more className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="delivery-text-muted">{line.more}</span>
@@ -97,6 +103,7 @@ export const ReleaseGroup = ({ view }: { view: ReleaseGroupOf }) => {
       </div>
       <div data-release-slot data-release-slot-version={line.slot.version} className="delivery-release-slot">
         <ReleaseApprove button={line.button} row={slotRow} onDone={reread} />
+        <ReleaseHold view={hold} origin={origin} />
       </div>
     </div>
   );

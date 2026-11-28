@@ -1532,6 +1532,7 @@ export function App() {
               spawnContract={board?.spawnContract}
               passkey={passkey}
               lastRelease={board?.lastRelease ?? null}
+              releaseHold={board?.releaseHold}
             />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>

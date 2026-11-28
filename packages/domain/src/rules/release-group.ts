@@ -1,4 +1,5 @@
 import { compareSemver, isSemver, normalizeVersion } from '../entities/version.js';
+import { passkeyOriginReason } from './release-hold-person.js';
 import type { PersonDirectory } from '../entities/person.js';
 import type { DeliveryInput, DeliveryReadings } from './delivery-placement.js';
 import type { DeliveryScopeKind } from './delivery-scope.js';
@@ -202,12 +203,15 @@ export interface ReleaseStatusLine {
  * @param group - the Release group.
  * @param prReading - each bound row's PR reading, by `rowId`; a missing key reads as no reading.
  * @param passkey - the registration answer, `null` while unread or where the read failed.
+ * @param origin - the board page's origin; off `http://localhost:<port>` the button is disabled with
+ * {@link passkeyOriginReason}'s reason before any other. Absent reads no origin.
  * @returns the text, the slot, the button and the other ready PRs.
  */
 export const releaseStatusLine = (
   group: Pick<ReleaseGroupView, 'candidates' | 'readingMissing'>,
   prReading: Readonly<Record<string, ReleasePrReading | null>>,
   passkey: PasskeyRegistration | null,
+  origin?: string,
 ): ReleaseStatusLine => {
   const readingOf = (c: ReleaseCandidate): ReleasePrReading | null => (c.rowId === null ? null : prReading[c.rowId] ?? null);
   const byVersion = (a: ReleaseCandidate, b: ReleaseCandidate): number => compareSemver(a.version, b.version);
@@ -216,7 +220,8 @@ export const releaseStatusLine = (
     .sort(byVersion);
   const bound = group.candidates.filter((c) => c.rowId !== null).sort(byVersion);
   const slot = ready[0] ?? bound[0] ?? group.candidates[0]!;
-  const button = releaseCardApprovable(slot, readingOf(slot), passkey);
+  const away = origin === undefined ? null : passkeyOriginReason(origin);
+  const button = away !== null ? { state: 'disabled' as const, reason: away } : releaseCardApprovable(slot, readingOf(slot), passkey);
   const others = ready.filter((c) => c !== slot).map((c) => ({ key: c.key, version: c.version, rowId: c.rowId!, pr: c.pr! }));
   const readyLine = ready[0] === slot ? `Release PR #${slot.pr} ready` : null;
   const text = group.readingMissing ? RELEASE_READING_MISSING

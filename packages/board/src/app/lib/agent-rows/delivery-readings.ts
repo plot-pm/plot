@@ -29,6 +29,7 @@ import {
 } from '@plot-pm/domain';
 import type { PersonDirectory } from '@plot-pm/domain/entities/person';
 import { countedSlicesByPlan as domainCountedSlicesByPlan, type CountedPlanFacts, type PlanCountedSlice } from '@plot-pm/domain/rules/counted-slices';
+import type { ReleaseHoldView } from '@plot-pm/domain/entities/release-hold-person';
 import type { ReleasePrReading } from '@plot-pm/domain/rules/release-approvable';
 import type { ReleaseUnbooked } from '@plot-pm/domain/rules/release-unbooked';
 import { personCommentHolds } from '@plot-pm/domain/rules/person-comment';
@@ -88,6 +89,8 @@ export interface DeliveryMapInput {
   plans?: readonly CountedPlanFacts[] | undefined;
   /** The answer of `fleet.releaseUnbooked`; absent, `'none'` or `'unaskable'` places no `unbooked` row. */
   releaseUnbooked?: ReleaseUnbooked | 'none' | 'unaskable' | undefined;
+  /** The person hold of a release from the board payload; absent reads as no reading, which marks no row held. */
+  releaseHold?: ReleaseHoldView | undefined;
 }
 
 /**
@@ -160,6 +163,8 @@ export interface DeliveryMapping {
   releases: { targets: ReleaseTarget[]; tickets: ReleaseTicketReading | null };
   /** The plan facts the counted slices read, as `deliveryMapping` was given them; `[]` where none. */
   plans: readonly CountedPlanFacts[];
+  /** The person hold of a release, as the payload carried it; `null` where it carried none. */
+  releaseHold: ReleaseHoldView | null;
 }
 
 /** The domain index exports a different `PrReading` from `branch-state`; this names the placement rule's. */
@@ -475,6 +480,7 @@ const mapReadings = (input: DeliveryMapInput): DeliveryMapping => {
     bounds: input.bounds,
     checksUrlOf: input.checksUrlOf ?? (() => ''),
     plans: input.plans ?? [],
+    releaseHold: input.releaseHold ?? null,
     releases: {
       targets: releaseTargets(input.sprints ?? []),
       tickets: input.releaseTickets == null ? null : input.releaseTickets,
@@ -661,6 +667,8 @@ export interface ReleaseGroupOf {
   rows: Record<string, AgentRow>;
   /** Each release row's PR reading, by work item id, for `releaseStatusLine`. */
   prReading: Record<string, ReleasePrReading | null>;
+  /** The person hold of a release; `null` or absent where the payload carried none. */
+  hold?: ReleaseHoldView | null;
 }
 
 /**
@@ -706,5 +714,5 @@ export const releaseGroupOf = (
     unknownOwners: sprintCards(scope.sprints, reader, slicesByPlan, whole.readings, whole.input).unknownOwners,
     lastRelease: last,
   });
-  return { group, rows, prReading };
+  return { group, rows, prReading, hold: input.releaseHold ?? null };
 };

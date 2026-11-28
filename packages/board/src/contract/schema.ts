@@ -15,6 +15,7 @@ import {
   ChecksSchema,
   MergeabilitySchema,
   DefaultBranchReadingSchema,
+  ReleaseHoldViewSchema,
   CardControlsSchema,
   HeadroomSchema,
   RELEASE_BRANCH,
@@ -1559,6 +1560,11 @@ export const BoardSchema = z.object({
    * that defaulted this would report a healthy branch it never checked.
    */
   defaultBranch: DefaultBranchReadingSchema.optional(),
+  /**
+   * The person hold of a release, from the person hold file and the PR index.
+   * `.optional()`: absent means a read failed or no index exists, never "no hold".
+   */
+  releaseHold: ReleaseHoldViewSchema.optional(),
   /**
    * Whether the board's OWN checkout — the one every read above walked — is
    * clean (`git status --porcelain` empty). `null` where it could not be
