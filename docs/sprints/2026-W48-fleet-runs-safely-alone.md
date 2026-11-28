@@ -30,7 +30,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 - [ ] [#3634](https://github.com/plot-pm/plot/pull/3634) The `Worker bound` and `Slice max runs` comments match the code
 - [ ] [#3637](https://github.com/plot-pm/plot/pull/3637) The root-entry gate lists the entries the repository root may hold
 - [ ] [#3635](https://github.com/plot-pm/plot/pull/3635) The board environment documentation covers the environment and remote access
-- [ ] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
+- [x] [a-foreign-slice-is-never-claimed-here] A foreign slice is never claimed here (#3735) <!-- pr: #3740, branch: bug/a-foreign-slice-is-never-claimed-here -->
 - [x] [a-release-between-two-sprints-books-its-plans] A release between two sprints books its plans (#3736) <!-- pr: #3740, branch: bug/a-release-no-sprint-names-books-its-changesets -->
 - [ ] [a-release-holds-merges-while-it-waits] A release holds merges while it waits <!-- pr: #3740, branch: bug/a-waiting-release-holds-merges -->
 - [x] [a-launcher-change-selects-its-tests] PR CI selects the contracts that run a changed bundle <!-- pr: #3740, branch: bug/a-bundle-names-its-input-sources -->

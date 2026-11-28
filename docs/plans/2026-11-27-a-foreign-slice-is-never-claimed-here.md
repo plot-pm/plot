@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** fleet-runs-safely-alone
 - **Issue:** #3735
@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-foreign-slice-is-never-claimed-here`
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-free-wait-writes-its-own-ending`
+- **Delivered:** 2026-11-28
 
 ## Changelog
 
