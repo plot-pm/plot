@@ -79,6 +79,7 @@ import {
   lastRelease,
 } from '@plot-pm/domain';
 import type { DefaultBranchStore } from '@plot-pm/domain/ports/default-branch';
+import { checksWaitMsOf } from '@plot-pm/domain/rules/default-branch';
 import type { GateContractReader } from '@plot-pm/domain/ports/gate-contract';
 import { SPAWN_CONTRACT } from '@plot-pm/domain/rules/spawn-contract';
 import { writeTarget } from '@plot-pm/domain/rules/write-target';
@@ -112,6 +113,7 @@ import { storyFactsOf, ticketStoriesOf, type StoryFactsContext } from './story-f
 import { branchUrlBaseFor, issueUrlBaseFor, prsByNumber, pulseFor, pulseCompleteFor, lastCompletePulseFor, recordRefutedIssues } from './fleet.js';
 import { extractTopics, type StoryDocument } from './topics.js';
 import { defaultBranchIn, stateHomeFor } from './state-home.js';
+import { releaseHoldViewFor } from './release-hold-view.js';
 import { makeStageDir, removeStageDir } from '@plot-pm/domain/adapters/stage-dirs';
 import { statusField } from '@plot-pm/domain/adapters/plan-store/plan-store-shell';
 
@@ -2960,6 +2962,10 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     return read.ok ? read.value ?? undefined : undefined;
   })();
 
+  // The person hold of a release: the hold file and the PR index, both local
+  // files, plus the backend word and the default branch's name. No host call.
+  const releaseHold = await releaseHoldViewFor(opts, checksWaitMsOf(await readConfigAsync(opts, 'Checks wait', '3600')));
+
   // The board's own spawn contract against the gate's. `bundleHash` rides in
   // on `opts.startBundle`, captured once at process start; everything
   // else here — including the comparison "now" hash — is read fresh per
@@ -3332,6 +3338,7 @@ async function buildBoardOver(opts: BuildBoardOptions, refs: Refs, served?: Boar
     // split `tickets`/`plansUnreadable`/`storyLanes` already follow.
     topics: extractTopics(stories.map((s) => storyTopicInput(s))),
     defaultBranch: defaultBranchReading,
+    ...(releaseHold === undefined ? {} : { releaseHold }),
     checkoutClean,
     spawnContract,
     // Unset until `discoveryLanes` fills them in: the Discovery lane cache

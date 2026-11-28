@@ -51,3 +51,47 @@ export const decodeReleaseHoldPerson = (text: string): ReleaseHoldPersonRecord |
  * @returns the file's contents, newline-terminated.
  */
 export const encodeReleaseHoldPerson = (record: ReleaseHoldPersonRecord): string => `${JSON.stringify(record, null, 2)}\n`;
+
+/** Why a person hold holds nothing now, as the board's payload carries it. */
+export const ReleaseHoldNoneSchema = z.enum([
+  'no-record',
+  'lifted',
+  'no-release-row',
+  'not-open',
+  'not-into-default-branch',
+  'unparseable-at',
+  'bound-passed',
+  'stage-ended',
+]);
+
+/** Whether the release PR is holdable, or `no-row` where no open release PR into the default branch exists. */
+export const ReleaseHoldableWordSchema = z.enum([
+  'no-row',
+  'holdable',
+  'not-open',
+  'not-release-branch',
+  'not-into-default-branch',
+  'no-head',
+  'checks-not-counted',
+  'review-failed',
+  'review-writer-unchecked',
+  'release-head-foreign',
+]);
+
+/** The person hold as the board reads it: the hold, whether a new hold may start, and the PRs it holds. */
+export const ReleaseHoldViewSchema = z.object({
+  /** The hold, from `releasePersonHold`. */
+  hold: z.discriminatedUnion('holds', [
+    z.object({ holds: z.literal(true), pr: z.number(), head: z.string(), since: z.number(), end: z.number() }),
+    z.object({ holds: z.literal(false), reason: ReleaseHoldNoneSchema }),
+  ]),
+  /** `releaseHoldable` over the release row, or `no-row`. */
+  holdable: ReleaseHoldableWordSchema,
+  /** The release row's number, or `null` where there is no row. */
+  pr: z.number().nullable(),
+  /** The release row's head, or `null` where it has none. */
+  head: z.string().nullable(),
+  /** The open PRs into the default branch the hold holds now, the release PR excluded; `[]` where nothing holds. */
+  held: z.array(z.number()),
+});
+export type ReleaseHoldView = z.infer<typeof ReleaseHoldViewSchema>;

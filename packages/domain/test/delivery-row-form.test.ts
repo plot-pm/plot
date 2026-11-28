@@ -50,6 +50,12 @@ describe('the seven columns', () => {
 });
 
 describe('links by row', () => {
+  it('slice, at a gate, held by a release: STATUS reads release-waiting and links to the release PR', () => {
+    const c = itemRowCells(work('at-a-gate'), { ...facts, prReading: { ci: 'passed', review: 'passed' } as PrReading, releaseWaiting: 3719 })!;
+    expect(c.status).toEqual({ value: 'release-waiting', links: [{ to: 'pr', pr: 3719 }] });
+    expect(itemRowCells(work('at-a-gate'), { ...facts, prReading: { ci: 'passed', review: 'passed' } as PrReading })!.status?.value).toBe('CI ✓ #901');
+  });
+
   it('slice, queued: ITEM links to the plan § slice, STATUS to the slice it waits on, WHERE and BY are empty', () => {
     const c = itemRowCells(work('queued'), { ...facts, waitsOn: 'zero' })!;
     expect(c.item).toEqual({ value: 'first', links: [{ to: 'plan', plan: 'the-plan', slice: 'first' }] });

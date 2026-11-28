@@ -118,3 +118,17 @@ export const releaseHoldLiftAt = async (ports: ReleaseHoldPorts, sha: string): P
   if (!wrote.ok) return no('unaskable', 'the person hold file could not be written. The hold stays.');
   return { ok: true, act: 'lift', pr: held.pr, head: held.head, at };
 };
+
+/**
+ * The text a hold button shows after its click.
+ *
+ * @param result - the hold's or the lift's answer, or `null` where the route sent no answer this reads.
+ * @returns `merges held until <end>`, `hold lifted`, or `refused: <reason>: <detail>`.
+ */
+export const releaseHoldMessage = (result: ReleaseHoldResult | null): string => {
+  if (result === null) return 'refused: the board sent no answer this reads';
+  if (!result.ok) return `refused: ${result.reason}: ${result.detail}`;
+  if (result.act === 'lift') return 'hold lifted';
+  const end = result.end === undefined ? Number.NaN : Date.parse(result.end);
+  return Number.isFinite(end) ? `merges held until ${holdClock(end)}` : 'merges held';
+};

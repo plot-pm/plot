@@ -1,4 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
+import type { ReleaseHoldView } from '@plot-pm/domain/entities/release-hold-person';
 import type { CardFacts } from '@plot-pm/domain/entities/card-facts';
 import type { DefaultBranchReading } from '@plot-pm/domain/entities/default-branch';
 import type { PasskeyRegistration } from '@plot-pm/domain/rules/passkey-settings';
@@ -373,6 +374,8 @@ export interface AgentListProps {
   passkey?: PasskeyRegistration | null;
   /** The board payload's `lastRelease`; `null` or absent where no record parses or no board has landed. */
   lastRelease?: { tag: string; date: string } | null;
+  /** The board payload's `releaseHold`; absent where the board carried none, which shows no hold. */
+  releaseHold?: ReleaseHoldView | undefined;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
 } from '@plot-pm/domain';
 import { resolvePerson } from '@plot-pm/domain/entities/person';
 import { unnamedDeskLabel } from '@plot-pm/domain/rules/desk-manifest';
+import { releaseWaitingOf } from '@plot-pm/domain/rules/release-hold-person';
 import { isLiveState, type AgentRow } from '../../../contract/schema.js';
 import { agentLabel, ciOf, itemIdOfRow, reviewOf, type DeliveryMapping } from './delivery-readings.js';
 import { shortSessionId, worktreeName } from '../tuple-row.js';
@@ -59,6 +60,8 @@ export const itemRowFactsOf = (mapping: DeliveryMapping, id: string): ItemRowFac
   const branch = open?.branch || first?.branch;
   if (branch) facts.branch = branch;
   if (open?.pr) facts.pr = open.pr.number;
+  const waiting = releaseWaitingOf(mapping.releaseHold, open?.pr?.number);
+  if (waiting !== undefined) facts.releaseWaiting = waiting;
   const planRow = rows.find((r) => r.kind === 'plan' && r.pr !== null);
   if (planRow?.pr) facts.planPr = planRow.pr.number;
   if (reading?.pr !== undefined) facts.prReading = reading.pr;

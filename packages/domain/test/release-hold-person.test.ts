@@ -13,6 +13,9 @@ import type { ReleaseHoldPersonStore } from '../src/ports/release-hold-person.js
 import {
   passkeyOriginReason,
   releaseHoldButton,
+  releaseHoldView,
+  releaseHoldStatus,
+  releaseWaitingOf,
   releaseHoldRowLine,
   releaseHoldWaitingLine,
   releaseLiftButton,
@@ -24,7 +27,7 @@ import { releaseHoldable, releaseStage, type ReleaseStage } from '../src/rules/r
 import type { RepairMergeReading } from '../src/rules/repair-pr.js';
 import { mergeArm, type SlicePrNextReadings } from '../src/rules/slice-pr-next.js';
 import { merge, mergeAt, type MergePorts, type MergeReadings } from '../src/workflows/merge.js';
-import { releaseHoldAt, releaseHoldLiftAt, type ReleaseHoldPorts } from '../src/workflows/release-hold.js';
+import { releaseHoldAt, releaseHoldLiftAt, releaseHoldMessage, type ReleaseHoldPorts } from '../src/workflows/release-hold.js';
 
 const WAIT = 3_600_000;
 const RELEASE_HEAD = 'e150fd7c1'.padEnd(40, '0');
@@ -157,8 +160,8 @@ describe('the hold texts and buttons', () => {
   const held = releasePersonHold([releaseRow()], hold(), 'main', T + 1, WAIT);
   const none = releasePersonHold([releaseRow()], null, 'main', T + 1, WAIT);
   const LOCAL = 'http://localhost:4173';
-  const buttons = (over: Partial<Parameters<typeof releaseHoldButton>[0]> = {}) =>
-    releaseHoldButton({ origin: LOCAL, row: releaseRow(), headChanges: null, defaultBranchName: 'main', hold: none, ...over });
+  const buttons = (over: { origin?: string; rows?: PrIndexRow[]; record?: ReturnType<typeof hold> | null } = {}) =>
+    releaseHoldButton(over.origin ?? LOCAL, releaseHoldView(over.rows ?? [releaseRow()], over.record ?? null, 'main', T + 1, WAIT, null));
 
   it('shows the Waiting on you line and the release row line', () => {
     expect(releaseHoldWaitingLine(held)).toBe('release #3719 holds merges until 21:31 UTC');
@@ -181,14 +184,45 @@ describe('the hold texts and buttons', () => {
   });
 
   it('disables the hold with its reason', () => {
-    expect(buttons({ row: null })).toEqual({ state: 'disabled', reason: 'no open release PR into the default branch' });
-    expect(buttons({ hold: held })).toEqual({ state: 'disabled', reason: 'merges are held until 21:31 UTC' });
-    expect(buttons({ row: releaseRow({ ciChecks: 'pending' }) })).toEqual({ state: 'disabled', reason: 'CI has not passed on the release head' });
+    expect(buttons({ rows: [] })).toEqual({ state: 'disabled', reason: 'no open release PR into the default branch' });
+    expect(buttons({ record: hold() })).toEqual({ state: 'disabled', reason: 'merges are held until 21:31 UTC' });
+    expect(buttons({ rows: [releaseRow({ ciChecks: 'pending' })] })).toEqual({ state: 'disabled', reason: 'CI has not passed on the release head' });
   });
 
   it('enables the lift only while a hold holds', () => {
     expect(releaseLiftButton(held)).toEqual({ state: 'enabled', reason: 'ends the hold of release #3719 now' });
     expect(releaseLiftButton(none)).toEqual({ state: 'disabled', reason: 'no hold holds merges' });
+    expect(releaseLiftButton(null)).toEqual({ state: 'disabled', reason: 'no hold holds merges' });
+  });
+
+  it('names the release PR for a held PR, and shows the hold as an amber board status', () => {
+    const rows = [releaseRow(), releaseRow({ number: 12, head: 'feature/a' }), releaseRow({ number: 13, head: 'feature/c', base: 'sprint/x' })];
+    const view = releaseHoldView(rows, hold(), 'main', T + 1, WAIT, null);
+    expect(releaseWaitingOf(view, 12)).toBe(3719);
+    expect(releaseWaitingOf(view, 13)).toBeUndefined();
+    expect(releaseWaitingOf(view, 3719)).toBeUndefined();
+    expect(releaseWaitingOf(null, 12)).toBeUndefined();
+    expect(releaseHoldStatus(view)).toEqual({ key: 'release-hold', severity: 22, tone: 'amber', text: 'release #3719 holds merges until 21:31 UTC.' });
+    expect(releaseHoldStatus(releaseHoldView(rows, null, 'main', T + 1, WAIT, null))).toBeNull();
+    expect(releaseHoldStatus(undefined)).toBeNull();
+  });
+
+  it('disables the hold while the payload carries no view', () => {
+    expect(releaseHoldButton(LOCAL, null)).toEqual({ state: 'disabled', reason: 'the board has not read the release hold yet' });
+  });
+
+  it('names the open PRs into the default branch the hold holds, the release PR excluded', () => {
+    const rows = [
+      releaseRow(),
+      releaseRow({ number: 12, head: 'feature/a' }),
+      releaseRow({ number: 11, head: 'bug/b' }),
+      releaseRow({ number: 13, head: 'feature/c', base: 'sprint/x' }),
+      releaseRow({ number: 14, head: 'feature/d', state: 'MERGED' }),
+    ];
+    const view = releaseHoldView(rows, hold(), 'main', T + 1, WAIT, null);
+    expect(view).toMatchObject({ pr: 3719, holdable: 'holdable', held: [11, 12] });
+    expect(view.hold.holds).toBe(true);
+    expect(releaseHoldView(rows, null, 'main', T + 1, WAIT, null).held).toEqual([]);
   });
 });
 
@@ -484,5 +518,16 @@ describe('the person hold file', () => {
     expect(await store.read()).toEqual(answered(null));
     writeFileSync(path, JSON.stringify({ ...hold(), v: 2 }));
     expect(await store.read()).toEqual(answered(null));
+  });
+});
+
+describe('the hold buttons\' click text', () => {
+  it('names the end of a hold, a lift, and a refusal with its reason', () => {
+    expect(releaseHoldMessage({ ok: true, act: 'hold', pr: 3719, head: 'a'.repeat(40), at: '2026-11-27T20:31:00.000Z', end: '2026-11-27T21:31:00.000Z' }))
+      .toBe('merges held until 21:31 UTC');
+    expect(releaseHoldMessage({ ok: true, act: 'lift', pr: 3719, head: 'a'.repeat(40), at: '2026-11-27T20:40:00.000Z' })).toBe('hold lifted');
+    expect(releaseHoldMessage({ ok: false, reason: 'already-held', detail: 'release #3719 already holds merges' }))
+      .toBe('refused: already-held: release #3719 already holds merges');
+    expect(releaseHoldMessage(null)).toBe('refused: the board sent no answer this reads');
   });
 });

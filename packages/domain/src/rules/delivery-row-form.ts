@@ -135,6 +135,8 @@ export interface ItemRowFacts {
    * holds no worktree for the claim. Absent where the branch carries work or nobody read it.
    */
   claim?: { elsewhere: boolean };
+  /** The release PR whose person hold holds this item's open PR into the default branch; absent where no hold holds it. */
+  releaseWaiting?: number;
 }
 
 /** One agent acting on an item, as its By cell names it. */
@@ -488,6 +490,8 @@ export const itemRowCells = (placement: ItemPlacement, facts: ItemRowFacts): Row
         return null;
       case 'slice-at-a-gate':
       case 'pr-no-plan':
+        if (facts.releaseWaiting !== undefined) return link('release-waiting', { to: 'pr', pr: facts.releaseWaiting });
+        return gate === null ? null : link(gate, ...gateLinks);
       case 'release':
         return gate === null ? null : link(gate, ...gateLinks);
       case 'slice-stuck':

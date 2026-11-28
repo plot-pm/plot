@@ -112,6 +112,16 @@ describe('releaseGroup scope', () => {
     expect(line.text).toBe('no release PR carries 2.36.0');
   });
 
+  it('disables Approve release off localhost with the passkey reason, and keeps the ready line', () => {
+    const one = groupOf([], rows, 'release');
+    const local = releaseStatusLine(one, { 'row:37': ready }, { registered: true }, 'http://localhost:4173');
+    const away = releaseStatusLine(one, { 'row:37': ready }, { registered: true }, 'http://zio.tailnet.ts.net:4173');
+    const reason = 'the passkey works only on http://localhost:4173: open the local board at http://localhost:4173';
+    expect(local.button).toEqual(releaseStatusLine(one, { 'row:37': ready }, { registered: true }).button);
+    expect(away.button).toEqual({ state: 'disabled', reason });
+    expect(away.text).toBe(`Release PR #${away.slot.pr} ready · ${reason}`);
+  });
+
   it('keeps a release row no sprint names under release scope', () => {
     expect(groupOf([], rows, 'release').candidates.map((c) => c.rowId)).toEqual(['row:37']);
   });

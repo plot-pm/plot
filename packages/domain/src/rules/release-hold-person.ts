@@ -1,5 +1,6 @@
 import type { PrIndexRow } from '../entities/pr-index.js';
-import type { ReleaseHoldPersonRecord } from '../entities/release-hold-person.js';
+import type { ReleaseHoldPersonRecord, ReleaseHoldView } from '../entities/release-hold-person.js';
+import type { BoardStatus } from './default-branch.js';
 import { RELEASE_BRANCH } from './release-branch.js';
 import type { ReleaseHeadReading } from './release-head.js';
 import { releaseHoldable, type ReleaseHoldable, type ReleaseStage } from './release-prepare.js';
@@ -140,46 +141,87 @@ const HOLDABLE_REASON: Readonly<Record<Exclude<ReleaseHoldable, 'holdable'>, str
   'release-head-foreign': 'the release head changes more than the version step writes',
 };
 
-/** What the hold buttons read. */
-export interface HoldButtonReadings {
-  /** The board page's origin. */
-  readonly origin: string;
-  /** The release row {@link releaseRowOf} picks, or `null`. */
-  readonly row: PrIndexRow | null;
-  /** The release head's changes; `null` where unread. */
-  readonly headChanges: ReleaseHeadReading | null;
-  /** The default branch's name. */
-  readonly defaultBranchName: string | 'unaskable' | undefined;
-  /** The hold {@link releasePersonHold} answers. */
-  readonly hold: ReleasePersonHold;
-}
+/**
+ * The person hold as the board reads it.
+ *
+ * @param rows - the PR index rows.
+ * @param record - the person hold file's record, or `null`.
+ * @param defaultBranchName - the default branch's name.
+ * @param now - epoch milliseconds.
+ * @param boundMs - the hold's length, `Checks wait`.
+ * @param headChanges - the release head's changes; `null` where unread.
+ * @returns the hold, the release row's holdable word, number and head, and the PRs the hold holds.
+ */
+export const releaseHoldView = (
+  rows: readonly PrIndexRow[],
+  record: ReleaseHoldPersonRecord | null,
+  defaultBranchName: string | 'unaskable' | undefined,
+  now: number,
+  boundMs: number,
+  headChanges: ReleaseHeadReading | null,
+): ReleaseHoldView => {
+  const hold = releasePersonHold(rows, record, defaultBranchName, now, boundMs);
+  const row = releaseRowOf(rows, defaultBranchName);
+  const held = hold.holds
+    ? rows.filter((r) => r.state === 'OPEN' && r.base === defaultBranchName && r.number !== hold.pr).map((r) => r.number).sort((a, b) => a - b)
+    : [];
+  return {
+    hold,
+    holdable: row === null ? 'no-row' : releaseHoldable(row, headChanges, defaultBranchName),
+    pr: row?.number ?? null,
+    head: row?.headSha ?? null,
+    held,
+  };
+};
+
+/**
+ * The release PR whose hold holds the PR `pr`, for that PR's Status word `release-waiting`.
+ *
+ * @param view - the hold {@link releaseHoldView} answers, or `null` where the payload carries none.
+ * @param pr - an open PR's number.
+ * @returns the release PR's number where the hold holds `pr`, else `undefined`.
+ */
+export const releaseWaitingOf = (view: ReleaseHoldView | null | undefined, pr: number | undefined): number | undefined =>
+  view?.hold.holds === true && pr !== undefined && view.held.includes(pr) ? view.hold.pr : undefined;
+
+/**
+ * The board status a hold that holds shows: `release #<n> holds merges until <end>`.
+ *
+ * @param view - the hold {@link releaseHoldView} answers, or `null` where the payload carries none.
+ * @returns the entry while a hold holds; `null` otherwise.
+ */
+export const releaseHoldStatus = (view: ReleaseHoldView | null | undefined): BoardStatus | null => {
+  const text = view === null || view === undefined ? null : releaseHoldWaitingLine(view.hold);
+  return text === null ? null : { key: 'release-hold', severity: 22, tone: 'amber', text: `${text}.` };
+};
 
 /**
  * The state of "Hold merges, I am approving now".
  *
  * Reads, in order: the origin, the release row, whether a hold already holds,
- * and {@link releaseHoldable}.
+ * and the row's holdable word.
  *
- * @param readings - what the button reads.
+ * @param origin - the board page's origin, as `location.origin` reads it.
+ * @param view - the hold {@link releaseHoldView} answers, or `null` where the payload carries none.
  * @returns enabled, or disabled with the first unmet criterion's reason.
  */
-export const releaseHoldButton = (readings: HoldButtonReadings): HoldButton => {
-  const origin = passkeyOriginReason(readings.origin);
-  if (origin !== null) return { state: 'disabled', reason: origin };
-  if (readings.row === null) return { state: 'disabled', reason: 'no open release PR into the default branch' };
-  if (readings.hold.holds) return { state: 'disabled', reason: `merges are held until ${holdClock(readings.hold.end)}` };
-  const holdable = releaseHoldable(readings.row, readings.headChanges, readings.defaultBranchName);
-  if (holdable !== 'holdable') return { state: 'disabled', reason: HOLDABLE_REASON[holdable] };
+export const releaseHoldButton = (origin: string, view: ReleaseHoldView | null): HoldButton => {
+  const away = passkeyOriginReason(origin);
+  if (away !== null) return { state: 'disabled', reason: away };
+  if (view === null) return { state: 'disabled', reason: 'the board has not read the release hold yet' };
+  if (view.holdable === 'no-row') return { state: 'disabled', reason: 'no open release PR into the default branch' };
+  if (view.hold.holds) return { state: 'disabled', reason: `merges are held until ${holdClock(view.hold.end)}` };
+  if (view.holdable !== 'holdable') return { state: 'disabled', reason: HOLDABLE_REASON[view.holdable] };
   return { state: 'enabled', reason: 'holds every merge into the default branch while you approve' };
 };
 
 /**
  * The state of "Lift the hold".
  *
- * @param hold - the hold {@link releasePersonHold} answers.
+ * @param hold - the hold {@link releasePersonHold} answers, or `null` where unread.
  * @returns enabled where a hold holds, else disabled with the reason.
  */
-export const releaseLiftButton = (hold: ReleasePersonHold): HoldButton =>
-  hold.holds
+export const releaseLiftButton = (hold: ReleasePersonHold | null): HoldButton =>
+  hold?.holds === true
     ? { state: 'enabled', reason: `ends the hold of release #${hold.pr} now` }
     : { state: 'disabled', reason: 'no hold holds merges' };
