@@ -1,0 +1,1 @@
+../2026-11-28-a-foreign-slice-reads-its-own-pr.md
