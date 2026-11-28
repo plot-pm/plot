@@ -697,14 +697,15 @@ const waitName = (b: Branch, name: string): string => {
   return repo === undefined ? name : `${name} in ${repo}`;
 };
 
-/** Why a branch of an eligible slice is not startable, or `null` where it is. */
+/**
+ * Why a branch of an eligible slice is not startable, or `null` where it is.
+ * The caller refuses a foreign branch before it asks, so no case reads `foreign`.
+ */
 const branchHold = (b: Branch): string | null => {
   switch (b.state) {
     case 'waiting':
     case 'blocked':
       return `it is held on ${joinNames(b.waits_on.map((name) => waitName(b, name)))}`;
-    case 'foreign':
-      return `it lives in ${b.foreign_repo ?? 'another repository'}`;
     case 'claimed':
     case 'merged':
     case 'deferred':
