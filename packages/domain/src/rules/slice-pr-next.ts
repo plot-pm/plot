@@ -8,7 +8,6 @@ import { repairMergeVerdict, repairNamesPr, type RepairMergeReading } from './re
 import type { DeskDeadAnswer } from './desk-dead.js';
 import { fleetScope, type FleetOwner } from './fleet-scope.js';
 import { trustedReview } from './pr-index.js';
-import type { ReleaseHoldVerdict } from './release-hold.js';
 import { reviewStartAllowed, type ReviewStart } from './review-run.js';
 import { settledPast, type UnsettledReading } from './settled-past.js';
 import type { SprintScope } from './sprint-scope.js';
@@ -151,11 +150,6 @@ export interface SlicePrNextReadings {
    * backend; absent (or an unread read) holds `merger-app-unread` on GitHub.
    */
   readonly mergerApp?: MergerAppReading;
-  /**
-   * Whether a waiting release head holds merges into the default branch, as
-   * {@link releaseHold} answers it once per tick. Absent holds nothing.
-   */
-  readonly releaseHold?: ReleaseHoldVerdict;
   readonly config: SlicePrConfig;
   /** Epoch milliseconds of the tick. */
   readonly now: number;
@@ -184,7 +178,6 @@ export type HoldReason =
   | 'merger-app-unread'
   | 'default-branch-unsettled'
   | 'ticket-pending'
-  | 'release-waiting'
   | 'unread'
   | (string & {});
 
@@ -494,10 +487,7 @@ export const reviewArm = (readings: ArmReadings): SlicePrStep => {
  * other than `readings.defaultBranchName` skips every default-branch hold and
  * holds `base-branch-red` only, from `readings.baseReading`, which
  * `readings.baseRepairMerge` lifts for the one PR {@link repairMergeVerdict}
- * admits; `conflicting` and the merge identity apply to both paths. On the default-branch path,
- * `release-waiting` holds every PR but the release PR itself where `readings.releaseHold` answers
- * `holds`, after the default-branch holds and before `conflicting`; the PR the repair exception
- * admits is not held. A PR the record names and the
+ * admits; `conflicting` and the merge identity apply to both paths. A PR the record names and the
  * verdict refuses holds with the verdict's reason. The stale check is this arm's own and never
  * `defaultBranchRed`: a merge cannot be undone, so an old reading holds here
  * where it lifts the queue's hold.
@@ -556,8 +546,6 @@ export const mergeArm = (readings: SlicePrNextReadings): SlicePrStep => {
   if (!covered || (newestMerged !== null && !(mergedAt <= askedAt))) {
     return hold('merge-in-flight');
   }
-  const release = readings.releaseHold;
-  if (!repairAdmitted && release?.verdict === 'holds' && release.pr !== row.number) return hold('release-waiting');
   if (row.mergeable === MERGEABLE_CONFLICTING) return hold('conflicting');
   const identity = mergeIdentity(readings.backend, readings.mergerApp);
   if (identity.identity === 'hold') return hold(identity.reason);
