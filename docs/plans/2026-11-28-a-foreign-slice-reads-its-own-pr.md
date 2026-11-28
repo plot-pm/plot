@@ -51,7 +51,7 @@ Three differences remain on main:
 
 ### Own PR
 
-- `bug/a-foreign-slice-reads-its-own-pr` — the walk resolves a foreign slice's `→ owner/repo#N` through the rule `deliverabilityOf` uses, and a merged foreign branch reads `merged` <!-- builds: crossRepoMergeState, one rule for a branch's cross-repo references --> <!-- tests: first run the reporter's fixture against main and record what still differs — a plan with a local slice naming PR 16 and foreign slices naming ws/portal PR 31 and ws/apps-infra PR 176, both merged; on the branch the fixture reads all three `merged`, the second wave eligible, and the walk and deliverabilityOf agree; a not-merged foreign PR reads foreign; a failed prState reads foreign with the PR read unknown, never open or unknown state; a foreign line with no arrow asks nothing; a branch with two references, one open, reads foreign -->
+- `bug/a-foreign-slice-reads-its-own-pr` — the walk resolves a foreign slice's `→ owner/repo#N` through the rule `deliverabilityOf` uses, and a merged foreign branch reads `merged` <!-- builds: crossRepoMergeState, one rule for a branch's cross-repo references --> <!-- tests: first run the reporter's fixture against main and record what still differs — a plan with a local slice naming PR 16 and foreign slices naming ws/portal PR 31 and ws/apps-infra PR 176, both merged; on the branch the fixture reads all three `merged`, the second wave eligible, and the walk and deliverabilityOf agree; a not-merged foreign PR reads foreign; a failed prState reads foreign with the PR read unknown, never open or unknown state; a foreign line with no arrow asks nothing; a branch with two references, one open, reads foreign --> → #3767
 
 ## Notes
 
