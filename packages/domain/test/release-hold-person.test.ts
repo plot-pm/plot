@@ -7,7 +7,7 @@ import { releaseHoldPersonAt } from '../src/adapters/release-hold-person/release
 import type { DefaultBranchReading } from '../src/entities/default-branch.js';
 import type { Pr } from '../src/entities/pr.js';
 import type { PrIndexRow } from '../src/entities/pr-index.js';
-import type { ReleaseHoldPersonRecord } from '../src/entities/release-hold-person.js';
+import { decodeReleaseHoldPerson, type ReleaseHoldPersonRecord } from '../src/entities/release-hold-person.js';
 import { answered, failed } from '../src/port-result.js';
 import type { ReleaseHoldPersonStore } from '../src/ports/release-hold-person.js';
 import {
@@ -153,6 +153,24 @@ describe('releasePersonHold', () => {
     const two = [releaseRow({ number: 3800, base: 'sprint/x', head: 'changeset-release/sprint/x' }), releaseRow()];
     expect(releaseRowOf(two, 'main')?.number).toBe(3719);
     expect(releasePersonHold(two, hold(), 'main', T + 1, WAIT)).toMatchObject({ holds: true, pr: 3719 });
+  });
+
+  it('picks the highest number of two release rows into the default branch, and none for an unread name', () => {
+    const low = releaseRow({ number: 3700 });
+    const high = releaseRow({ number: 3719 });
+    expect(releaseRowOf([low, high], 'main')?.number).toBe(3719);
+    expect(releaseRowOf([high, low], 'main')?.number).toBe(3719);
+    expect(releaseRowOf([high], 'unaskable')).toBeNull();
+    expect(releaseRowOf([high], '')).toBeNull();
+    expect(releaseRowOf([high], undefined)).toBeNull();
+  });
+
+  it('decodes a record and refuses empty, unparseable and foreign text', () => {
+    const record = hold();
+    expect(decodeReleaseHoldPerson(JSON.stringify(record))).toEqual(record);
+    expect(decodeReleaseHoldPerson('  ')).toBeNull();
+    expect(decodeReleaseHoldPerson('{not json')).toBeNull();
+    expect(decodeReleaseHoldPerson(JSON.stringify({ ...record, v: 99 }))).toBeNull();
   });
 });
 
