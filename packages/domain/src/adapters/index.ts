@@ -349,3 +349,7 @@ export { deskFs } from './desk/desk-fs.js';
 export { deskFixture, deskFixtureCalls, type DeskFixture, type DeskFixtureCalls } from './desk/desk-fixture.js';
 
 export { processExec, type ExecveHost } from './reexec/process-exec.js';
+
+// THE PERSON HOLD'S FILE ADAPTER. One file under `.plot/state/`, local to the
+// machine, written by the release-hold and release-hold-lift controllers only.
+export { releaseHoldPersonAt, releaseHoldPersonFile, releaseHoldPersonPath } from './release-hold-person/release-hold-person-file.js';
