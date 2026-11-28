@@ -21,6 +21,7 @@ import { callerOf } from '@plot-pm/domain/workflows/decision';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 import { mergeAt, nameRepairPrAt } from './merge.js';
 import { releaseApproveAt } from './release-approve.js';
+import { holdWho, releaseHoldAt, releaseHoldLiftAt, releaseHoldPortsFor } from './release-hold.js';
 import { finishContextFor, mergePortsFor, versionFinishContextFor } from './merge-ports.js';
 import { finishExitCode, finishRelease, finishReleaseVersion, releaseVersionArg } from './release-finish.js';
 import { recordActionReceipt } from '../action-receipt.js';
@@ -42,6 +43,8 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
  * node skills/plot/scripts/board/plot-ask.mjs release-approve <pr> <sha>
  * node skills/plot/scripts/board/plot-ask.mjs release-finish <version>
  * node skills/plot/scripts/board/plot-ask.mjs repair-pr <pr>
+ * node skills/plot/scripts/board/plot-ask.mjs release-hold <sha> [--who <name>]
+ * node skills/plot/scripts/board/plot-ask.mjs release-hold-lift <sha> [--who <name>]
  * node skills/plot/scripts/board/plot-ask.mjs spike <slug> [<plan-file>]
  * node skills/plot/scripts/board/plot-ask.mjs spawner [pid] [--lines]
  * node skills/plot/scripts/board/plot-ask.mjs desk-states <desk>...
@@ -77,6 +80,12 @@ import { treesGit } from '@plot-pm/domain/adapters/trees/trees-git';
  * {@link nameRepairPrAt}, and prints one JSON line; it exits 0 when the record
  * names the PR and 1 on a refusal. A person runs it: `PLOT_UNATTENDED=1` maps
  * to the `unattended` caller, which refuses before any read.
+ *
+ * **`release-hold` and `release-hold-lift` ARE WRITES OF THE SAME SHAPE.** They
+ * write the person hold of the open release PR into the default branch to
+ * `.plot/state/release-hold-person.json`, through {@link releaseHoldAt} and
+ * {@link releaseHoldLiftAt}, and print one JSON line; each exits 0 on a write
+ * and 1 on a refusal. `PLOT_UNATTENDED=1` refuses before any read.
  *
  * **`spike` answers one line of words, not JSON.** It reads a plan through the
  * plan store and answers `licensedSpike` over that one record: `licensed <branch> <date>`
@@ -345,6 +354,20 @@ export const run = async (
       (s) => process.stderr.write(s),
     );
     return finishExitCode(outcome);
+  }
+
+  if (argv[0] === 'release-hold' || argv[0] === 'release-hold-lift') {
+    const [act, sha, flag, name] = argv;
+    const whoOk = argv.length === 2 || (argv.length === 4 && flag === '--who' && name !== undefined && name !== '');
+    if (!sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !whoOk) {
+      process.stderr.write(`usage: plot-ask.mjs ${act} <sha> [--who <name>]\n`);
+      return 2;
+    }
+    const { opts } = contextFrom(here);
+    const ports = await releaseHoldPortsFor(opts, callerOf({ unattended: process.env.PLOT_UNATTENDED === '1' }), holdWho(name));
+    const result = act === 'release-hold' ? await releaseHoldAt(ports, sha) : await releaseHoldLiftAt(ports, sha);
+    write(`${JSON.stringify(result)}\n`);
+    return result.ok ? 0 : 1;
   }
 
   if (argv[0] === 'repair-pr') {

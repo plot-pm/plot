@@ -37,6 +37,7 @@ import { handleRelease, releaseStatus } from './release.js';
 import { handleNeedsDesign } from './needs-design.js';
 import { handleSupersede } from './supersede.js';
 import { handleReleaseFinish } from './release-finish-route.js';
+import { handleReleaseHold, handleReleaseHoldLift } from './release-hold-route.js';
 import { handleStoryStatus } from './story-status.js';
 import { handleIdea, ideaStatus, readIssue } from './idea.js';
 import { handleStory, storyStatus } from './story.js';
@@ -321,6 +322,11 @@ async function handleRequest(
     // closes its sprint, by version. In-process and awaited, like
     // /api/supersede. No passkey: the finish writes one revertible commit.
     { path: '/api/release-finish', verb: 'finishing a release', handle: handleReleaseFinish },
+    // POST /api/release-hold and /api/release-hold-lift — a person holds every
+    // merge into the default branch while approving a release, or lifts it.
+    // In-process and awaited. fleetd reads the file and never writes it.
+    { path: '/api/release-hold', verb: 'holding merges for a release', handle: handleReleaseHold },
+    { path: '/api/release-hold-lift', verb: 'lifting a release hold', handle: handleReleaseHoldLift },
     // POST /api/passkey/challenge and /api/passkey/register — the two halves of
     // the passkey the approval above needs. A challenge is single-use and
     // bound to one subject; registration keeps the first credential.
