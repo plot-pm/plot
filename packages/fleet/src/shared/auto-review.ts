@@ -7,6 +7,7 @@ import {
   repairAdmits,
   REVIEW_START_BUDGET,
   reviewPrNext,
+  reviewPendingStale,
   reviewRunLive,
   type DefaultBranchReading,
   type FixerReading,
@@ -424,6 +425,31 @@ export const reviewEndedLine = (pid: number, pr: number, boundMs: number): strin
   `plot-review: run ${pid} on PR #${pr} passed the ${Math.round(boundMs / 1000)}s bound; ended`;
 
 /**
+ * The `slice-review.log` line for a stale pending `plot/review` the pass starts no review for.
+ *
+ * @param pr - the PR number.
+ * @param since - the row's `plotReviewAt`.
+ * @param reason - the arm's answer: `why` of a `none` step or `reason` of a `hold` step.
+ * @returns the line, without its newline.
+ */
+export const reviewHeldLine = (pr: number, since: string, reason: string): string =>
+  `plot-review: PR #${pr} pending since ${since}; held: ${reason}`;
+
+/**
+ * The held line for one tick result, or `null`: a line only where the row's
+ * review is a stale pending ({@link reviewPendingStale}) and the step is a
+ * `none` or a `hold`, once per PR and head for as long as `logged` lives.
+ */
+const heldLine = (row: PrIndexRow, step: SlicePrStep, logged: Set<string>, now: number, boundMs: number): string | null => {
+  if (step.step !== 'none' && step.step !== 'hold') return null;
+  if (row.plotReviewAt === undefined || !reviewPendingStale(row, now, boundMs)) return null;
+  const key = `held:${row.number}:${row.headSha}`;
+  if (logged.has(key)) return null;
+  logged.add(key);
+  return reviewHeldLine(row.number, row.plotReviewAt, step.step === 'none' ? step.why : step.reason);
+};
+
+/**
  * Runs the review tick on the daemon's loop.
  *
  * With `Auto-review` off it reads nothing and starts nothing. Otherwise it
@@ -433,11 +459,13 @@ export const reviewEndedLine = (pid: number, pr: number, boundMs: number): strin
  * {@link REVIEW_RUN_LIMIT} live runs. A head whose review run lock a live pid
  * holds inside {@link REVIEW_BOUND_MS} gets no start. A run past that bound
  * whose pid answers is ended through `world.endRun` before the start, and one
- * line per ended run goes to `slice-review.log`. Each start and refusal is
+ * line per ended run goes to `slice-review.log`. A stale pending `plot/review`
+ * that gets no start writes one {@link reviewHeldLine} there per PR and head.
+ * Each start and refusal is
  * written to the run log; a refusal once per PR, head and reason.
  *
  * @param opts - where the fleet acts.
- * @param logged - the refusals already logged, kept by the caller for the daemon's life.
+ * @param logged - the refusals and held heads already logged, kept by the caller for the daemon's life.
  * @param now - epoch milliseconds.
  * @param world - the ports the pass reads and starts through.
  * @param read - reads the rows and readings; {@link readReviewPass} by default.
@@ -475,8 +503,10 @@ export const runAutoReviewPass = async (
     reviewLockHolder(world, opts, lockSeen, now),
     world.endRun,
   );
-  for (const result of results) {
+  for (const [index, result] of results.entries()) {
     for (const pid of result.ended ?? []) fs.appendFileSync(logFile, `${reviewEndedLine(pid, result.pr, REVIEW_BOUND_MS)}\n`);
+    const held = heldLine(reading.rows[index]!, result.step, logged, now, reading.readings.config.reviewBoundMs);
+    if (held !== null) fs.appendFileSync(logFile, `${held}\n`);
   }
   for (const [index, result] of results.entries()) {
     await logReviewStart(opts, reading.rows[index]!, result, logged, now);
