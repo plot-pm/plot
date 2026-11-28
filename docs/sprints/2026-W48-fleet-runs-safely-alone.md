@@ -43,7 +43,7 @@ In the week of 2026-11-23 a person repaired the fleet by hand again and again: r
 
 <!-- add items here -->
 - [ ] [#3750](https://github.com/plot-pm/plot/issues/3750) A release can be approved on a board reached through its tailnet origin, or the button says why not
-- [ ] [a-foreign-slice-reads-its-own-pr] A foreign slice reads its own PR (#3762) <!-- pr: #3763, branch: bug/a-foreign-slice-reads-its-own-pr -->
+- [x] [a-foreign-slice-reads-its-own-pr] A foreign slice reads its own PR (#3762) <!-- pr: #3763, branch: bug/a-foreign-slice-reads-its-own-pr -->
 
 ### Could Have
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** fleet-runs-safely-alone
 - **Issue:** #3762
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-11-28, jwloka, plan-PR #3763 merged
 - **Started:** 2026-11-28, Jan Wloka, `bug/a-foreign-slice-reads-its-own-pr`
+- **Delivered:** 2026-11-28
 
 ## Changelog
 
