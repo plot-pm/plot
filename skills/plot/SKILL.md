@@ -339,6 +339,8 @@ The backticked branch keeps the same claim-line shape every slice uses, read ide
 
 **Before the foreign PR exists, name the branch with no arrow at all.** `deliverabilityOf` asks `prMerged(branch)` **in this repository** for any backticked branch carrying no `→ owner/repo#N` reference — right for a same-repo slice, wrong for a foreign one. So a foreign branch named with an arrow before its PR exists is checked against the wrong host. Write the bare branch first, then add `→ owner/repo#N` the moment the foreign PR opens — the same "push the first real commit, open the PR, append `→ #N`" discipline every same-repo slice already follows.
 
+**The pulse reads an arrowed foreign slice from its own repository's host.** The fleet scan asks that host once per scan for the PR `→ owner/repo#N` names. The slice reads `merged` where that PR merged, so its wave can complete; `foreign` where the PR is open or closed, or where the line has no arrow; and `unknown` where that host cannot answer. The fleet never claims or dispatches a foreign slice, in any of these states.
+
 **`owner/repo@branch` is not a form.** `@` already names a commit in another repository (above); a second meaning for `@` would make that line ambiguous. A foreign branch without a PR yet stays bare — no arrow, not `@branch`.
 
 ## Troubleshooting
