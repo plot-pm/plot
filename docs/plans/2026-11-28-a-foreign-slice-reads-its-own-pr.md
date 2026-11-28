@@ -57,4 +57,4 @@ Three differences remain on main:
 
 Created on 2026-11-28 from issue #3762, for the sprint fleet-runs-safely-alone.
 
-2026-11-28: #3765 (`bug/foreign-slice-counts-merged`, merged as `93804f5b3`) built this slice outside the fleet; the fleet's PR #3767 on `bug/a-foreign-slice-reads-its-own-pr` was closed unmerged.
+2026-11-28: #3765 (`bug/foreign-slice-counts-merged`, merged as `93804f5b3`) built this slice outside the fleet; the fleet's own pull request on `bug/a-foreign-slice-reads-its-own-pr` was closed unmerged.
