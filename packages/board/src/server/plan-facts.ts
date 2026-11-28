@@ -45,7 +45,7 @@ export interface PlanFactsExtras {
 }
 
 const NO_RECORDS: PlanRecordsReading = {
-  designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '',
+  designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw: '',
 };
 
 /**

@@ -47,7 +47,7 @@ const APP_KEYS = card({
   facts: planFactsOf(card(APP_KEYS_INPUT), {
     state: stateFor(APP_KEYS_INPUT),
     records: {
-      designRaw: '', approvedRaw: '', deliveredRaw: '', releasedRaw: '',
+      designRaw: '', approvedRaw: '', deliveredRaw: '', releasedRaw: '', supersededRaw: '',
       startedRaw: '2026-11-06, Jan Wloka, feature/app-keys-resolve-from-one-folder',
     },
     directory: { 'jan wloka': 'jwloka' },
@@ -76,6 +76,27 @@ const MANY = card({
       ],
     },
   },
+});
+
+/** An Approved plan offering Supersede, and a plan Superseded by one in another repository. */
+const REPLACED_INPUT = {
+  slug: 'replaced', title: 'A plan to replace', phase: 'Development', status: 'approved', started: false,
+  path: 'docs/plans/2026-11-06-replaced.md',
+} satisfies Parameters<typeof card>[0];
+const REPLACED = card({ ...REPLACED_INPUT, facts: planFactsOf(card(REPLACED_INPUT), { state: stateFor(REPLACED_INPUT) }) });
+const GONE_INPUT = {
+  slug: 'gone', title: 'A plan another repository replaced', phase: 'Released', status: 'withdrawn',
+  path: 'docs/plans/2026-11-06-gone.md',
+} satisfies Parameters<typeof card>[0];
+const GONE = card({
+  ...GONE_INPUT,
+  facts: planFactsOf(card(GONE_INPUT), {
+    state: 'superseded',
+    records: {
+      designRaw: '', approvedRaw: '', startedRaw: '', deliveredRaw: '', releasedRaw: '',
+      supersededRaw: '2026-11-27, by `owner/repo:next` (unverified)',
+    },
+  }),
 });
 
 describe('a plan card renders the card grammar', () => {
@@ -518,6 +539,44 @@ describe('a plan card renders the card grammar', () => {
       const label = await approve.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height }));
       expect(label.scroll).toBeLessThanOrEqual(label.client);
       expect(label.height).toBeLessThanOrEqual(30);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('the Supersede dialog accepts owner/repo:slug, and a superseded card names its successor unverified', async () => {
+    const posts: unknown[] = [];
+    const page = await cat.open('an-empty-estate', {
+      route: {
+        '**/api/supersede': (route: Route) => {
+          posts.push(route.request().postDataJSON());
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ summary: 'summary: phase=flipped' }) });
+        },
+      },
+      over: {
+        board: board({
+          columns: [column({ phase: 'Development', cards: [REPLACED] }), column({ phase: 'Released', cards: [GONE] })],
+          dispatch: { available: true, reason: '' },
+          approve: { available: true, reason: '' },
+        }),
+      },
+      tab: 'board',
+      viewport: { width: 1400, height: 1200 },
+    });
+    try {
+      await page.locator('#plan-replaced').waitFor({ timeout: 10_000 });
+      await page.locator('[data-supersede="replaced"]').click();
+      await page.locator('[data-supersede-by="replaced"]').fill(' owner/repo:next ');
+      const submit = page.locator('[data-supersede-submit="replaced"]');
+      expect(await submit.getAttribute('aria-disabled')).toBeNull();
+      await submit.click();
+      await expect.poll(() => posts.length, { timeout: 5_000 }).toBe(1);
+      expect(posts[0]).toEqual({ slug: 'replaced', by: 'owner/repo:next' });
+      // A malformed reference is refused in the dialog, before the route is asked.
+      await page.locator('[data-supersede="replaced"]').click();
+      await page.locator('[data-supersede-by="replaced"]').fill('owner/repo:');
+      expect(await submit.getAttribute('aria-disabled')).toBe('true');
+      expect(await page.locator('#plan-gone [data-section="status"]').innerText()).toContain('superseded by owner/repo:next · unverified');
     } finally {
       await page.close();
     }

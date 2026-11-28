@@ -163,7 +163,7 @@ export const successorCandidates = (slug: string, slugs: readonly string[]): rea
 
 /** Whether a typed successor can be submitted, and why not. */
 export interface SuccessorEntry {
-  /** The slug to submit, trimmed. */
+  /** The successor to submit, trimmed: a slug, or `owner/repo:slug`. */
   readonly by: string;
   /** Whether the entry can be submitted. */
   readonly ready: boolean;
@@ -172,18 +172,25 @@ export interface SuccessorEntry {
 }
 
 /**
- * Reads what a person typed as a plan's successor.
+ * Reads what a person typed as a plan's successor, through {@link successorReference}.
  *
- * An empty entry is not ready, and neither is the plan's own slug. Whether
- * the successor has a plan file is the controller's reading, not this one.
+ * An empty entry is not ready, and neither is an entry that parses as neither
+ * a slug nor `owner/repo:slug`, nor the plan's own bare slug. A reference to
+ * another repository is ready whatever its slug. Whether the successor has a
+ * plan file, and whether `owner/repo` names this repository, are the
+ * controller's readings, not this one.
  *
  * @param slug - the plan to supersede.
  * @param typed - the text the person entered.
- * @returns the trimmed slug, and whether and why not it can be submitted.
+ * @returns the trimmed successor, and whether and why not it can be submitted.
  */
 export const successorEntry = (slug: string, typed: string): SuccessorEntry => {
   const by = typed.trim();
   if (by === '') return { by, ready: false, reason: 'name the successor plan first' };
-  if (by === slug) return { by, ready: false, reason: 'a plan cannot supersede itself' };
+  const reference = successorReference(by);
+  if (reference === 'unparsed') {
+    return { by, ready: false, reason: "give a plan slug, or 'owner/repo:slug' for a plan in another repository" };
+  }
+  if (reference.repo === '' && reference.slug === slug) return { by, ready: false, reason: 'a plan cannot supersede itself' };
   return { by, ready: true, reason: null };
 };

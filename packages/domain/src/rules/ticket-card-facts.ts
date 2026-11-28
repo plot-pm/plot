@@ -124,6 +124,7 @@ export const ticketCardFacts = (readings: TicketCardFactsReadings, directory: Pe
       prs: { value: [] },
       design: null,
       verification: null,
+      successor: null,
       cost: { value: { tokens: null, measured: 0, absent: 0, unreadable: 0, fromRuns: 0, slices: 0 } },
     },
     next,

@@ -5,8 +5,10 @@ import type { Card } from '../../contract/schema.js';
 /**
  * *Supersede* — a person marks a plan Superseded by the plan that replaces it.
  *
- * The first click opens a field for the successor's slug, with the board's
- * other plans offered as suggestions. *Supersede* posts
+ * The first click opens a field for the successor: a slug, with the board's
+ * other plans offered as suggestions, or `owner/repo:slug` for a plan in
+ * another repository. `successorEntry` decides whether the entry can be
+ * submitted. *Supersede* posts
  * `{ slug, by }` to `POST /api/supersede`, which books the move and answers
  * with its summary or its refusal. A refusal shows its text under the field.
  *
@@ -107,7 +109,7 @@ export const SupersedeButton = ({ card, planSlugs = [], onActing }: SupersedeBut
           disabled={running}
           onChange={(e) => setState({ kind: 'asking', by: e.target.value })}
           onKeyDown={(e) => { if (e.key === 'Escape') setState({ kind: 'idle' }); }}
-          placeholder="successor slug"
+          placeholder="slug or owner/repo:slug"
           className="ml-1 w-48 rounded-sm border border-slate-300 bg-white px-1 py-0.5 text-xs dark:border-slate-600 dark:bg-slate-900"
         />
       </label>

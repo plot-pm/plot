@@ -633,7 +633,7 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     .filter((r) => !(r === 'stories' || r === 'sprints') || !hide.has(r))
     .flatMap((r) => relationParts(r, lineage[r], facts)));
 
-  const { work, prs, design, verification, cost } = progress;
+  const { work, prs, design, verification, successor, cost } = progress;
   let workPart: Extract<Part, { kind: 'work' }> | null = null;
   if (work !== null) {
     const unit = work.total === 1 ? work.unit.slice(0, -1) : work.unit;
@@ -649,6 +649,16 @@ export const presentCard = (facts: CardFacts, board: CardBoard, options: Present
     signals.push(one(design.rounds === null
       ? piece('not interrogated', { tone: 'muted', detail: 'No Rounds: field — nobody has interrogated this plan', data: { rounds: 'absent' } })
       : piece(plural(design.rounds, 'round'), { detail: `Interrogated: ${plural(design.rounds, 'round')} recorded in the plan`, data: { rounds: 'recorded' } })));
+  }
+  if (successor !== null) {
+    const { id: name, unverified } = successor;
+    signals.push(one(piece(unverified ? `superseded by ${name} · unverified` : `superseded by ${name}`, {
+      tone: 'muted',
+      detail: unverified
+        ? `Superseded by ${name}, a plan in another repository; the board read no plan file for it`
+        : `Superseded by ${name}`,
+      data: { successor: unverified ? 'unverified' : 'recorded' },
+    })));
   }
   if (verification !== null && verification.state === 'refuted' && verification.refuted > 0) {
     signals.push(one(piece(`${verification.refuted} refuted`, {

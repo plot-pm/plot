@@ -8,6 +8,7 @@ import type {
   Known,
   Reason,
   Ref,
+  SuccessorFact,
   VerificationReading,
 } from '../entities/card-facts.js';
 import { resolvePerson, type PersonDirectory } from '../entities/person.js';
@@ -15,6 +16,7 @@ import type { SprintState } from '../entities/sprint.js';
 import type { StoryStatus } from '../entities/story.js';
 import type { CardControls } from './card-controls.js';
 import { PlanTypeSchema, type PlanStatus } from './phase.js';
+import { successorName, successorReference } from './supersede-successor.js';
 
 /** A branch of the plan, and the pull request the host reports for it. */
 export interface PlanSliceBranch {
@@ -64,6 +66,7 @@ export interface PlanRecordsReading {
   startedRaw: string;
   deliveredRaw: string;
   releasedRaw: string;
+  supersededRaw: string;
 }
 
 /** What `planCardFacts` reads of one plan. */
@@ -134,6 +137,30 @@ const newestStart = (startedRaw: string): { who: string; at: string } | null =>
     const start = { at: match[1] as string, who: (match[2] as string).trim() };
     return newest === null || start.at >= newest.at ? start : newest;
   }, null);
+
+/** The successor a `Superseded:` record names between backticks after `by`. */
+const SUPERSEDED_BY = /\bby\s+`([^`]*)`/;
+
+/**
+ * The successor a plan's `Superseded:` record names.
+ *
+ * The record reads `<date>, by \`<name>\``, with ` (unverified)` after a
+ * successor in another repository. The name is read through
+ * `successorReference`; a record whose name does not parse is shown verbatim.
+ *
+ * @param supersededRaw - the plan's `Superseded:` value, verbatim.
+ * @returns the successor, or `null` where the plan has no `Superseded:` record.
+ */
+const successorOf = (supersededRaw: string): SuccessorFact | null => {
+  const record = supersededRaw.trim();
+  if (record === '') return null;
+  const named = SUPERSEDED_BY.exec(record);
+  const reference = named === null ? 'unparsed' : successorReference(named[1] as string);
+  return {
+    id: reference === 'unparsed' ? record : successorName(reference),
+    unverified: /\(unverified\)/.test(record.slice(named === null ? 0 : named.index + named[0].length)),
+  };
+};
 
 const enabled = (action: ActionKind): Action => ({ action, enabled: true, reason: null });
 const disabled = (action: ActionKind, reason: Reason): Action => ({ action, enabled: false, reason });
@@ -245,7 +272,9 @@ const nextOf = (readings: PlanCardFactsReadings): CardFacts['next'] => {
  * newest dated record (`transitioned`), else the plan file's date prefix
  * (`opened`). `identity.key` is the plan's first issue key, and `lineage.tickets`
  * holds every key the plan names, each a ticket ref with no lane: the plan card
- * reads the plan's `Issue:` field, not the tickets.
+ * reads the plan's `Issue:` field, not the tickets. `progress.successor` is the
+ * plan the `Superseded:` record names, `unverified` where the record says so,
+ * and `null` where the plan has no such record.
  *
  * @param readings - the plan's fields, controls and readings, as the board build holds them.
  * @param directory - the declared `People` spellings; `{}` where none is declared.
@@ -265,6 +294,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
   const state = PlanStateSchema.safeParse(readings.state.trim().toLowerCase());
   const transitioned = newestDate([
     records.designRaw, records.approvedRaw, records.startedRaw, records.deliveredRaw, records.releasedRaw,
+    records.supersededRaw,
   ]);
   const opened = readings.path.slice(readings.path.lastIndexOf('/') + 1).match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
   const since: CardFacts['ownership']['since'] = transitioned !== ''
@@ -306,6 +336,7 @@ export const planCardFacts = (readings: PlanCardFactsReadings, directory: Person
         }
         : null,
       verification: readings.verification,
+      successor: successorOf(records.supersededRaw),
       cost: readings.cost ?? { value: { tokens: null, measured: 0, absent: 0, unreadable: 0, fromRuns: 0, slices: 0 } },
     },
     next: nextOf(readings),

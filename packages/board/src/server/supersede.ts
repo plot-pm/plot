@@ -48,13 +48,16 @@ export const refusalStatus = (reason: SupersedeRefusalReason): number => {
 };
 
 /**
- * Handles `POST /api/supersede {"slug":"<slug>","by":"<successor-slug>"}`.
+ * Handles `POST /api/supersede {"slug":"<slug>","by":"<successor>"}`, where
+ * the successor is a slug or `owner/repo:slug`.
  *
- * Runs `supersedePlan` in this process and waits for it: the booking push is
- * part of the answer. Answers 200 with the `summary:` line where the plan is
- * Superseded, and the refusal's status from {@link refusalStatus} with
- * `{ reason, error }` otherwise. Answers 403 for a cross-origin request and
- * 400 for a body without two valid slugs.
+ * Runs `supersedePlan` in this process with `by` trimmed, and waits for it:
+ * the booking push is part of the answer. The controller parses `by`, so a
+ * string that names neither form answers 422 `successor-unparsed`. Answers 200
+ * with the `summary:` line where the plan is Superseded, and the refusal's
+ * status from {@link refusalStatus} with `{ reason, error }` otherwise.
+ * Answers 403 for a cross-origin request, and 400 for a body whose `slug` is
+ * not a plan slug or whose `by` is not a string.
  *
  * @param req - the request.
  * @param res - the response.
@@ -89,8 +92,8 @@ export const handleSupersede = async (
     json(400, { error: 'slug must be a plan slug' });
     return;
   }
-  if (typeof by !== 'string' || !SLUG_RE.test(by)) {
-    json(400, { error: 'by must name the successor plan by its slug' });
+  if (typeof by !== 'string') {
+    json(400, { error: "by must name the successor plan: a slug, or 'owner/repo:slug'" });
     return;
   }
   const whoRaw = (body as { who?: unknown })?.who;
@@ -99,13 +102,13 @@ export const handleSupersede = async (
   const steps: string[] = [];
   const outcome = await supersedePlan(
     opts.context ?? supersessionContext(opts.repoRoot, opts.scriptsDir),
-    { slug, by, who },
+    { slug, by: by.trim(), who },
     (line) => steps.push(line),
     opts.env ?? process.env,
   );
   if (outcome.outcome === 'superseded') {
-    json(200, { slug, by, summary: outcome.summary, steps: steps.join('') });
+    json(200, { slug, by: by.trim(), summary: outcome.summary, steps: steps.join('') });
     return;
   }
-  json(refusalStatus(outcome.reason), { slug, by, reason: outcome.reason, error: outcome.detail });
+  json(refusalStatus(outcome.reason), { slug, by: by.trim(), reason: outcome.reason, error: outcome.detail });
 };
