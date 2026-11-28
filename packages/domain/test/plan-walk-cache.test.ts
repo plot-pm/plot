@@ -8,6 +8,8 @@ import {
   cachedPlanMetas,
   cachedPlans,
   cachedRefs,
+  FOREIGN_PR_REFRESH_MS,
+  foreignPrMemo,
   freshWalkCache,
   readRefSnapshot,
   snapshotOf,
@@ -542,5 +544,27 @@ describe('a plan is parsed once per content', () => {
     const files = [file('a.md', oid(1))];
     expect(await cachedPlanMetas(cache, files, 'k', () => Promise.resolve(null))).toBeNull();
     expect(cache.planMetas.size()).toBe(0);
+  });
+});
+
+describe('foreignPrMemo — foreign PR answers held across walks (#3762)', () => {
+  it('holds a merged answer for good and any other answer for the refresh interval', () => {
+    const memo = foreignPrMemo();
+    memo.set('o/r#1', 'MERGED', 0);
+    memo.set('o/r#2', 'OPEN', 0);
+    memo.set('o/r#3', 'unreadable', 0);
+    expect(memo.get('o/r#1', 10 * FOREIGN_PR_REFRESH_MS)).toBe('MERGED');
+    expect(memo.get('o/r#2', FOREIGN_PR_REFRESH_MS - 1)).toBe('OPEN');
+    expect(memo.get('o/r#2', FOREIGN_PR_REFRESH_MS)).toBeUndefined();
+    expect(memo.get('o/r#3', FOREIGN_PR_REFRESH_MS)).toBeUndefined();
+    expect(memo.get('o/r#4', 0)).toBeUndefined();
+  });
+
+  it('takes its interval as an argument, and a fresh walk cache holds an empty one', () => {
+    const memo = foreignPrMemo(10);
+    memo.set('o/r#2', 'OPEN', 0);
+    expect(memo.get('o/r#2', 9)).toBe('OPEN');
+    expect(memo.get('o/r#2', 10)).toBeUndefined();
+    expect(freshWalkCache().foreignPrs.get('o/r#2', 0)).toBeUndefined();
   });
 });

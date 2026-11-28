@@ -11,6 +11,7 @@ import { branchState } from '../src/rules/branch-state.js';
 import { allSlicesConfirmed, deliveryLanding } from '../src/rules/deliverable.js';
 import { FleetReadingSchema } from '../src/entities/fleet.js';
 import { readCarriedPrStates } from '../src/rules/scan-listing.js';
+import { foreignPrMemo } from '../src/workflows/plan-walk-cache.js';
 import { mergeWalkLimit, readBranchConflicts, readBranchReadings, stageMergeDetect, type BranchStageInput, type BranchStageReadings } from '../src/workflows/plan-walk-branches.js';
 import { assemblePlanWalk, fleetReading } from '../src/workflows/plan-walk-assembly.js';
 import type { Estate } from '../src/workflows/plan-walk-estate.js';
@@ -1072,6 +1073,28 @@ describe('readBranchReadings — a slice placed in another repository reads fore
     expect(asked).toEqual([]);
     expect(stage.branches[0]!.readings.foreignPr).toBeUndefined();
     expect(pulse.plans[0]!.slices[0]!.branches[0]!.state).toBe('foreign');
+  });
+
+  it('asks a foreign host through a held memo without askAbsent, and never offline or with no host (#3762)', async () => {
+    const estate = twoSlices(line(FOREIGN, { line: arrowed }), line('feature/next'));
+    const stageOf = async (host: Host, over: Partial<BranchStageInput>) => {
+      const answer = await readBranchReadings(world({ merges: [] }), host, estate, { ...INPUT, ...over });
+      if (!isAnswered(answer)) throw new Error('readBranchReadings should answer');
+      return answer.value.branches[0]!.readings;
+    };
+    const held = asking([12]);
+    const memo = foreignPrMemo();
+    expect((await stageOf(held.host, { foreignPrs: memo, nowMs: 1 })).foreignPr).toBe('MERGED');
+    expect((await stageOf(held.host, { foreignPrs: memo, nowMs: 2 })).foreignPr).toBe('MERGED');
+    expect(held.asked).toEqual([{ ref: 12, repo: 'other/repo' }]);
+    const offline = asking([12]);
+    expect((await stageOf(offline.host, { foreignPrs: foreignPrMemo(), offline: true })).foreignPr).toBeUndefined();
+    const none = asking([12]);
+    expect((await stageOf({ ...none.host, backend: async () => answered('none' as never) }, { foreignPrs: foreignPrMemo() })).foreignPr).toBeUndefined();
+    expect([...offline.asked, ...none.asked]).toEqual([]);
+    const unlicensed = asking([12]);
+    expect((await stageOf(unlicensed.host, {})).foreignPr).toBeUndefined();
+    expect(unlicensed.asked).toEqual([]);
   });
 
   it('asks the foreign host once per scan for a branch and the waiter that names it (#3762)', async () => {
