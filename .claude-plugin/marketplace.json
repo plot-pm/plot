@@ -9,11 +9,11 @@
     {
       "name": "plot",
       "description": "Git-native planning workflow for software development: idea, approve, deliver, release",
-      "version": "2.37.0",
+      "version": "2.38.0",
       "source": {
         "source": "url",
         "url": "https://github.com/plot-pm/plot.git",
-        "ref": "v2.37.0"
+        "ref": "v2.38.0"
       },
       "author": {
         "name": "Max Albrecht",
