@@ -667,8 +667,8 @@ export interface ReleaseGroupOf {
   rows: Record<string, AgentRow>;
   /** Each release row's PR reading, by work item id, for `releaseStatusLine`. */
   prReading: Record<string, ReleasePrReading | null>;
-  /** The person hold of a release; `null` where the payload carried none. */
-  hold: ReleaseHoldView | null;
+  /** The person hold of a release; `null` or absent where the payload carried none. */
+  hold?: ReleaseHoldView | null;
 }
 
 /**

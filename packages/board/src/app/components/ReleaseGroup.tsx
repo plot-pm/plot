@@ -21,7 +21,8 @@ const noTicket = () => undefined;
  * again after every click.
  */
 export const ReleaseGroup = ({ view }: { view: ReleaseGroupOf }) => {
-  const { group, rows, prReading, hold } = view;
+  const { group, rows, prReading } = view;
+  const hold = view.hold ?? null;
   const origin = typeof location === 'undefined' ? '' : location.origin;
   const [passkey, setPasskey] = useState<PasskeyRegistration | null>(null);
   const reread = useCallback(() => { void readRegistration().then(setPasskey); }, []);
