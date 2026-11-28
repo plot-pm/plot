@@ -13,6 +13,7 @@
 - **Approved:** 2026-11-27, jwloka, plan-PR #3740 merged
 - **Started:** 2026-11-27, Jan Wloka, `bug/a-waiting-release-holds-merges`
 - **Started:** 2026-11-28, Jan Wloka, `bug/a-release-holds-merges-on-its-own`
+- **Started:** 2026-11-28, Jan Wloka, `bug/a-person-holds-merges-for-a-release`
 
 ## Changelog
 
