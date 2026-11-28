@@ -47,6 +47,12 @@ describe('the path work takes', () => {
     expect(isDecision(result) && result.landed).toBe(true);
   });
 
+  it('lets a foreign branch read merged once its own host merged it, or unknown when that host cannot say (#3762)', () => {
+    expect(isDecision(move('foreign', 'merged'))).toBe(true);
+    expect(isDecision(move('foreign', 'unknown'))).toBe(true);
+    expect(isDecision(move('unknown', 'foreign'))).toBe(true);
+  });
+
   it('lets an unknown branch become anything a reading can produce', () => {
     for (const to of ['open', 'claimed', 'wip', 'merged', 'deferred'] as const) {
       expect(isDecision(move('unknown', to))).toBe(true);

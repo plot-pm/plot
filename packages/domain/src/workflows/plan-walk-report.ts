@@ -76,7 +76,9 @@ const branchNote = (branch: AssembledBranch, hostWord: string): string => {
     case 'wip':
       return 'in progress';
     case 'unknown':
-      return `unknown — PR could not be read (${hostWord} host)`;
+      return branch.foreignRepo === ''
+        ? `unknown — PR could not be read (${hostWord} host)`
+        : `unknown — its PR in ${branch.foreignRepo} could not be read`;
     default:
       return 'open';
   }

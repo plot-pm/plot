@@ -135,6 +135,12 @@ export interface BranchReadings {
    * repository. A statement of the plan, and it outranks every git reading.
    */
   foreignRepo?: string | null;
+  /**
+   * What the host of `foreignRepo` said about the PR the slice line's arrow
+   * names (`→ owner/repo#N`); absent where no question was put — a line with
+   * no arrow, or a stage that may not ask. Read only where `foreignRepo` is set.
+   */
+  foreignPr?: PrReading;
   /** The remote ref's object id, or `null` when no remote ref exists. */
   refTip: string | null;
   /** The default branch's remote object id, or `null` when it cannot be read. */
@@ -382,8 +388,10 @@ const ownState = (readings: BranchReadings): BranchState => {
  * 1. **A plan's `deferred:` beats everything git says.** Somebody gave the
  *    branch up. It is a decision, not a measurement, and no merge state
  *    overturns it.
- * 2. **A slice line placing the branch in another repository** reads
- *    `foreign`. No ref, claim or PR of this repository is about it.
+ * 2. **A slice line placing the branch in another repository** reads from
+ *    that repository's host alone: `merged` where it merged the PR the arrow
+ *    names, `unknown` where it was asked and could not answer, and `foreign`
+ *    otherwise. No ref, claim or PR of this repository is about it.
  * 3. **The branch's own readings**, in the order {@link ownState} states: the
  *    ref before the merge subject, the claim count before the work count, the
  *    tip comparison before the host's answer.
@@ -401,7 +409,10 @@ const ownState = (readings: BranchReadings): BranchState => {
  */
 export const branchState = (readings: BranchReadings): BranchState => {
   if (readings.deferredByPlan) return 'deferred';
-  if (readings.foreignRepo !== undefined && readings.foreignRepo !== null) return 'foreign';
+  if (readings.foreignRepo !== undefined && readings.foreignRepo !== null) {
+    if (readings.foreignPr === 'MERGED') return 'merged';
+    return readings.foreignPr === 'unreadable' ? 'unknown' : 'foreign';
+  }
 
   const own = ownState(readings);
 

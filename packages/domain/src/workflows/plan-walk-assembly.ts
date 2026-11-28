@@ -321,15 +321,15 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
       return branchState({ ...f!.readings, waits });
     });
 
-    // A FOREIGN BRANCH SETTLES ITS SLICE ONLY ON A MERGE ITS OWN HOST ANSWERED.
-    const foreignSettled = (i: number): boolean => states[i] === 'foreign' && found[i]!.foreignMerged === true;
+    // A FOREIGN BRANCH READS `merged` ONLY ON A MERGE ITS OWN HOST ANSWERED
+    // (`branchState`), so it settles its slice as any merged branch does.
     const candidate = record.phase === 'approved'
-      && lines.every(({ line }, i) => line.deferred || states[i] === 'merged' || foreignSettled(i));
+      && lines.every(({ line }, i) => line.deferred || states[i] === 'merged');
     const degraded: string[][] = record.slices.map(() => []);
     const outstandingPerSlice = record.slices.map((_slice, s) => {
       const own = lines.flatMap((l, i) => (l.sliceIndex === s ? [i] : []));
       return own.filter((i) => {
-        if (states[i] === 'deferred' || states[i] === 'merged' || foreignSettled(i)) return false;
+        if (states[i] === 'deferred' || states[i] === 'merged') return false;
         if (states[i] !== 'wip' || input.loose === undefined || !input.loose.verifiable) return true;
         const readiness = looseReadiness(found[i]!.prDetail);
         if (readiness.ready) return false;
@@ -364,7 +364,7 @@ export const planWalkAssembler = (estate: Estate, input: AssemblyInput): PlanWal
           waitsOn: l.line.waitsOn,
           claimed: l.line.claimed,
           claimable: isFree,
-          hostConfirmed: candidate && f.readings.pr === 'MERGED',
+          hostConfirmed: candidate && (f.readings.pr === 'MERGED' || f.readings.foreignPr === 'MERGED'),
           subjectIgnored: f.subjectPredatesPlan === true,
           bySubject: f.readings.mergeSubjectFound,
           desk: deskReading,
@@ -418,7 +418,9 @@ export const outlookReadings = (assembly: Assembly): SliceOutlookReading[] =>
   assembly.plans.flatMap((plan) =>
     plan.slices.map((slice) => ({
       verdict: slice.verdict,
-      branches: slice.branches.map((b) => ({ name: b.branch, state: b.state })),
+      // A foreign branch is never work for this repository's worker, whatever
+      // its own host could say: an `unknown` one counts as taken, as `foreign` does.
+      branches: slice.branches.map((b) => ({ name: b.branch, state: b.foreignRepo !== '' && b.state === 'unknown' ? 'foreign' : b.state })),
     })),
   );
 

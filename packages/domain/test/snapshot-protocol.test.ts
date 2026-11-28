@@ -48,8 +48,8 @@ describe('the snapshot protocol fixtures', () => {
     ).toEqual(recordedShape(SNAPSHOT_PROTOCOL));
   });
 
-  it('hold protocol 10, and a schema copy that moves without raising the protocol does not match it', () => {
-    expect(SNAPSHOT_PROTOCOL).toBe(10);
+  it('hold protocol 11, and a schema copy that moves without raising the protocol does not match it', () => {
+    expect(SNAPSHOT_PROTOCOL).toBe(11);
     const shapeOf = (schema: z.ZodType): unknown => JSON.parse(JSON.stringify(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' })));
     const moved = z.union([SnapshotMessageSchema.extend({ identity: z.string() }), DeltaMessageSchema]);
     expect(shapeOf(moved)).not.toEqual(recordedShape(SNAPSHOT_PROTOCOL));
